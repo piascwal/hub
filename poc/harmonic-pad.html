@@ -257,18 +257,18 @@
           <span id="oct-label">Octave 0</span>
           <button type="button" id="oct-up" aria-label="Octave supérieure">+</button>
         </div>
-        <button type="button" class="chip" id="drone" aria-pressed="true">Bourdon</button>
+        <button type="button" class="chip" id="drone" aria-pressed="false">Bourdon</button>
       </div>
     </section>
   </div>
 
   <div class="overlay" id="overlay">
     <strong>Touche le pad pour jouer</strong>
-    <p>Un doigt = une voix. Deux doigts éloignés = une harmonie. Deux doigts rapprochés = tu modules la note en cours.</p>
+    <p>Un doigt = une voix, et la note suit le doigt : plus haut, plus aigu. Deux doigts éloignés = une harmonie. Deux doigts rapprochés = tu modules la note en cours.</p>
   </div>
 </div>
 
-<footer id="hint">Glisse pour la hauteur · monte pour éclaircir · rapproche un 2ᵉ doigt pour moduler</footer>
+<footer id="hint">Glisse : la note suit le doigt · monte pour plus aigu · rapproche un 2ᵉ doigt pour moduler</footer>
 
 <script>
 (() => {
@@ -370,32 +370,55 @@
   const ROOT = 50;              // ré2
   const MAX_VOICES = 8;
   const MOD_RADIUS = 165;       // px : rayon de capture du doigt modulateur
+  const VERTICAL_STEPS = 5;     // degrés de gamme entre le centre et le bord haut
   const KEYS = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK'];
 
   let ambianceKey = 'cristal';
   let scaleKey = 'penta-min';
   let octaveShift = 0;
-  let droneOn = true;
+  let droneOn = false;
   let COLUMNS = 15;
 
   const amb = () => AMBIANCES[ambianceKey];
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  function midiFor(col) {
+  // Annuler une automation en cours avec cancelScheduledValues fait sauter le
+  // paramètre à sa valeur précédente : un clic audible à chaque changement de
+  // note pendant l'attaque. cancelAndHoldAtTime fige la valeur courante.
+  function cancelHold(param, when) {
+    if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(when);
+    else param.cancelScheduledValues(when);
+  }
+
+  // l'index peut être négatif (bas du pad) : modulo qui reste positif
+  function midiFor(index) {
     const steps = SCALES[scaleKey].steps;
-    const octave = Math.floor(col / steps.length);
-    return ROOT + 12 * (octave + octaveShift) + steps[col % steps.length];
+    const len = steps.length;
+    const octave = Math.floor(index / len);
+    const degree = ((index % len) + len) % len;
+    return ROOT + 12 * (octave + octaveShift) + steps[degree];
+  }
+
+  // la verticale transpose la note en cours : vers le haut c'est plus aigu.
+  // Tout reste quantisé sur la gamme, donc ça ne peut pas sonner faux.
+  const stepFromY = (ny) => Math.round((0.5 - ny) * 2 * VERTICAL_STEPS);
+
+  const noteIndex = (nx, ny) => columnFromX(nx) + stepFromY(ny);
+
+  // plus la note est haute, plus elle est brillante
+  function brightnessFor(index) {
+    return clamp((index + VERTICAL_STEPS) / (COLUMNS - 1 + VERTICAL_STEPS * 2), 0, 1);
   }
 
   // la teinte suit le degré dans la gamme : la palette se répète à chaque octave,
   // ce qui garde l'identité chromatique de l'ambiance tout en distinguant les notes
-  function hueFor(col) {
+  function hueFor(index) {
     const len = SCALES[scaleKey].steps.length;
     const a = amb();
-    const degree = col % len;
-    const octave = Math.floor(col / len);
-    return (a.hueBase + (degree / len) * a.hueSpread + octave * 14) % 360;
+    const degree = ((index % len) + len) % len;
+    const octave = Math.floor(index / len);
+    return (a.hueBase + (degree / len) * a.hueSpread + octave * 14 + 360) % 360;
   }
 
   /* ============================================================ audio ==== */
@@ -403,15 +426,26 @@
   let audio = null;
   let master, voiceBus, reverb, reverbSend, delayNode, delaySend, feedbackGain, droneGain;
 
+  // Un bruit blanc brut donne une queue de réverbe qui siffle : les aigus ne
+  // s'éteignent jamais. Ici les hautes fréquences meurent avant les graves
+  // (double passe-bas à un pôle dont la coupure descend avec le temps) et la
+  // décroissance est exponentielle, comme dans une vraie pièce.
   function impulseResponse(seconds, decay) {
     const rate = audio.sampleRate;
     const length = Math.floor(rate * seconds);
     const buffer = audio.createBuffer(2, length, rate);
+
     for (let ch = 0; ch < 2; ch++) {
       const data = buffer.getChannelData(ch);
+      let lp1 = 0;
+      let lp2 = 0;
       for (let i = 0; i < length; i++) {
         const t = i / length;
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+        const cutoff = 0.42 * Math.pow(1 - t, 1.8) + 0.015;
+        lp1 += cutoff * ((Math.random() * 2 - 1) - lp1);
+        lp2 += cutoff * (lp1 - lp2);
+        const buildUp = Math.min(1, t * 260);   // courte montée en densité
+        data[i] = lp2 * buildUp * Math.exp(-decay * t * 5.5);
       }
     }
     return buffer;
@@ -559,13 +593,13 @@
   const voices = new Map();      // pointerId -> voix
   const modulators = new Map();  // pointerId -> { targetId, x, y, amount }
 
-  function createVoice(id, col, nx, ny) {
+  function createVoice(id, index, nx, ny) {
     if (voices.size >= MAX_VOICES) releaseVoice(voices.keys().next().value);
 
     const a = amb();
     const now = audio.currentTime;
-    const freq = midiToFreq(midiFor(col));
-    const brightness = 1 - ny;
+    const freq = midiToFreq(midiFor(index));
+    const brightness = brightnessFor(index);
     const peak = 0.1 + 0.06 * brightness;
 
     const vca = audio.createGain();
@@ -637,16 +671,16 @@
     vca.gain.setTargetAtTime(peak * a.sustain, now + a.attack, a.decayTau);
 
     const voice = {
-      id, col, peak, oscs, vca, filter, panner, vibrato, vibratoDepth,
+      id, index, col: columnFromX(nx), peak, oscs, vca, filter, panner, vibrato, vibratoDepth,
       bend, tremolo, tremoloOsc, tremoloDepth,
       x: nx, y: ny, amp: 0, target: 1, phase: Math.random() * 6.28,
-      hue: hueFor(col), released: false, mod: 0, trail: [],
+      hue: hueFor(index), released: false, mod: 0, trail: [],
     };
 
     voices.set(id, voice);
     balancePolyphony();
     strike(nx, ny, voice.hue, 1);
-    columnEnergy[col] = 1;
+    columnEnergy[voice.col] = 1;
     return voice;
   }
 
@@ -656,8 +690,8 @@
 
     const a = amb();
     const now = audio.currentTime;
-    const col = columnFromX(nx);
-    const brightness = 1 - ny;
+    const index = noteIndex(nx, ny);
+    const brightness = brightnessFor(index);
 
     voice.x = nx;
     voice.y = ny;
@@ -665,16 +699,17 @@
     voice.filter.frequency.setTargetAtTime(a.filterBase * Math.pow(a.filterRange, brightness), now, 0.05);
     voice.panner.pan.setTargetAtTime((nx * 2 - 1) * 0.6, now, 0.06);
 
-    if (col !== voice.col) {
-      const freq = midiToFreq(midiFor(col));
+    if (index !== voice.index) {
+      const freq = midiToFreq(midiFor(index));
       voice.oscs.forEach(({ osc, ratio }) => osc.frequency.setTargetAtTime(freq * ratio, now, 0.035));
-      voice.vca.gain.cancelScheduledValues(now);
+      cancelHold(voice.vca.gain, now);
       voice.vca.gain.setTargetAtTime(voice.peak * 1.25, now, 0.012);
       voice.vca.gain.setTargetAtTime(voice.peak * a.sustain, now + 0.06, a.decayTau);
 
-      voice.col = col;
-      voice.hue = hueFor(col);
-      columnEnergy[col] = 1;
+      voice.index = index;
+      voice.col = columnFromX(nx);
+      voice.hue = hueFor(index);
+      columnEnergy[voice.col] = 1;
       ripples.push({ x: nx, y: ny, r: 0.01, max: 0.14, hue: voice.hue, alpha: 0.5, width: 1.6 });
       burst(nx, ny, voice.hue, 9, 1.4);
     }
@@ -688,14 +723,33 @@
     voice.released = true;
     voice.target = 0;
 
-    voice.vca.gain.cancelScheduledValues(now);
-    voice.vca.gain.setTargetAtTime(0, now, amb().releaseTau);
+    const gain = voice.vca.gain;
+    const releaseTau = amb().releaseTau;
 
-    const stopAt = now + 2.2;
+    cancelHold(gain, now);
+    gain.setTargetAtTime(0, now, releaseTau);
+
+    // setTargetAtTime décroît exponentiellement et n'atteint jamais zéro :
+    // couper les oscillateurs sur le reste de signal claque. On fige donc la
+    // valeur atteinte (cancelAndHoldAtTime, sans saut) une fois qu'elle est
+    // déjà basse, puis on descend à zéro exact en 40 ms.
+    // Enchaîner directement un linearRamp après un setTarget ne marche pas :
+    // la valeur de départ de la rampe est ambiguë et produit justement un clic.
+    let stopAt;
+    if (gain.cancelAndHoldAtTime) {
+      const fadeAt = now + clamp(releaseTau * 3.5, 0.25, 1.6);
+      gain.cancelAndHoldAtTime(fadeAt);
+      gain.linearRampToValueAtTime(0, fadeAt + 0.04);
+      stopAt = fadeAt + 0.07;
+    } else {
+      // repli : on laisse simplement l'exponentielle devenir inaudible
+      stopAt = now + clamp(releaseTau * 7, 0.6, 4);
+    }
     voice.oscs.forEach(({ osc }) => osc.stop(stopAt));
     voice.vibrato.stop(stopAt);
     voice.tremoloOsc.stop(stopAt);
     voice.bend.stop(stopAt);
+    voice.oscs[0].osc.onended = () => voice.panner.disconnect();
 
     // le modulateur attaché perd sa cible
     modulators.forEach((mod, modId) => {
@@ -771,6 +825,52 @@
 
   const columnFromX = (nx) => clamp(Math.floor(nx * COLUMNS), 0, COLUMNS - 1);
 
+  // Créer un dégradé radial et une chaîne hsla() par particule et par frame
+  // alloue des centaines d'objets par seconde : le ramasse-miettes finit par
+  // bloquer le thread principal et l'audio décroche (grésillement). On pré-rend
+  // donc une lueur par tranche de teinte, et on ne fait plus que des drawImage.
+  const SPRITE = 128;
+  const HUE_BUCKETS = 36;
+  const sprites = [];
+
+  function buildSprites() {
+    sprites.length = 0;
+    for (let i = 0; i < HUE_BUCKETS; i++) {
+      const hue = (i * 360) / HUE_BUCKETS;
+      const off = document.createElement('canvas');
+      off.width = off.height = SPRITE;
+      const g = off.getContext('2d');
+      const r = SPRITE / 2;
+      const grad = g.createRadialGradient(r, r, 0, r, r, r);
+      grad.addColorStop(0,    `hsla(${hue}, 100%, 95%, 1)`);
+      grad.addColorStop(0.12, `hsla(${hue}, 100%, 82%, 0.82)`);
+      grad.addColorStop(0.4,  `hsla(${hue}, 95%, 62%, 0.3)`);
+      grad.addColorStop(1,    `hsla(${hue}, 90%, 50%, 0)`);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, SPRITE, SPRITE);
+      sprites.push(off);
+    }
+  }
+
+  const bucketOf = (hue) =>
+    ((Math.round((hue / 360) * HUE_BUCKETS) % HUE_BUCKETS) + HUE_BUCKETS) % HUE_BUCKETS;
+
+  const spriteFor = (hue) => sprites[bucketOf(hue)];
+
+  const HUE_STRINGS = [];
+  for (let i = 0; i < HUE_BUCKETS; i++) {
+    HUE_STRINGS.push(`hsl(${(i * 360) / HUE_BUCKETS}, 95%, 70%)`);
+  }
+
+  const colorFor = (hue) => HUE_STRINGS[bucketOf(hue)];
+
+  function drawGlow(hue, x, y, radius, alpha) {
+    if (alpha <= 0.004) return;
+    c.globalAlpha = Math.min(1, alpha);
+    c.drawImage(spriteFor(hue), x - radius, y - radius, radius * 2, radius * 2);
+    c.globalAlpha = 1;
+  }
+
   function buildGradient() {
     const a = amb();
     bgGradient = c.createLinearGradient(0, 0, W, H);
@@ -780,7 +880,9 @@
   }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // sur petit écran on plafonne plus bas : deux fois moins de pixels à remplir
+    // par frame, pour laisser du CPU au moteur audio
+    const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 620 ? 1.5 : 2);
     const rect = canvas.getBoundingClientRect();
     W = rect.width;
     H = rect.height;
@@ -797,6 +899,7 @@
     }
 
     buildGradient();
+    buildColumnGradients();
     c.fillStyle = bgGradient;
     c.fillRect(0, 0, W, H);
   }
@@ -815,7 +918,8 @@
         hue,
       });
     }
-    if (particles.length > 600) particles.splice(0, particles.length - 600);
+    const maxParticles = W < 620 ? 200 : 360;
+    if (particles.length > maxParticles) particles.splice(0, particles.length - maxParticles);
   }
 
   // impact visuel d'une nouvelle note
@@ -828,35 +932,60 @@
 
   const flashes = [];
 
+  let columnGradients = [];
+
+  function buildColumnGradients() {
+    columnGradients = [];
+    for (let i = 0; i < COLUMNS; i++) {
+      const hue = hueFor(i);
+      const grad = c.createLinearGradient(0, H, 0, 0);
+      grad.addColorStop(0, `hsla(${hue}, 92%, 62%, 0.17)`);
+      grad.addColorStop(1, `hsla(${hue}, 92%, 62%, 0)`);
+      columnGradients.push(grad);
+    }
+  }
+
   function drawColumns() {
     const colWidth = W / COLUMNS;
     for (let i = 0; i < COLUMNS; i++) {
       const energy = columnEnergy[i];
       if (energy < 0.004) continue;
-      const hue = hueFor(i);
-      const grad = c.createLinearGradient(0, H, 0, 0);
-      grad.addColorStop(0, `hsla(${hue}, 92%, 62%, ${0.17 * energy})`);
-      grad.addColorStop(1, `hsla(${hue}, 92%, 62%, 0)`);
-      c.fillStyle = grad;
+      c.globalAlpha = energy;
+      c.fillStyle = columnGradients[i];
       c.fillRect(i * colWidth, 0, colWidth, H);
       columnEnergy[i] = energy * 0.94;
     }
+    c.globalAlpha = 1;
+  }
+
+  // paliers de transposition verticale, très discrets
+  function drawRows() {
+    const rows = VERTICAL_STEPS * 2;
+    c.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+    c.lineWidth = 1;
+    c.beginPath();
+    for (let i = 1; i < rows; i++) {
+      const y = Math.round((i / rows) * H) + 0.5;
+      c.moveTo(0, y);
+      c.lineTo(W, y);
+    }
+    c.stroke();
   }
 
   function drawTrail(voice) {
     if (voice.trail.length < 2) return;
+    c.globalAlpha = 0.22 * voice.amp;
+    c.strokeStyle = colorFor(voice.hue);
+    c.lineWidth = 1 + 4 * voice.amp;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(voice.trail[0].x * W, voice.trail[0].y * H);
     for (let i = 1; i < voice.trail.length; i++) {
-      const p0 = voice.trail[i - 1];
-      const p1 = voice.trail[i];
-      const t = i / voice.trail.length;
-      c.strokeStyle = `hsla(${voice.hue}, 100%, 72%, ${0.3 * t * voice.amp})`;
-      c.lineWidth = 1 + 5 * t * voice.amp;
-      c.lineCap = 'round';
-      c.beginPath();
-      c.moveTo(p0.x * W, p0.y * H);
-      c.lineTo(p1.x * W, p1.y * H);
-      c.stroke();
+      c.lineTo(voice.trail[i].x * W, voice.trail[i].y * H);
     }
+    c.stroke();
+    c.globalAlpha = 1;
   }
 
   function drawLinks(active) {
@@ -866,16 +995,15 @@
         const a = active[i], b = active[j];
         const alpha = 0.32 * a.amp * b.amp;
         if (alpha < 0.01) continue;
-        const grad = c.createLinearGradient(a.x * W, a.y * H, b.x * W, b.y * H);
-        grad.addColorStop(0, `hsla(${a.hue}, 95%, 70%, ${alpha})`);
-        grad.addColorStop(1, `hsla(${b.hue}, 95%, 70%, ${alpha})`);
-        c.strokeStyle = grad;
+        c.globalAlpha = alpha;
+        c.strokeStyle = colorFor((a.hue + b.hue) / 2);
         c.beginPath();
         c.moveTo(a.x * W, a.y * H);
         c.lineTo(b.x * W, b.y * H);
         c.stroke();
       }
     }
+    c.globalAlpha = 1;
   }
 
   // arc électrique entre le doigt modulateur et la note qu'il déforme
@@ -889,7 +1017,8 @@
       const segments = 9;
 
       for (let pass = 0; pass < 2; pass++) {
-        c.strokeStyle = `hsla(${voice.hue}, 100%, ${pass ? 92 : 70}%, ${(pass ? 0.5 : 0.8) * (0.25 + amount)})`;
+        c.globalAlpha = Math.min(1, (pass ? 0.5 : 0.8) * (0.25 + amount));
+        c.strokeStyle = pass ? '#ffffff' : colorFor(voice.hue);
         c.lineWidth = pass ? 1 : 2.5 + amount * 2.5;
         c.beginPath();
         c.moveTo(ax, ay);
@@ -908,10 +1037,11 @@
 
       // anneaux de déformation autour de la note modulée
       const rings = 3;
+      c.strokeStyle = colorFor(voice.hue);
       for (let r = 0; r < rings; r++) {
         const phase = (time * 0.003 + r / rings) % 1;
         const radius = (40 + 90 * phase) * (0.4 + amount);
-        c.strokeStyle = `hsla(${voice.hue}, 100%, 78%, ${(1 - phase) * 0.4 * amount})`;
+        c.globalAlpha = (1 - phase) * 0.4 * amount;
         c.lineWidth = 1.5;
         c.beginPath();
         c.arc(ax, ay, radius, 0, Math.PI * 2);
@@ -919,14 +1049,9 @@
       }
 
       // le doigt modulateur : il s'estompe en fondant dans la note qu'il déforme
+      c.globalAlpha = 1;
       const radius = 34 - 12 * amount;
-      const glow = c.createRadialGradient(bx, by, 0, bx, by, radius);
-      glow.addColorStop(0, `hsla(${voice.hue}, 100%, 88%, ${0.22 + 0.3 * (1 - amount)})`);
-      glow.addColorStop(1, `hsla(${voice.hue}, 100%, 70%, 0)`);
-      c.fillStyle = glow;
-      c.beginPath();
-      c.arc(bx, by, radius, 0, Math.PI * 2);
-      c.fill();
+      drawGlow(voice.hue, bx, by, radius, 0.22 + 0.3 * (1 - amount));
     });
   }
 
@@ -937,19 +1062,8 @@
     const pulse = 1 + 0.07 * Math.sin(time * 0.005 + voice.phase) + voice.mod * 0.12;
     const radius = (26 + 54 * voice.amp) * pulse;
 
-    const glow = c.createRadialGradient(x, y + wobble, 0, x, y + wobble, radius);
-    glow.addColorStop(0, `hsla(${voice.hue}, 100%, 80%, ${0.85 * voice.amp})`);
-    glow.addColorStop(0.35, `hsla(${voice.hue}, 95%, 62%, ${0.4 * voice.amp})`);
-    glow.addColorStop(1, `hsla(${voice.hue}, 90%, 50%, 0)`);
-    c.fillStyle = glow;
-    c.beginPath();
-    c.arc(x, y + wobble, radius, 0, Math.PI * 2);
-    c.fill();
-
-    c.fillStyle = `hsla(${voice.hue}, 100%, 94%, ${0.9 * voice.amp})`;
-    c.beginPath();
-    c.arc(x, y + wobble, 3 + 3 * voice.amp, 0, Math.PI * 2);
-    c.fill();
+    drawGlow(voice.hue, x, y + wobble, radius, 0.9 * voice.amp);
+    drawGlow(voice.hue, x, y + wobble, 6 + 6 * voice.amp, 0.9 * voice.amp);
   }
 
   function frame(time) {
@@ -960,6 +1074,7 @@
     c.globalAlpha = 1;
 
     drawColumns();
+    drawRows();
     c.globalCompositeOperation = 'lighter';
 
     // particules
@@ -969,10 +1084,7 @@
       p.vy += 0.012; p.vx *= 0.985; p.vy *= 0.985;
       p.life -= p.decay;
       if (p.life <= 0) { particles.splice(i, 1); continue; }
-      c.fillStyle = `hsla(${p.hue}, 100%, 74%, ${p.life * 0.7})`;
-      c.beginPath();
-      c.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-      c.fill();
+      drawGlow(p.hue, p.x, p.y, p.size * p.life * 2.4, p.life * 0.5);
     }
 
     // ondes de choc
@@ -982,12 +1094,14 @@
       r.r += r.speed || 0.006;
       r.alpha *= 0.955;
       if (r.r > r.max || r.alpha < 0.01) { ripples.splice(i, 1); continue; }
-      c.strokeStyle = `hsla(${r.hue}, 100%, 74%, ${r.alpha})`;
+      c.globalAlpha = r.alpha;
+      c.strokeStyle = colorFor(r.hue);
       c.lineWidth = (r.width || 2) * r.alpha;
       c.beginPath();
       c.arc(r.x * W, r.y * H, r.r * diagonal, 0, Math.PI * 2);
       c.stroke();
     }
+    c.globalAlpha = 1;
 
     // éclair d'impact
     for (let i = flashes.length - 1; i >= 0; i--) {
@@ -995,13 +1109,7 @@
       f.life -= 0.09;
       if (f.life <= 0) { flashes.splice(i, 1); continue; }
       const radius = 90 * (1 - f.life) + 20;
-      const grad = c.createRadialGradient(f.x * W, f.y * H, 0, f.x * W, f.y * H, radius);
-      grad.addColorStop(0, `hsla(${f.hue}, 100%, 96%, ${f.life * 0.55})`);
-      grad.addColorStop(1, `hsla(${f.hue}, 100%, 70%, 0)`);
-      c.fillStyle = grad;
-      c.beginPath();
-      c.arc(f.x * W, f.y * H, radius, 0, Math.PI * 2);
-      c.fill();
+      drawGlow(f.hue, f.x * W, f.y * H, radius, f.life * 0.5);
     }
 
     const active = [];
@@ -1076,7 +1184,7 @@
       ripples.push({ x: nx, y: ny, r: 0.005, max: 0.12, hue: target.hue, alpha: 0.8, width: 2 });
       burst(nx, ny, target.hue, 14, 0.8);
     } else {
-      createVoice(event.pointerId, columnFromX(nx), nx, ny);
+      createVoice(event.pointerId, noteIndex(nx, ny), nx, ny);
     }
   });
 
@@ -1121,7 +1229,7 @@
     const id = 'key-' + event.code;
     if (voices.has(id)) return;
     const col = Math.min(index, COLUMNS - 1);
-    createVoice(id, col, (col + 0.5) / COLUMNS, 0.42);
+    createVoice(id, col, (col + 0.5) / COLUMNS, 0.5);
   });
 
   window.addEventListener('keyup', (event) => releaseVoice('key-' + event.code));
@@ -1181,9 +1289,10 @@
       document.body.style.backgroundColor = AMBIANCES[key].css;
       document.querySelector('meta[name="theme-color"]').setAttribute('content', AMBIANCES[key].css);
       buildGradient();
+      buildColumnGradients();
       applyAmbianceAudio();
       // les voix en cours reprennent la couleur de la nouvelle palette
-      voices.forEach((voice) => { voice.hue = hueFor(voice.col); });
+      voices.forEach((voice) => { voice.hue = hueFor(voice.index); });
     }
   );
 
@@ -1191,7 +1300,7 @@
     document.getElementById('scale-options'),
     Object.entries(SCALES).map(([key, value]) => [key, value.label]),
     scaleKey,
-    (key) => { scaleKey = key; retuneActive(); }
+    (key) => { scaleKey = key; buildColumnGradients(); retuneActive(); }
   );
 
   function setOctave(value) {
@@ -1207,7 +1316,7 @@
     if (!audio) return;
     const now = audio.currentTime;
     voices.forEach((voice) => {
-      const freq = midiToFreq(midiFor(voice.col));
+      const freq = midiToFreq(midiFor(voice.index));
       voice.oscs.forEach(({ osc, ratio }) => osc.frequency.setTargetAtTime(freq * ratio, now, 0.05));
     });
   }
@@ -1227,6 +1336,7 @@
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', () => setTimeout(resize, 120));
   menuToggle.textContent = AMBIANCES[ambianceKey].label;
+  buildSprites();
   resize();
   requestAnimationFrame(frame);
 })();

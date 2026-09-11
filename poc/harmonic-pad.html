@@ -368,7 +368,7 @@
   };
 
   const ROOT = 50;              // ré2
-  const MAX_VOICES = 8;
+  const MAX_VOICES = 6;
   const MOD_RADIUS = 165;       // px : rayon de capture du doigt modulateur
   const VERTICAL_STEPS = 5;     // degrés de gamme entre le centre et le bord haut
   const KEYS = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK'];
@@ -439,13 +439,19 @@
       const data = buffer.getChannelData(ch);
       let lp1 = 0;
       let lp2 = 0;
+      let cutoff = 0.42;
+      let env = 0;
       for (let i = 0; i < length; i++) {
-        const t = i / length;
-        const cutoff = 0.42 * Math.pow(1 - t, 1.8) + 0.015;
+        // pow() et exp() seulement tous les 64 échantillons : l'enveloppe
+        // varie bien trop lentement pour que ça s'entende
+        if ((i & 63) === 0) {
+          const t = i / length;
+          cutoff = 0.42 * Math.pow(1 - t, 1.8) + 0.015;
+          env = Math.min(1, t * 260) * Math.exp(-decay * t * 5.5);
+        }
         lp1 += cutoff * ((Math.random() * 2 - 1) - lp1);
         lp2 += cutoff * (lp1 - lp2);
-        const buildUp = Math.min(1, t * 260);   // courte montée en densité
-        data[i] = lp2 * buildUp * Math.exp(-decay * t * 5.5);
+        data[i] = lp2 * env;
       }
     }
     return buffer;
@@ -484,7 +490,7 @@
 
     const limiter = audio.createWaveShaper();
     limiter.curve = softClipCurve();
-    limiter.oversample = '4x';
+    limiter.oversample = '2x';
 
     master.connect(compressor);
     compressor.connect(makeup);
@@ -493,12 +499,16 @@
 
     // toutes les voix passent par ce bus : son gain compense la polyphonie
     voiceBus = audio.createGain();
-    voiceBus.gain.value = 3;
+    voiceBus.gain.value = 2.8;
     voiceBus.connect(master);
 
     reverb = audio.createConvolver();
     reverb.normalize = true;
-    reverb.buffer = impulseResponse(3.4, 2.3);
+    // Générer l'impulse response, c'est des centaines de milliers d'itérations.
+    // La calculer ici bloquerait le thread au moment précis du premier appui,
+    // et la première note en pâtissait. On la construit donc juste après, une
+    // fois la note lancée : le convolueur est muet en attendant.
+    setTimeout(() => { reverb.buffer = impulseResponse(2, 2.3); }, 0);
     reverbSend = audio.createGain();
     reverbSend.gain.value = 0;
     voiceBus.connect(reverbSend);
@@ -524,13 +534,12 @@
     applyAmbianceAudio(0);
   }
 
-  // le niveau par voix décroît en 1/racine(n) : un accord de 8 notes ne sature pas,
-  // une note seule garde toute sa présence
-  function balancePolyphony() {
-    if (!audio) return;
-    const sounding = voices.size + Math.min(faded.length, 4);
-    voiceBus.gain.setTargetAtTime(3 / Math.sqrt(Math.max(1, sounding)), audio.currentTime, 0.08);
-  }
+  // Le niveau d'une voix est fixé une fois pour toutes à sa naissance, d'après
+  // la densité du moment. Faire varier le gain du bus commun à chaque note
+  // faisait pomper tout le mix (les notes déjà en train de sonner baissaient
+  // de 3 dB en 80 ms dès qu'une nouvelle arrivait) : c'est ce qui rendait le
+  // jeu rapide instable. Le compresseur et l'écrêteur gardent la marge.
+  const densityGain = () => 0.55 + 0.45 / Math.sqrt(voices.size + 1);
 
   const droneOscs = [];
 
@@ -594,13 +603,18 @@
   const modulators = new Map();  // pointerId -> { targetId, x, y, amount }
 
   function createVoice(id, index, nx, ny) {
+    // même note déjà tenue : on libère l'ancienne. Deux voix exactement à la
+    // même fréquence s'additionnent en phase et durcissent le son.
+    voices.forEach((voice, key) => {
+      if (voice.index === index && !voice.released) releaseVoice(key);
+    });
     if (voices.size >= MAX_VOICES) releaseVoice(voices.keys().next().value);
 
     const a = amb();
     const now = audio.currentTime;
     const freq = midiToFreq(midiFor(index));
     const brightness = brightnessFor(index);
-    const peak = 0.1 + 0.06 * brightness;
+    const peak = (0.1 + 0.06 * brightness) * densityGain();
 
     const vca = audio.createGain();
     vca.gain.value = 0;
@@ -633,34 +647,6 @@
       return { osc, ratio: spec.ratio };
     });
 
-    // vibrato (profondeur pilotée par le doigt modulateur)
-    const vibrato = audio.createOscillator();
-    vibrato.frequency.value = a.vibRate;
-    const vibratoDepth = audio.createGain();
-    vibratoDepth.gain.setValueAtTime(0, now);
-    vibratoDepth.gain.linearRampToValueAtTime(4, now + 1.2);
-    vibrato.connect(vibratoDepth);
-    vibrato.start(now);
-
-    // pitch bend (doigt modulateur au-dessus / en dessous)
-    const bend = audio.createConstantSource();
-    bend.offset.value = 0;
-    bend.start(now);
-
-    oscs.forEach(({ osc }) => {
-      vibratoDepth.connect(osc.detune);
-      bend.connect(osc.detune);
-    });
-
-    // trémolo, silencieux tant qu'il n'y a pas de modulation
-    const tremoloOsc = audio.createOscillator();
-    tremoloOsc.frequency.value = 6;
-    const tremoloDepth = audio.createGain();
-    tremoloDepth.gain.value = 0;
-    tremoloOsc.connect(tremoloDepth);
-    tremoloDepth.connect(tremolo.gain);
-    tremoloOsc.start(now);
-
     filter.connect(vca);
     vca.connect(tremolo);
     tremolo.connect(panner);
@@ -671,14 +657,13 @@
     vca.gain.setTargetAtTime(peak * a.sustain, now + a.attack, a.decayTau);
 
     const voice = {
-      id, index, col: columnFromX(nx), peak, oscs, vca, filter, panner, vibrato, vibratoDepth,
-      bend, tremolo, tremoloOsc, tremoloDepth,
+      id, index, col: columnFromX(nx), peak, oscs, vca, filter, panner, tremolo,
+      mods: null,   // LFO vibrato, LFO trémolo et bend : créés à la demande
       x: nx, y: ny, amp: 0, target: 1, phase: Math.random() * 6.28,
       hue: hueFor(index), released: false, mod: 0, trail: [],
     };
 
     voices.set(id, voice);
-    balancePolyphony();
     strike(nx, ny, voice.hue, 1);
     columnEnergy[voice.col] = 1;
     return voice;
@@ -746,9 +731,11 @@
       stopAt = now + clamp(releaseTau * 7, 0.6, 4);
     }
     voice.oscs.forEach(({ osc }) => osc.stop(stopAt));
-    voice.vibrato.stop(stopAt);
-    voice.tremoloOsc.stop(stopAt);
-    voice.bend.stop(stopAt);
+    if (voice.mods) {
+      voice.mods.vibrato.stop(stopAt);
+      voice.mods.tremoloOsc.stop(stopAt);
+      voice.mods.bend.stop(stopAt);
+    }
     voice.oscs[0].osc.onended = () => voice.panner.disconnect();
 
     // le modulateur attaché perd sa cible
@@ -758,7 +745,6 @@
 
     voices.delete(id);
     faded.push(voice);
-    balancePolyphony();
   }
 
   /* ------------------------------------------------- doigt modulateur --- */
@@ -774,8 +760,43 @@
     return best;
   }
 
+  // La plupart des notes ne sont jamais modulées : inutile de leur faire porter
+  // trois sources en permanence. On ne les crée qu'au premier doigt modulateur.
+  function ensureMods(voice) {
+    if (voice.mods) return voice.mods;
+    const now = audio.currentTime;
+
+    const vibrato = audio.createOscillator();
+    vibrato.frequency.value = amb().vibRate;
+    const vibratoDepth = audio.createGain();
+    vibratoDepth.gain.value = 0;
+    vibrato.connect(vibratoDepth);
+    vibrato.start(now);
+
+    const bend = audio.createConstantSource();
+    bend.offset.value = 0;
+    bend.start(now);
+
+    voice.oscs.forEach(({ osc }) => {
+      vibratoDepth.connect(osc.detune);
+      bend.connect(osc.detune);
+    });
+
+    const tremoloOsc = audio.createOscillator();
+    tremoloOsc.frequency.value = 6;
+    const tremoloDepth = audio.createGain();
+    tremoloDepth.gain.value = 0;
+    tremoloOsc.connect(tremoloDepth);
+    tremoloDepth.connect(voice.tremolo.gain);
+    tremoloOsc.start(now);
+
+    voice.mods = { vibrato, vibratoDepth, bend, tremoloOsc, tremoloDepth };
+    return voice.mods;
+  }
+
   function applyModulation(voice, mod) {
     const now = audio.currentTime;
+    const mods = ensureMods(voice);
     const dx = voice.x * W - mod.x * W;
     const dy = voice.y * H - mod.y * H;
     const dist = Math.hypot(dx, dy);
@@ -784,31 +805,32 @@
     voice.mod = amount;
 
     // vibrato : de 4 à 60 cents, et le LFO accélère
-    voice.vibratoDepth.gain.setTargetAtTime(4 + amount * 56, now, 0.06);
-    voice.vibrato.frequency.setTargetAtTime(amb().vibRate + amount * 6, now, 0.08);
+    mods.vibratoDepth.gain.setTargetAtTime(4 + amount * 56, now, 0.06);
+    mods.vibrato.frequency.setTargetAtTime(amb().vibRate + amount * 6, now, 0.08);
     // résonance : effet "wah"
     voice.filter.Q.setTargetAtTime(amb().q + amount * 7, now, 0.07);
     // trémolo : la base descend d'autant que la profondeur monte, donc le gain
     // instantané plafonne à 1 — ça compense aussi le pic de résonance du filtre
     const depth = amount * 0.34;
-    voice.tremoloDepth.gain.setTargetAtTime(depth, now, 0.08);
+    mods.tremoloDepth.gain.setTargetAtTime(depth, now, 0.08);
     voice.tremolo.gain.setTargetAtTime(1 - depth, now, 0.08);
-    voice.tremoloOsc.frequency.setTargetAtTime(4 + amount * 9, now, 0.1);
+    mods.tremoloOsc.frequency.setTargetAtTime(4 + amount * 9, now, 0.1);
     // bend : doigt au-dessus = plus aigu (±2 demi-tons)
     const bendCents = clamp((voice.y - mod.y) * 2.4, -1, 1) * 200 * amount;
-    voice.bend.offset.setTargetAtTime(bendCents, now, 0.05);
+    mods.bend.offset.setTargetAtTime(bendCents, now, 0.05);
   }
 
   function clearModulation(voice) {
     if (!voice || voice.released) return;
     const now = audio.currentTime;
     voice.mod = 0;
-    voice.vibratoDepth.gain.setTargetAtTime(4, now, 0.25);
-    voice.vibrato.frequency.setTargetAtTime(amb().vibRate, now, 0.25);
     voice.filter.Q.setTargetAtTime(amb().q, now, 0.25);
-    voice.tremoloDepth.gain.setTargetAtTime(0, now, 0.25);
     voice.tremolo.gain.setTargetAtTime(1, now, 0.25);
-    voice.bend.offset.setTargetAtTime(0, now, 0.2);
+    if (!voice.mods) return;
+    voice.mods.vibratoDepth.gain.setTargetAtTime(0, now, 0.25);
+    voice.mods.vibrato.frequency.setTargetAtTime(amb().vibRate, now, 0.25);
+    voice.mods.tremoloDepth.gain.setTargetAtTime(0, now, 0.25);
+    voice.mods.bend.offset.setTargetAtTime(0, now, 0.2);
   }
 
   /* ========================================================== visuels ==== */
@@ -880,9 +902,12 @@
   }
 
   function resize() {
-    // sur petit écran on plafonne plus bas : deux fois moins de pixels à remplir
-    // par frame, pour laisser du CPU au moteur audio
-    const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 620 ? 1.5 : 2);
+    // Le rendu interne est volontairement en dessous de la densité de l'écran :
+    // tout le visuel est fait de lueurs floues, donc la différence ne se voit
+    // pas, alors que le nombre de pixels à remplir par frame est divisé par
+    // deux à quatre. C'est ce qui garde le thread principal disponible pour
+    // déclencher les notes à l'heure quand on joue vite.
+    const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 620 ? 1 : 1.5);
     const rect = canvas.getBoundingClientRect();
     W = rect.width;
     H = rect.height;

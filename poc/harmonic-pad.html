@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Harmonic Pad — POC</title>
+<meta name="description" content="Pad musical Web Audio : chaque doigt ajoute une harmonie, deux doigts proches modulent la note.">
+<meta name="theme-color" content="#08080f">
+<style>
+  :root {
+    --bg: #08080f;
+    --panel: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.13);
+    --text: #f0f1f3;
+    --muted: #9aa1ac;
+    --accent: #7dd3fc;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    overscroll-behavior: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+    transition: background-color 1.2s ease;
+  }
+
+  header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: max(0.7rem, env(safe-area-inset-top)) 0.9rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 3;
+  }
+
+  .back {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    padding: 0.25rem 0.45rem;
+    border-radius: 8px;
+  }
+
+  .back:hover { color: var(--text); background: var(--panel); }
+
+  h1 {
+    margin: 0;
+    margin-right: auto;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .chip:hover { border-color: rgba(255, 255, 255, 0.3); }
+
+  .chip[aria-pressed="true"],
+  .chip[aria-expanded="true"],
+  .chip.selected {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(125, 211, 252, 0.1);
+  }
+
+  .pad-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  /* ---- panneau de réglages ---- */
+
+  .sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    background: rgba(12, 12, 20, 0.94);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 0.9rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    transform: translateY(-100%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+    opacity: 0;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+
+  .sheet.open {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .sheet h2 {
+    margin: 0 0 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .octave {
+    display: inline-flex;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .octave button {
+    background: none;
+    border: 0;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.45rem 0.85rem;
+    cursor: pointer;
+  }
+
+  .octave button:active { background: rgba(255, 255, 255, 0.12); }
+
+  .octave span {
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-width: 5rem;
+    text-align: center;
+  }
+
+  /* ---- écran de démarrage ---- */
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+    background: rgba(8, 8, 15, 0.85);
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 1.5rem;
+    transition: opacity 0.45s ease;
+  }
+
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .overlay strong { font-size: clamp(1.3rem, 5vw, 1.9rem); font-weight: 600; }
+
+  .overlay p {
+    margin: 0;
+    color: var(--muted);
+    max-width: 26rem;
+    font-size: 0.95rem;
+  }
+
+  footer {
+    flex: 0 0 auto;
+    padding: 0.55rem 0.9rem max(0.55rem, env(safe-area-inset-bottom));
+    color: var(--muted);
+    font-size: 0.78rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+
+  @media (max-width: 560px) {
+    h1 { font-size: 0.95rem; }
+    footer { font-size: 0.72rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="../index.html">←</a>
+  <h1>Harmonic Pad</h1>
+  <button type="button" class="chip" id="menu-toggle" aria-expanded="false">Ambiance</button>
+</header>
+
+<div class="pad-wrap">
+  <canvas id="pad"></canvas>
+
+  <div class="sheet" id="sheet">
+    <section>
+      <h2>Ambiance</h2>
+      <div class="options" id="ambiance-options"></div>
+    </section>
+    <section>
+      <h2>Gamme</h2>
+      <div class="options" id="scale-options"></div>
+    </section>
+    <section>
+      <h2>Registre</h2>
+      <div class="row">
+        <div class="octave">
+          <button type="button" id="oct-down" aria-label="Octave inférieure">−</button>
+          <span id="oct-label">Octave 0</span>
+          <button type="button" id="oct-up" aria-label="Octave supérieure">+</button>
+        </div>
+        <button type="button" class="chip" id="drone" aria-pressed="true">Bourdon</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <strong>Touche le pad pour jouer</strong>
+    <p>Un doigt = une voix. Deux doigts éloignés = une harmonie. Deux doigts rapprochés = tu modules la note en cours.</p>
+  </div>
+</div>
+
+<footer id="hint">Glisse pour la hauteur · monte pour éclaircir · rapproche un 2ᵉ doigt pour moduler</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ======================================================== ambiances ==== */
+
+  const AMBIANCES = {
+    cristal: {
+      label: 'Cristal',
+      hueBase: 186, hueSpread: 120,
+      bg: ['#0a0a18', '#07070f', '#0c0816'],
+      css: '#08080f',
+      partials: [
+        { type: 'sine',     ratio: 1,    gain: 0.5,  detune: 0 },
+        { type: 'sine',     ratio: 2.01, gain: 0.26, detune: 4 },
+        { type: 'triangle', ratio: 3.99, gain: 0.1,  detune: -3 },
+        { type: 'sine',     ratio: 0.5,  gain: 0.22, detune: 0 },
+      ],
+      attack: 0.008, decayTau: 0.55, sustain: 0.55, releaseTau: 0.3,
+      filterBase: 420, filterRange: 18, q: 2.2,
+      reverb: 0.6, delayMix: 0.34, delayTime: 0.3, feedback: 0.36,
+      drone: 0.085, vibRate: 5.2,
+    },
+    nappe: {
+      label: 'Nappe',
+      hueBase: 258, hueSpread: 95,
+      bg: ['#120a1c', '#0a0713', '#170b18'],
+      css: '#0d0812',
+      partials: [
+        { type: 'sawtooth', ratio: 1,    gain: 0.26, detune: -7 },
+        { type: 'sawtooth', ratio: 1,    gain: 0.24, detune: 8 },
+        { type: 'triangle', ratio: 2,    gain: 0.16, detune: 0 },
+        { type: 'sine',     ratio: 0.5,  gain: 0.3,  detune: 0 },
+      ],
+      attack: 0.32, decayTau: 1.2, sustain: 0.92, releaseTau: 0.7,
+      filterBase: 260, filterRange: 13, q: 1.2,
+      reverb: 0.72, delayMix: 0.22, delayTime: 0.44, feedback: 0.3,
+      drone: 0.12, vibRate: 4.3,
+    },
+    vapeur: {
+      label: 'Vapeur',
+      hueBase: 152, hueSpread: 70,
+      bg: ['#06121a', '#050d12', '#08161c'],
+      css: '#061016',
+      partials: [
+        { type: 'sine',     ratio: 1,   gain: 0.52, detune: 0 },
+        { type: 'sine',     ratio: 1.5, gain: 0.16, detune: 6 },
+        { type: 'triangle', ratio: 2,   gain: 0.12, detune: -5 },
+        { type: 'sine',     ratio: 0.5, gain: 0.26, detune: 0 },
+      ],
+      attack: 0.14, decayTau: 0.9, sustain: 0.8, releaseTau: 0.9,
+      filterBase: 330, filterRange: 11, q: 1.6,
+      reverb: 0.85, delayMix: 0.46, delayTime: 0.52, feedback: 0.46,
+      drone: 0.1, vibRate: 3.6,
+    },
+    neon: {
+      label: 'Néon',
+      hueBase: 296, hueSpread: 130,
+      bg: ['#170a1d', '#0c0611', '#1c0a16'],
+      css: '#100713',
+      partials: [
+        { type: 'sawtooth', ratio: 1,   gain: 0.4,  detune: 0 },
+        { type: 'square',   ratio: 1,   gain: 0.12, detune: 9 },
+        { type: 'sawtooth', ratio: 2,   gain: 0.14, detune: -6 },
+        { type: 'sine',     ratio: 0.5, gain: 0.24, detune: 0 },
+      ],
+      attack: 0.004, decayTau: 0.2, sustain: 0.4, releaseTau: 0.18,
+      filterBase: 520, filterRange: 16, q: 5.5,
+      reverb: 0.4, delayMix: 0.4, delayTime: 0.21, feedback: 0.42,
+      drone: 0.06, vibRate: 6.1,
+    },
+    bois: {
+      label: 'Bois',
+      hueBase: 18,  hueSpread: 60,
+      bg: ['#1a1008', '#100a06', '#1c1109'],
+      css: '#120c07',
+      partials: [
+        { type: 'triangle', ratio: 1,    gain: 0.5,  detune: 0 },
+        { type: 'sine',     ratio: 3.01, gain: 0.14, detune: 0 },
+        { type: 'sine',     ratio: 6.2,  gain: 0.06, detune: 0 },
+        { type: 'sine',     ratio: 0.5,  gain: 0.18, detune: 0 },
+      ],
+      attack: 0.005, decayTau: 0.35, sustain: 0.35, releaseTau: 0.25,
+      filterBase: 380, filterRange: 14, q: 3,
+      reverb: 0.5, delayMix: 0.26, delayTime: 0.26, feedback: 0.3,
+      drone: 0.07, vibRate: 5.6,
+    },
+  };
+
+  const SCALES = {
+    'penta-min': { label: 'Pentatonique mineure', steps: [0, 3, 5, 7, 10] },
+    'penta-maj': { label: 'Pentatonique majeure', steps: [0, 2, 4, 7, 9] },
+    'hirajoshi': { label: 'Hirajoshi', steps: [0, 2, 3, 7, 8] },
+    'lydien':    { label: 'Lydien', steps: [0, 2, 4, 6, 7, 9, 11] },
+    'dorien':    { label: 'Dorien', steps: [0, 2, 3, 5, 7, 9, 10] },
+  };
+
+  const ROOT = 50;              // ré2
+  const MAX_VOICES = 8;
+  const MOD_RADIUS = 165;       // px : rayon de capture du doigt modulateur
+  const KEYS = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK'];
+
+  let ambianceKey = 'cristal';
+  let scaleKey = 'penta-min';
+  let octaveShift = 0;
+  let droneOn = true;
+  let COLUMNS = 15;
+
+  const amb = () => AMBIANCES[ambianceKey];
+  const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function midiFor(col) {
+    const steps = SCALES[scaleKey].steps;
+    const octave = Math.floor(col / steps.length);
+    return ROOT + 12 * (octave + octaveShift) + steps[col % steps.length];
+  }
+
+  // la teinte suit le degré dans la gamme : la palette se répète à chaque octave,
+  // ce qui garde l'identité chromatique de l'ambiance tout en distinguant les notes
+  function hueFor(col) {
+    const len = SCALES[scaleKey].steps.length;
+    const a = amb();
+    const degree = col % len;
+    const octave = Math.floor(col / len);
+    return (a.hueBase + (degree / len) * a.hueSpread + octave * 14) % 360;
+  }
+
+  /* ============================================================ audio ==== */
+
+  let audio = null;
+  let master, reverb, reverbGain, delayNode, delayOut, feedbackGain, droneGain;
+
+  function impulseResponse(seconds, decay) {
+    const rate = audio.sampleRate;
+    const length = Math.floor(rate * seconds);
+    const buffer = audio.createBuffer(2, length, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        const t = i / length;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+      }
+    }
+    return buffer;
+  }
+
+  function initAudio() {
+    if (audio) return;
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+
+    master = audio.createGain();
+    master.gain.value = 0.85;
+
+    const compressor = audio.createDynamicsCompressor();
+    compressor.threshold.value = -14;
+    compressor.knee.value = 22;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.004;
+    compressor.release.value = 0.25;
+    master.connect(compressor);
+    compressor.connect(audio.destination);
+
+    reverb = audio.createConvolver();
+    reverb.buffer = impulseResponse(3.4, 2.3);
+    reverbGain = audio.createGain();
+    reverb.connect(reverbGain);
+    reverbGain.connect(master);
+
+    delayNode = audio.createDelay(1.5);
+    const damp = audio.createBiquadFilter();
+    damp.type = 'lowpass';
+    damp.frequency.value = 2200;
+    feedbackGain = audio.createGain();
+    delayNode.connect(damp);
+    damp.connect(feedbackGain);
+    feedbackGain.connect(delayNode);
+    delayOut = audio.createGain();
+    delayNode.connect(delayOut);
+    delayOut.connect(master);
+    delayOut.connect(reverb);
+
+    buildDrone();
+    applyAmbianceAudio(0);
+  }
+
+  const droneOscs = [];
+
+  function buildDrone() {
+    droneGain = audio.createGain();
+    droneGain.gain.value = 0;
+
+    const filter = audio.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 620;
+    filter.Q.value = 0.8;
+
+    const lfo = audio.createOscillator();
+    lfo.frequency.value = 0.07;
+    const lfoDepth = audio.createGain();
+    lfoDepth.gain.value = 250;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(filter.frequency);
+    lfo.start();
+
+    [0, 12, 19].forEach((interval, i) => {
+      const osc = audio.createOscillator();
+      osc.type = i === 2 ? 'sine' : 'triangle';
+      osc.frequency.value = midiToFreq(ROOT + interval);
+      osc.detune.value = i === 1 ? 5 : -4;
+      const gain = audio.createGain();
+      gain.gain.value = [0.5, 0.24, 0.16][i];
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start();
+      droneOscs.push({ osc, interval });
+    });
+
+    filter.connect(droneGain);
+    droneGain.connect(master);
+    droneGain.connect(reverb);
+  }
+
+  function applyAmbianceAudio(ramp = 0.8) {
+    if (!audio) return;
+    const now = audio.currentTime;
+    const a = amb();
+    reverbGain.gain.setTargetAtTime(a.reverb, now, ramp || 0.001);
+    delayOut.gain.setTargetAtTime(a.delayMix, now, ramp || 0.001);
+    delayNode.delayTime.setTargetAtTime(a.delayTime, now, ramp || 0.001);
+    feedbackGain.gain.setTargetAtTime(a.feedback, now, ramp || 0.001);
+    droneGain.gain.setTargetAtTime(droneOn ? a.drone : 0, now, 0.7);
+  }
+
+  function updateDroneTuning() {
+    if (!audio) return;
+    const now = audio.currentTime;
+    droneOscs.forEach(({ osc, interval }) => {
+      osc.frequency.setTargetAtTime(midiToFreq(ROOT + interval + 12 * octaveShift), now, 0.25);
+    });
+  }
+
+  /* ============================================================= voix ==== */
+
+  const voices = new Map();      // pointerId -> voix
+  const modulators = new Map();  // pointerId -> { targetId, x, y, amount }
+
+  function createVoice(id, col, nx, ny) {
+    if (voices.size >= MAX_VOICES) releaseVoice(voices.keys().next().value);
+
+    const a = amb();
+    const now = audio.currentTime;
+    const freq = midiToFreq(midiFor(col));
+    const brightness = 1 - ny;
+    const peak = 0.12 + 0.1 * brightness;
+
+    const vca = audio.createGain();
+    vca.gain.value = 0;
+
+    const tremolo = audio.createGain();   // gain modulé par le LFO de trémolo
+    tremolo.gain.value = 1;
+
+    const filter = audio.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = a.filterBase * Math.pow(a.filterRange, brightness);
+    filter.Q.value = a.q;
+
+    const panner = audio.createStereoPanner();
+    panner.pan.value = (nx * 2 - 1) * 0.6;
+
+    const oscs = a.partials.map((spec) => {
+      const osc = audio.createOscillator();
+      osc.type = spec.type;
+      osc.frequency.value = freq * spec.ratio;
+      osc.detune.value = spec.detune || 0;
+      const gain = audio.createGain();
+      gain.gain.value = spec.gain;
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(now);
+      return { osc, ratio: spec.ratio };
+    });
+
+    // vibrato (profondeur pilotée par le doigt modulateur)
+    const vibrato = audio.createOscillator();
+    vibrato.frequency.value = a.vibRate;
+    const vibratoDepth = audio.createGain();
+    vibratoDepth.gain.setValueAtTime(0, now);
+    vibratoDepth.gain.linearRampToValueAtTime(4, now + 1.2);
+    vibrato.connect(vibratoDepth);
+    vibrato.start(now);
+
+    // pitch bend (doigt modulateur au-dessus / en dessous)
+    const bend = audio.createConstantSource();
+    bend.offset.value = 0;
+    bend.start(now);
+
+    oscs.forEach(({ osc }) => {
+      vibratoDepth.connect(osc.detune);
+      bend.connect(osc.detune);
+    });
+
+    // trémolo, silencieux tant qu'il n'y a pas de modulation
+    const tremoloOsc = audio.createOscillator();
+    tremoloOsc.frequency.value = 6;
+    const tremoloDepth = audio.createGain();
+    tremoloDepth.gain.value = 0;
+    tremoloOsc.connect(tremoloDepth);
+    tremoloDepth.connect(tremolo.gain);
+    tremoloOsc.start(now);
+
+    filter.connect(vca);
+    vca.connect(tremolo);
+    tremolo.connect(panner);
+    panner.connect(master);
+    panner.connect(reverb);
+    panner.connect(delayNode);
+
+    vca.gain.setValueAtTime(0, now);
+    vca.gain.linearRampToValueAtTime(peak, now + a.attack);
+    vca.gain.setTargetAtTime(peak * a.sustain, now + a.attack, a.decayTau);
+
+    const voice = {
+      id, col, peak, oscs, vca, filter, panner, vibrato, vibratoDepth,
+      bend, tremoloOsc, tremoloDepth,
+      x: nx, y: ny, amp: 0, target: 1, phase: Math.random() * 6.28,
+      hue: hueFor(col), released: false, mod: 0, trail: [],
+    };
+
+    voices.set(id, voice);
+    strike(nx, ny, voice.hue, 1);
+    columnEnergy[col] = 1;
+    return voice;
+  }
+
+  function moveVoice(id, nx, ny) {
+    const voice = voices.get(id);
+    if (!voice || voice.released) return;
+
+    const a = amb();
+    const now = audio.currentTime;
+    const col = columnFromX(nx);
+    const brightness = 1 - ny;
+
+    voice.x = nx;
+    voice.y = ny;
+
+    voice.filter.frequency.setTargetAtTime(a.filterBase * Math.pow(a.filterRange, brightness), now, 0.05);
+    voice.panner.pan.setTargetAtTime((nx * 2 - 1) * 0.6, now, 0.06);
+
+    if (col !== voice.col) {
+      const freq = midiToFreq(midiFor(col));
+      voice.oscs.forEach(({ osc, ratio }) => osc.frequency.setTargetAtTime(freq * ratio, now, 0.035));
+      voice.vca.gain.cancelScheduledValues(now);
+      voice.vca.gain.setTargetAtTime(voice.peak * 1.35, now, 0.012);
+      voice.vca.gain.setTargetAtTime(voice.peak * a.sustain, now + 0.06, a.decayTau);
+
+      voice.col = col;
+      voice.hue = hueFor(col);
+      columnEnergy[col] = 1;
+      ripples.push({ x: nx, y: ny, r: 0.01, max: 0.14, hue: voice.hue, alpha: 0.5, width: 1.6 });
+      burst(nx, ny, voice.hue, 9, 1.4);
+    }
+  }
+
+  function releaseVoice(id) {
+    const voice = voices.get(id);
+    if (!voice || voice.released) return;
+
+    const now = audio.currentTime;
+    voice.released = true;
+    voice.target = 0;
+
+    voice.vca.gain.cancelScheduledValues(now);
+    voice.vca.gain.setTargetAtTime(0, now, amb().releaseTau);
+
+    const stopAt = now + 2.2;
+    voice.oscs.forEach(({ osc }) => osc.stop(stopAt));
+    voice.vibrato.stop(stopAt);
+    voice.tremoloOsc.stop(stopAt);
+    voice.bend.stop(stopAt);
+
+    // le modulateur attaché perd sa cible
+    modulators.forEach((mod, modId) => {
+      if (mod.targetId === id) modulators.delete(modId);
+    });
+
+    voices.delete(id);
+    faded.push(voice);
+  }
+
+  /* ------------------------------------------------- doigt modulateur --- */
+
+  function nearestVoice(px, py) {
+    let best = null;
+    let bestDist = MOD_RADIUS;
+    voices.forEach((voice) => {
+      if (voice.released) return;
+      const d = Math.hypot(voice.x * W - px, voice.y * H - py);
+      if (d < bestDist) { bestDist = d; best = voice; }
+    });
+    return best;
+  }
+
+  function applyModulation(voice, mod) {
+    const now = audio.currentTime;
+    const dx = voice.x * W - mod.x * W;
+    const dy = voice.y * H - mod.y * H;
+    const dist = Math.hypot(dx, dy);
+    const amount = clamp(1 - dist / MOD_RADIUS, 0, 1);   // 1 = doigts collés
+    mod.amount = amount;
+    voice.mod = amount;
+
+    // vibrato : de 4 à 60 cents, et le LFO accélère
+    voice.vibratoDepth.gain.setTargetAtTime(4 + amount * 56, now, 0.06);
+    voice.vibrato.frequency.setTargetAtTime(amb().vibRate + amount * 6, now, 0.08);
+    // résonance : effet "wah"
+    voice.filter.Q.setTargetAtTime(amb().q + amount * 13, now, 0.07);
+    // trémolo
+    voice.tremoloDepth.gain.setTargetAtTime(amount * 0.45, now, 0.08);
+    voice.tremoloOsc.frequency.setTargetAtTime(4 + amount * 9, now, 0.1);
+    // bend : doigt au-dessus = plus aigu (±2 demi-tons)
+    const bendCents = clamp((voice.y - mod.y) * 2.4, -1, 1) * 200 * amount;
+    voice.bend.offset.setTargetAtTime(bendCents, now, 0.05);
+  }
+
+  function clearModulation(voice) {
+    if (!voice || voice.released) return;
+    const now = audio.currentTime;
+    voice.mod = 0;
+    voice.vibratoDepth.gain.setTargetAtTime(4, now, 0.25);
+    voice.vibrato.frequency.setTargetAtTime(amb().vibRate, now, 0.25);
+    voice.filter.Q.setTargetAtTime(amb().q, now, 0.25);
+    voice.tremoloDepth.gain.setTargetAtTime(0, now, 0.25);
+    voice.bend.offset.setTargetAtTime(0, now, 0.2);
+  }
+
+  /* ========================================================== visuels ==== */
+
+  const canvas = document.getElementById('pad');
+  const c = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+
+  let W = 0, H = 0, bgGradient = null;
+  const particles = [];
+  const ripples = [];
+  const faded = [];
+  let columnEnergy = new Array(COLUMNS).fill(0);
+
+  const columnFromX = (nx) => clamp(Math.floor(nx * COLUMNS), 0, COLUMNS - 1);
+
+  function buildGradient() {
+    const a = amb();
+    bgGradient = c.createLinearGradient(0, 0, W, H);
+    bgGradient.addColorStop(0, a.bg[0]);
+    bgGradient.addColorStop(0.5, a.bg[1]);
+    bgGradient.addColorStop(1, a.bg[2]);
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    W = rect.width;
+    H = rect.height;
+    canvas.width = Math.max(1, Math.floor(W * dpr));
+    canvas.height = Math.max(1, Math.floor(H * dpr));
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // colonnes plus larges sur mobile pour rester jouable au doigt
+    const wanted = W < 620 ? 9 : 15;
+    if (wanted !== COLUMNS) {
+      COLUMNS = wanted;
+      columnEnergy = new Array(COLUMNS).fill(0);
+      voices.forEach((voice) => { voice.col = Math.min(voice.col, COLUMNS - 1); });
+    }
+
+    buildGradient();
+    c.fillStyle = bgGradient;
+    c.fillRect(0, 0, W, H);
+  }
+
+  function burst(nx, ny, hue, count, speedScale = 1) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (0.4 + Math.random() * 2.4) * speedScale;
+      particles.push({
+        x: nx * W, y: ny * H,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.4,
+        life: 1,
+        decay: 0.008 + Math.random() * 0.013,
+        size: 1 + Math.random() * 2.6,
+        hue,
+      });
+    }
+    if (particles.length > 600) particles.splice(0, particles.length - 600);
+  }
+
+  // impact visuel d'une nouvelle note
+  function strike(nx, ny, hue, power) {
+    burst(nx, ny, hue, Math.round(26 * power), 1.2);
+    ripples.push({ x: nx, y: ny, r: 0.005, max: 0.34 * power, hue, alpha: 0.95, width: 2.6 });
+    ripples.push({ x: nx, y: ny, r: 0.005, max: 0.2 * power, hue, alpha: 0.7, width: 1.4, speed: 0.009 });
+    flashes.push({ x: nx, y: ny, life: 1, hue });
+  }
+
+  const flashes = [];
+
+  function drawColumns() {
+    const colWidth = W / COLUMNS;
+    for (let i = 0; i < COLUMNS; i++) {
+      const energy = columnEnergy[i];
+      if (energy < 0.004) continue;
+      const hue = hueFor(i);
+      const grad = c.createLinearGradient(0, H, 0, 0);
+      grad.addColorStop(0, `hsla(${hue}, 92%, 62%, ${0.17 * energy})`);
+      grad.addColorStop(1, `hsla(${hue}, 92%, 62%, 0)`);
+      c.fillStyle = grad;
+      c.fillRect(i * colWidth, 0, colWidth, H);
+      columnEnergy[i] = energy * 0.94;
+    }
+  }
+
+  function drawTrail(voice) {
+    if (voice.trail.length < 2) return;
+    for (let i = 1; i < voice.trail.length; i++) {
+      const p0 = voice.trail[i - 1];
+      const p1 = voice.trail[i];
+      const t = i / voice.trail.length;
+      c.strokeStyle = `hsla(${voice.hue}, 100%, 72%, ${0.3 * t * voice.amp})`;
+      c.lineWidth = 1 + 5 * t * voice.amp;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(p0.x * W, p0.y * H);
+      c.lineTo(p1.x * W, p1.y * H);
+      c.stroke();
+    }
+  }
+
+  function drawLinks(active) {
+    c.lineWidth = 1.2;
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        const a = active[i], b = active[j];
+        const alpha = 0.32 * a.amp * b.amp;
+        if (alpha < 0.01) continue;
+        const grad = c.createLinearGradient(a.x * W, a.y * H, b.x * W, b.y * H);
+        grad.addColorStop(0, `hsla(${a.hue}, 95%, 70%, ${alpha})`);
+        grad.addColorStop(1, `hsla(${b.hue}, 95%, 70%, ${alpha})`);
+        c.strokeStyle = grad;
+        c.beginPath();
+        c.moveTo(a.x * W, a.y * H);
+        c.lineTo(b.x * W, b.y * H);
+        c.stroke();
+      }
+    }
+  }
+
+  // arc électrique entre le doigt modulateur et la note qu'il déforme
+  function drawModulation(time) {
+    modulators.forEach((mod) => {
+      const voice = voices.get(mod.targetId);
+      if (!voice) return;
+      const ax = voice.x * W, ay = voice.y * H;
+      const bx = mod.x * W, by = mod.y * H;
+      const amount = mod.amount;
+      const segments = 9;
+
+      for (let pass = 0; pass < 2; pass++) {
+        c.strokeStyle = `hsla(${voice.hue}, 100%, ${pass ? 92 : 70}%, ${(pass ? 0.5 : 0.8) * (0.25 + amount)})`;
+        c.lineWidth = pass ? 1 : 2.5 + amount * 2.5;
+        c.beginPath();
+        c.moveTo(ax, ay);
+        for (let s = 1; s < segments; s++) {
+          const t = s / segments;
+          const jitter = (Math.sin(time * 0.02 + s * 2.1 + pass * 3) * 0.5 + Math.random() - 0.5)
+                       * 26 * amount * Math.sin(Math.PI * t);
+          const nxp = -(by - ay), nyp = bx - ax;
+          const len = Math.hypot(nxp, nyp) || 1;
+          c.lineTo(ax + (bx - ax) * t + (nxp / len) * jitter,
+                   ay + (by - ay) * t + (nyp / len) * jitter);
+        }
+        c.lineTo(bx, by);
+        c.stroke();
+      }
+
+      // anneaux de déformation autour de la note modulée
+      const rings = 3;
+      for (let r = 0; r < rings; r++) {
+        const phase = (time * 0.003 + r / rings) % 1;
+        const radius = (40 + 90 * phase) * (0.4 + amount);
+        c.strokeStyle = `hsla(${voice.hue}, 100%, 78%, ${(1 - phase) * 0.4 * amount})`;
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.arc(ax, ay, radius, 0, Math.PI * 2);
+        c.stroke();
+      }
+
+      // le doigt modulateur : il s'estompe en fondant dans la note qu'il déforme
+      const radius = 34 - 12 * amount;
+      const glow = c.createRadialGradient(bx, by, 0, bx, by, radius);
+      glow.addColorStop(0, `hsla(${voice.hue}, 100%, 88%, ${0.22 + 0.3 * (1 - amount)})`);
+      glow.addColorStop(1, `hsla(${voice.hue}, 100%, 70%, 0)`);
+      c.fillStyle = glow;
+      c.beginPath();
+      c.arc(bx, by, radius, 0, Math.PI * 2);
+      c.fill();
+    });
+  }
+
+  function drawOrb(voice, time) {
+    const x = voice.x * W;
+    const y = voice.y * H;
+    const wobble = voice.mod * 6 * Math.sin(time * 0.02 + voice.phase);
+    const pulse = 1 + 0.07 * Math.sin(time * 0.005 + voice.phase) + voice.mod * 0.12;
+    const radius = (26 + 54 * voice.amp) * pulse;
+
+    const glow = c.createRadialGradient(x, y + wobble, 0, x, y + wobble, radius);
+    glow.addColorStop(0, `hsla(${voice.hue}, 100%, 80%, ${0.85 * voice.amp})`);
+    glow.addColorStop(0.35, `hsla(${voice.hue}, 95%, 62%, ${0.4 * voice.amp})`);
+    glow.addColorStop(1, `hsla(${voice.hue}, 90%, 50%, 0)`);
+    c.fillStyle = glow;
+    c.beginPath();
+    c.arc(x, y + wobble, radius, 0, Math.PI * 2);
+    c.fill();
+
+    c.fillStyle = `hsla(${voice.hue}, 100%, 94%, ${0.9 * voice.amp})`;
+    c.beginPath();
+    c.arc(x, y + wobble, 3 + 3 * voice.amp, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  function frame(time) {
+    c.globalCompositeOperation = 'source-over';
+    c.globalAlpha = 0.17;
+    c.fillStyle = bgGradient;
+    c.fillRect(0, 0, W, H);
+    c.globalAlpha = 1;
+
+    drawColumns();
+    c.globalCompositeOperation = 'lighter';
+
+    // particules
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vy += 0.012; p.vx *= 0.985; p.vy *= 0.985;
+      p.life -= p.decay;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      c.fillStyle = `hsla(${p.hue}, 100%, 74%, ${p.life * 0.7})`;
+      c.beginPath();
+      c.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // ondes de choc
+    const diagonal = Math.hypot(W, H);
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i];
+      r.r += r.speed || 0.006;
+      r.alpha *= 0.955;
+      if (r.r > r.max || r.alpha < 0.01) { ripples.splice(i, 1); continue; }
+      c.strokeStyle = `hsla(${r.hue}, 100%, 74%, ${r.alpha})`;
+      c.lineWidth = (r.width || 2) * r.alpha;
+      c.beginPath();
+      c.arc(r.x * W, r.y * H, r.r * diagonal, 0, Math.PI * 2);
+      c.stroke();
+    }
+
+    // éclair d'impact
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      const f = flashes[i];
+      f.life -= 0.09;
+      if (f.life <= 0) { flashes.splice(i, 1); continue; }
+      const radius = 90 * (1 - f.life) + 20;
+      const grad = c.createRadialGradient(f.x * W, f.y * H, 0, f.x * W, f.y * H, radius);
+      grad.addColorStop(0, `hsla(${f.hue}, 100%, 96%, ${f.life * 0.55})`);
+      grad.addColorStop(1, `hsla(${f.hue}, 100%, 70%, 0)`);
+      c.fillStyle = grad;
+      c.beginPath();
+      c.arc(f.x * W, f.y * H, radius, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    const active = [];
+    voices.forEach((voice) => {
+      voice.amp += (voice.target - voice.amp) * 0.16;
+      voice.trail.push({ x: voice.x, y: voice.y });
+      if (voice.trail.length > 16) voice.trail.shift();
+      active.push(voice);
+      columnEnergy[voice.col] = Math.max(columnEnergy[voice.col], 0.6 + 0.4 * voice.mod);
+      if (Math.random() < 0.35 + voice.mod * 0.5) {
+        particles.push({
+          x: voice.x * W + (Math.random() - 0.5) * 26,
+          y: voice.y * H + (Math.random() - 0.5) * 26,
+          vx: (Math.random() - 0.5) * (0.5 + voice.mod * 2),
+          vy: -0.25 - Math.random() * 0.6,
+          life: 1, decay: 0.012,
+          size: 0.8 + Math.random() * 1.6,
+          hue: voice.hue,
+        });
+      }
+    });
+
+    for (let i = faded.length - 1; i >= 0; i--) {
+      const voice = faded[i];
+      voice.amp += (0 - voice.amp) * 0.07;
+      if (voice.trail.length) voice.trail.shift();
+      if (voice.amp < 0.015) { faded.splice(i, 1); continue; }
+      active.push(voice);
+    }
+
+    active.forEach(drawTrail);
+    drawLinks(active);
+    drawModulation(time);
+    active.forEach((voice) => drawOrb(voice, time));
+
+    c.globalCompositeOperation = 'source-over';
+    requestAnimationFrame(frame);
+  }
+
+  /* ========================================================== entrées ==== */
+
+  let started = false;
+
+  function start() {
+    if (started) return;
+    started = true;
+    initAudio();
+    overlay.classList.add('hidden');
+  }
+
+  function normalized(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      nx: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      ny: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+    };
+  }
+
+  canvas.addEventListener('pointerdown', (event) => {
+    start();
+    if (audio.state === 'suspended') audio.resume();
+    canvas.setPointerCapture(event.pointerId);
+
+    const { nx, ny } = normalized(event);
+    const target = nearestVoice(nx * W, ny * H);
+
+    if (target) {
+      // deuxième doigt tout près : on module la note existante
+      const mod = { targetId: target.id, x: nx, y: ny, amount: 0 };
+      modulators.set(event.pointerId, mod);
+      applyModulation(target, mod);
+      ripples.push({ x: nx, y: ny, r: 0.005, max: 0.12, hue: target.hue, alpha: 0.8, width: 2 });
+      burst(nx, ny, target.hue, 14, 0.8);
+    } else {
+      createVoice(event.pointerId, columnFromX(nx), nx, ny);
+    }
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    const { nx, ny } = normalized(event);
+    const mod = modulators.get(event.pointerId);
+    if (mod) {
+      mod.x = nx;
+      mod.y = ny;
+      const target = voices.get(mod.targetId);
+      if (target) applyModulation(target, mod);
+      return;
+    }
+    if (voices.has(event.pointerId)) moveVoice(event.pointerId, nx, ny);
+  });
+
+  ['pointerup', 'pointercancel', 'pointerout'].forEach((type) => {
+    canvas.addEventListener(type, (event) => {
+      const mod = modulators.get(event.pointerId);
+      if (mod) {
+        clearModulation(voices.get(mod.targetId));
+        modulators.delete(event.pointerId);
+        return;
+      }
+      releaseVoice(event.pointerId);
+    });
+  });
+
+  // bonus desktop : molette = octave
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    setOctave(octaveShift + (event.deltaY < 0 ? 1 : -1));
+  }, { passive: false });
+
+  window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    const index = KEYS.indexOf(event.code);
+    if (index === -1) return;
+    event.preventDefault();
+    start();
+    if (audio.state === 'suspended') audio.resume();
+    const id = 'key-' + event.code;
+    if (voices.has(id)) return;
+    const col = Math.min(index, COLUMNS - 1);
+    createVoice(id, col, (col + 0.5) / COLUMNS, 0.42);
+  });
+
+  window.addEventListener('keyup', (event) => releaseVoice('key-' + event.code));
+
+  /* ========================================================= réglages ==== */
+
+  const sheet = document.getElementById('sheet');
+  const menuToggle = document.getElementById('menu-toggle');
+  const octLabel = document.getElementById('oct-label');
+  const droneButton = document.getElementById('drone');
+
+  function openSheet() {
+    sheet.classList.add('open');
+    menuToggle.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeSheet() {
+    sheet.classList.remove('open');
+    menuToggle.setAttribute('aria-expanded', 'false');
+  }
+
+  menuToggle.addEventListener('click', () => {
+    sheet.classList.contains('open') ? closeSheet() : openSheet();
+  });
+
+  // menu ouvert : tout appui en dehors des réglages le referme, sans jouer de note
+  document.addEventListener('pointerdown', (event) => {
+    if (!sheet.classList.contains('open')) return;
+    if (event.target.closest('#menu-toggle, .chip, .octave, button')) return;
+    closeSheet();
+    if (canvas.contains(event.target)) event.stopPropagation();
+  }, true);
+
+  function buildOptions(container, entries, currentKey, onPick) {
+    container.innerHTML = '';
+    entries.forEach(([key, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chip' + (key === currentKey ? ' selected' : '');
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        [...container.children].forEach((child) => child.classList.remove('selected'));
+        button.classList.add('selected');
+        onPick(key);
+      });
+      container.appendChild(button);
+    });
+  }
+
+  buildOptions(
+    document.getElementById('ambiance-options'),
+    Object.entries(AMBIANCES).map(([key, value]) => [key, value.label]),
+    ambianceKey,
+    (key) => {
+      ambianceKey = key;
+      menuToggle.textContent = AMBIANCES[key].label;
+      document.body.style.backgroundColor = AMBIANCES[key].css;
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', AMBIANCES[key].css);
+      buildGradient();
+      applyAmbianceAudio();
+      // les voix en cours reprennent la couleur de la nouvelle palette
+      voices.forEach((voice) => { voice.hue = hueFor(voice.col); });
+    }
+  );
+
+  buildOptions(
+    document.getElementById('scale-options'),
+    Object.entries(SCALES).map(([key, value]) => [key, value.label]),
+    scaleKey,
+    (key) => { scaleKey = key; retuneActive(); }
+  );
+
+  function setOctave(value) {
+    const next = clamp(value, -2, 2);
+    if (next === octaveShift) return;
+    octaveShift = next;
+    octLabel.textContent = 'Octave ' + (octaveShift > 0 ? '+' : '') + octaveShift;
+    retuneActive();
+    updateDroneTuning();
+  }
+
+  function retuneActive() {
+    if (!audio) return;
+    const now = audio.currentTime;
+    voices.forEach((voice) => {
+      const freq = midiToFreq(midiFor(voice.col));
+      voice.oscs.forEach(({ osc, ratio }) => osc.frequency.setTargetAtTime(freq * ratio, now, 0.05));
+    });
+  }
+
+  document.getElementById('oct-up').addEventListener('click', () => setOctave(octaveShift + 1));
+  document.getElementById('oct-down').addEventListener('click', () => setOctave(octaveShift - 1));
+
+  droneButton.addEventListener('click', () => {
+    droneOn = !droneOn;
+    droneButton.setAttribute('aria-pressed', String(droneOn));
+    applyAmbianceAudio(0.5);
+  });
+
+  /* ============================================================= boot ==== */
+
+  overlay.addEventListener('pointerdown', start);
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+  menuToggle.textContent = AMBIANCES[ambianceKey].label;
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

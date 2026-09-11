@@ -290,8 +290,8 @@
       ],
       attack: 0.008, decayTau: 0.55, sustain: 0.55, releaseTau: 0.3,
       filterBase: 420, filterRange: 18, q: 2.2,
-      reverb: 0.6, delayMix: 0.34, delayTime: 0.3, feedback: 0.36,
-      drone: 0.085, vibRate: 5.2,
+      reverb: 0.32, delayMix: 0.26, delayTime: 0.3, feedback: 0.34,
+      drone: 0.15, vibRate: 5.2,
     },
     nappe: {
       label: 'Nappe',
@@ -306,8 +306,8 @@
       ],
       attack: 0.32, decayTau: 1.2, sustain: 0.92, releaseTau: 0.7,
       filterBase: 260, filterRange: 13, q: 1.2,
-      reverb: 0.72, delayMix: 0.22, delayTime: 0.44, feedback: 0.3,
-      drone: 0.12, vibRate: 4.3,
+      reverb: 0.4, delayMix: 0.16, delayTime: 0.44, feedback: 0.28,
+      drone: 0.19, vibRate: 4.3,
     },
     vapeur: {
       label: 'Vapeur',
@@ -322,8 +322,8 @@
       ],
       attack: 0.14, decayTau: 0.9, sustain: 0.8, releaseTau: 0.9,
       filterBase: 330, filterRange: 11, q: 1.6,
-      reverb: 0.85, delayMix: 0.46, delayTime: 0.52, feedback: 0.46,
-      drone: 0.1, vibRate: 3.6,
+      reverb: 0.45, delayMix: 0.3, delayTime: 0.52, feedback: 0.4,
+      drone: 0.16, vibRate: 3.6,
     },
     neon: {
       label: 'Néon',
@@ -338,8 +338,8 @@
       ],
       attack: 0.004, decayTau: 0.2, sustain: 0.4, releaseTau: 0.18,
       filterBase: 520, filterRange: 16, q: 5.5,
-      reverb: 0.4, delayMix: 0.4, delayTime: 0.21, feedback: 0.42,
-      drone: 0.06, vibRate: 6.1,
+      reverb: 0.22, delayMix: 0.3, delayTime: 0.21, feedback: 0.38,
+      drone: 0.12, vibRate: 6.1,
     },
     bois: {
       label: 'Bois',
@@ -354,8 +354,8 @@
       ],
       attack: 0.005, decayTau: 0.35, sustain: 0.35, releaseTau: 0.25,
       filterBase: 380, filterRange: 14, q: 3,
-      reverb: 0.5, delayMix: 0.26, delayTime: 0.26, feedback: 0.3,
-      drone: 0.07, vibRate: 5.6,
+      reverb: 0.28, delayMix: 0.2, delayTime: 0.26, feedback: 0.28,
+      drone: 0.13, vibRate: 5.6,
     },
   };
 
@@ -401,7 +401,7 @@
   /* ============================================================ audio ==== */
 
   let audio = null;
-  let master, reverb, reverbGain, delayNode, delayOut, feedbackGain, droneGain;
+  let master, voiceBus, reverb, reverbSend, delayNode, delaySend, feedbackGain, droneGain;
 
   function impulseResponse(seconds, decay) {
     const rate = audio.sampleRate;
@@ -417,43 +417,85 @@
     return buffer;
   }
 
+  // saturation douce de sécurité : pente 1 à bas niveau, plafonne vers ±0.9
+  function softClipCurve() {
+    const n = 2048;
+    const curve = new Float32Array(n);
+    const k = 1.1;
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * k) / k;
+    }
+    return curve;
+  }
+
   function initAudio() {
     if (audio) return;
     audio = new (window.AudioContext || window.webkitAudioContext)();
 
     master = audio.createGain();
-    master.gain.value = 0.85;
+    master.gain.value = 0.8;
 
     const compressor = audio.createDynamicsCompressor();
-    compressor.threshold.value = -14;
-    compressor.knee.value = 22;
-    compressor.ratio.value = 6;
-    compressor.attack.value = 0.004;
+    compressor.threshold.value = -10;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.005;
     compressor.release.value = 0.25;
+
+    // gain de rattrapage après compression, avant l'écrêteur : c'est lui qui donne
+    // le volume final, l'écrêteur garantit qu'on ne dépasse jamais le 0 dBFS
+    const makeup = audio.createGain();
+    makeup.gain.value = 1.8;
+
+    const limiter = audio.createWaveShaper();
+    limiter.curve = softClipCurve();
+    limiter.oversample = '4x';
+
     master.connect(compressor);
-    compressor.connect(audio.destination);
+    compressor.connect(makeup);
+    makeup.connect(limiter);
+    limiter.connect(audio.destination);
+
+    // toutes les voix passent par ce bus : son gain compense la polyphonie
+    voiceBus = audio.createGain();
+    voiceBus.gain.value = 3;
+    voiceBus.connect(master);
 
     reverb = audio.createConvolver();
+    reverb.normalize = true;
     reverb.buffer = impulseResponse(3.4, 2.3);
-    reverbGain = audio.createGain();
-    reverb.connect(reverbGain);
-    reverbGain.connect(master);
+    reverbSend = audio.createGain();
+    reverbSend.gain.value = 0;
+    voiceBus.connect(reverbSend);
+    reverbSend.connect(reverb);
+    reverb.connect(master);
 
     delayNode = audio.createDelay(1.5);
     const damp = audio.createBiquadFilter();
     damp.type = 'lowpass';
     damp.frequency.value = 2200;
     feedbackGain = audio.createGain();
+    feedbackGain.gain.value = 0;
     delayNode.connect(damp);
     damp.connect(feedbackGain);
     feedbackGain.connect(delayNode);
-    delayOut = audio.createGain();
-    delayNode.connect(delayOut);
-    delayOut.connect(master);
-    delayOut.connect(reverb);
+    delaySend = audio.createGain();
+    delaySend.gain.value = 0;
+    voiceBus.connect(delaySend);
+    delaySend.connect(delayNode);
+    delayNode.connect(master);
 
     buildDrone();
     applyAmbianceAudio(0);
+  }
+
+  // le niveau par voix décroît en 1/racine(n) : un accord de 8 notes ne sature pas,
+  // une note seule garde toute sa présence
+  function balancePolyphony() {
+    if (!audio) return;
+    const sounding = voices.size + Math.min(faded.length, 4);
+    voiceBus.gain.setTargetAtTime(3 / Math.sqrt(Math.max(1, sounding)), audio.currentTime, 0.08);
   }
 
   const droneOscs = [];
@@ -490,15 +532,15 @@
 
     filter.connect(droneGain);
     droneGain.connect(master);
-    droneGain.connect(reverb);
+    droneGain.connect(reverbSend);
   }
 
   function applyAmbianceAudio(ramp = 0.8) {
     if (!audio) return;
     const now = audio.currentTime;
     const a = amb();
-    reverbGain.gain.setTargetAtTime(a.reverb, now, ramp || 0.001);
-    delayOut.gain.setTargetAtTime(a.delayMix, now, ramp || 0.001);
+    reverbSend.gain.setTargetAtTime(a.reverb, now, ramp || 0.001);
+    delaySend.gain.setTargetAtTime(a.delayMix, now, ramp || 0.001);
     delayNode.delayTime.setTargetAtTime(a.delayTime, now, ramp || 0.001);
     feedbackGain.gain.setTargetAtTime(a.feedback, now, ramp || 0.001);
     droneGain.gain.setTargetAtTime(droneOn ? a.drone : 0, now, 0.7);
@@ -524,7 +566,7 @@
     const now = audio.currentTime;
     const freq = midiToFreq(midiFor(col));
     const brightness = 1 - ny;
-    const peak = 0.12 + 0.1 * brightness;
+    const peak = 0.1 + 0.06 * brightness;
 
     const vca = audio.createGain();
     vca.gain.value = 0;
@@ -540,13 +582,17 @@
     const panner = audio.createStereoPanner();
     panner.pan.value = (nx * 2 - 1) * 0.6;
 
+    // les partiels démarrent tous en phase : on normalise leur somme à 1 pour que
+    // le pic du premier cycle ne dépasse jamais le niveau du VCA
+    const partialSum = a.partials.reduce((sum, spec) => sum + spec.gain, 0);
+
     const oscs = a.partials.map((spec) => {
       const osc = audio.createOscillator();
       osc.type = spec.type;
       osc.frequency.value = freq * spec.ratio;
       osc.detune.value = spec.detune || 0;
       const gain = audio.createGain();
-      gain.gain.value = spec.gain;
+      gain.gain.value = spec.gain / partialSum;
       osc.connect(gain);
       gain.connect(filter);
       osc.start(now);
@@ -584,9 +630,7 @@
     filter.connect(vca);
     vca.connect(tremolo);
     tremolo.connect(panner);
-    panner.connect(master);
-    panner.connect(reverb);
-    panner.connect(delayNode);
+    panner.connect(voiceBus);
 
     vca.gain.setValueAtTime(0, now);
     vca.gain.linearRampToValueAtTime(peak, now + a.attack);
@@ -594,12 +638,13 @@
 
     const voice = {
       id, col, peak, oscs, vca, filter, panner, vibrato, vibratoDepth,
-      bend, tremoloOsc, tremoloDepth,
+      bend, tremolo, tremoloOsc, tremoloDepth,
       x: nx, y: ny, amp: 0, target: 1, phase: Math.random() * 6.28,
       hue: hueFor(col), released: false, mod: 0, trail: [],
     };
 
     voices.set(id, voice);
+    balancePolyphony();
     strike(nx, ny, voice.hue, 1);
     columnEnergy[col] = 1;
     return voice;
@@ -624,7 +669,7 @@
       const freq = midiToFreq(midiFor(col));
       voice.oscs.forEach(({ osc, ratio }) => osc.frequency.setTargetAtTime(freq * ratio, now, 0.035));
       voice.vca.gain.cancelScheduledValues(now);
-      voice.vca.gain.setTargetAtTime(voice.peak * 1.35, now, 0.012);
+      voice.vca.gain.setTargetAtTime(voice.peak * 1.25, now, 0.012);
       voice.vca.gain.setTargetAtTime(voice.peak * a.sustain, now + 0.06, a.decayTau);
 
       voice.col = col;
@@ -659,6 +704,7 @@
 
     voices.delete(id);
     faded.push(voice);
+    balancePolyphony();
   }
 
   /* ------------------------------------------------- doigt modulateur --- */
@@ -687,9 +733,12 @@
     voice.vibratoDepth.gain.setTargetAtTime(4 + amount * 56, now, 0.06);
     voice.vibrato.frequency.setTargetAtTime(amb().vibRate + amount * 6, now, 0.08);
     // résonance : effet "wah"
-    voice.filter.Q.setTargetAtTime(amb().q + amount * 13, now, 0.07);
-    // trémolo
-    voice.tremoloDepth.gain.setTargetAtTime(amount * 0.45, now, 0.08);
+    voice.filter.Q.setTargetAtTime(amb().q + amount * 7, now, 0.07);
+    // trémolo : la base descend d'autant que la profondeur monte, donc le gain
+    // instantané plafonne à 1 — ça compense aussi le pic de résonance du filtre
+    const depth = amount * 0.34;
+    voice.tremoloDepth.gain.setTargetAtTime(depth, now, 0.08);
+    voice.tremolo.gain.setTargetAtTime(1 - depth, now, 0.08);
     voice.tremoloOsc.frequency.setTargetAtTime(4 + amount * 9, now, 0.1);
     // bend : doigt au-dessus = plus aigu (±2 demi-tons)
     const bendCents = clamp((voice.y - mod.y) * 2.4, -1, 1) * 200 * amount;
@@ -704,6 +753,7 @@
     voice.vibrato.frequency.setTargetAtTime(amb().vibRate, now, 0.25);
     voice.filter.Q.setTargetAtTime(amb().q, now, 0.25);
     voice.tremoloDepth.gain.setTargetAtTime(0, now, 0.25);
+    voice.tremolo.gain.setTargetAtTime(1, now, 0.25);
     voice.bend.offset.setTargetAtTime(0, now, 0.2);
   }
 

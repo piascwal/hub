@@ -442,32 +442,32 @@
   // récursifs diffusés par des passe-tout : c'est lisse, ça n'a aucun caractère
   // de souffle, et ça coûte bien moins cher qu'un convolueur.
 
-  // peigne récursif amorti : les aigus s'éteignent avant les graves
-  function comb(time, feedback, damping) {
+  // Peigne récursif. Rien d'autre qu'un gain dans la boucle : mesuré, un
+  // passe-bas d'amortissement placé ici ajoute assez de gain pour que la queue
+  // ne s'éteigne plus (le Q d'un passe-bas s'exprime en dB dans Web Audio, et
+  // même à 0,5 la boucle atteignait 1). L'amortissement est donc fait en
+  // sortie, hors boucle, où il ne peut rien déstabiliser.
+  function comb(time, feedback) {
     const input = audio.createGain();
     const delay = audio.createDelay(0.2);
     delay.delayTime.value = time;
-    const lp = audio.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = damping;
-    // Q par défaut = 1, ce qui donne une bosse de résonance de +1,25 dB à la
-    // coupure : le gain de boucle passerait à 0,84 x 1,15 = 0,97 et la réverbe
-    // ne s'éteindrait plus. En dessous de 0,707 la réponse est partout <= 1.
-    lp.Q.value = 0.5;
     const fb = audio.createGain();
     fb.gain.value = feedback;
 
     input.connect(delay);
-    delay.connect(lp);
-    lp.connect(fb);
+    delay.connect(fb);
     fb.connect(delay);
     return { input, output: delay };
   }
 
-  // passe-tout : densifie les échos sans colorer le spectre
+  // Passe-tout de Schroeder : densifie les échos sans colorer le spectre.
+  // Le signal réinjecté en aval doit être pris APRÈS la sommation, pas sur
+  // l'entrée : sinon ce n'est plus un passe-tout et le gain monte à 2,6 par
+  // endroits.
   function allpass(time, g) {
     const input = audio.createGain();
     const output = audio.createGain();
+    const sum = audio.createGain();
     const delay = audio.createDelay(0.2);
     delay.delayTime.value = time;
     const fb = audio.createGain();
@@ -475,30 +475,38 @@
     const ff = audio.createGain();
     ff.gain.value = -g;
 
-    input.connect(delay);
-    input.connect(ff);
+    input.connect(sum);
+    sum.connect(delay);
+    delay.connect(fb);
+    fb.connect(sum);
+    sum.connect(ff);
     ff.connect(output);
     delay.connect(output);
-    delay.connect(fb);
-    fb.connect(delay);
     return { input, output };
   }
 
   function buildReverb(destination) {
     const input = audio.createGain();
     const merge = audio.createGain();
-    // chaque peigne a un gain de 1/(1 - feedback) ~ 6 en régime établi, et ils
+    // chaque peigne a un gain de 1/(1 - feedback) ~ 7 en régime établi, et ils
     // sont quatre : on compense pour que la sortie reste au niveau de l'entrée
-    merge.gain.value = 0.075;
+    merge.gain.value = 0.06;
 
     // durées volontairement non harmoniques, sinon la queue sonne métallique
-    [0.0297, 0.0371, 0.0411, 0.0437].forEach((time) => {
-      const c = comb(time, 0.84, 2600);
+    [0.0437, 0.0503, 0.0547, 0.0613].forEach((time) => {
+      const c = comb(time, 0.86);
       input.connect(c.input);
       c.output.connect(merge);
     });
 
-    let node = merge;
+    // amortissement en sortie : la queue reste sombre, sans risque d'emballement
+    const damping = audio.createBiquadFilter();
+    damping.type = 'lowpass';
+    damping.frequency.value = 2800;
+    damping.Q.value = 0;
+    merge.connect(damping);
+
+    let node = damping;
     [[0.005, 0.7], [0.0117, 0.7]].forEach(([time, g]) => {
       const ap = allpass(time, g);
       node.connect(ap.input);
@@ -575,6 +583,7 @@
     const damp = audio.createBiquadFilter();
     damp.type = 'lowpass';
     damp.frequency.value = 2200;
+    damp.Q.value = 0;
     feedbackGain = audio.createGain();
     feedbackGain.gain.value = 0;
     delayNode.connect(damp);

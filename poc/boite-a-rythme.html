@@ -360,6 +360,15 @@
 
   .options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
+  .row-sync { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+  .hint-sync {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
   /* -------------------------------------------------------- démarrage ---- */
 
   .overlay {
@@ -439,6 +448,18 @@
       <div class="options" id="swing-options"></div>
     </section>
     <section>
+      <h2>Synchro image / son</h2>
+      <div class="row-sync">
+        <div class="tempo">
+          <button type="button" id="sync-down" aria-label="Moins de décalage">−</button>
+          <span id="sync-label">0 ms</span>
+          <button type="button" id="sync-up" aria-label="Plus de décalage">+</button>
+        </div>
+        <button type="button" class="chip" id="sync-reset">Auto</button>
+      </div>
+      <p class="hint-sync" id="sync-detail"></p>
+    </section>
+    <section>
       <h2>Grille</h2>
       <div class="options">
         <button type="button" class="chip" id="clear">Effacer</button>
@@ -454,7 +475,7 @@
 </main>
 
 <footer>
-  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 1</span>
+  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 2</span>
 </footer>
 
 <script>
@@ -766,6 +787,9 @@
 
   let tempo = 96;
   let swing = 0;
+  // Safari ne fournit pas outputLatency : ce réglage rattrape ce qui reste,
+  // et il est conservé d'une visite à l'autre.
+  let decalageManuel = Number(localStorage.getItem('br-decalage') || 0);
   let enLecture = false;
   let minuteur = null;
   let prochainTemps = 0;
@@ -898,9 +922,19 @@
 
   let dernierPas = -1;
 
+  // audio.currentTime est l'horloge de RENDU : le son programmé à cet instant
+  // ne sort des écouteurs qu'un peu plus tard. En Bluetooth ça se compte en
+  // centaines de millisecondes. On retarde donc l'affichage d'autant, sinon la
+  // case s'allume avant qu'on entende la frappe.
+  function latence() {
+    if (!audio) return 0;
+    const auto = (audio.baseLatency || 0) + (audio.outputLatency || 0);
+    return auto + decalageManuel / 1000;
+  }
+
   function boucleAffichage() {
     if (enLecture && audio) {
-      const maintenant = audio.currentTime;
+      const maintenant = audio.currentTime - latence();
       let courant = dernierPas;
       while (aVenir.length && aVenir[0].temps <= maintenant) {
         courant = aVenir.shift().pas;
@@ -928,6 +962,7 @@
     if (demarre) return;
     demarre = true;
     overlay.classList.add('hidden');
+    majSync();
   }
 
   overlay.addEventListener('pointerdown', demarrerAudio);
@@ -1007,6 +1042,31 @@
     (nom) => { swing = { Droit: 0, 'Léger': 0.08, Moyen: 0.16, Fort: 0.26 }[nom]; }
   );
 
+  const labelSync = document.getElementById('sync-label');
+  const detailSync = document.getElementById('sync-detail');
+
+  function majSync() {
+    labelSync.textContent = decalageManuel + ' ms';
+    localStorage.setItem('br-decalage', String(decalageManuel));
+    const auto = audio ? Math.round(((audio.baseLatency || 0) + (audio.outputLatency || 0)) * 1000) : null;
+    detailSync.textContent = auto === null
+      ? 'Si la case s\'allume avant la frappe, augmente le décalage.'
+      : `Latence détectée : ${auto} ms. Total appliqué : ${auto + decalageManuel} ms. `
+        + 'Si la case s\'allume encore avant la frappe, augmente.';
+  }
+
+  // pas de 40 ms : en Bluetooth il y a parfois 400 ms à rattraper, et un pas
+  // de séquenceur fait 156 ms à 96 BPM, donc cette finesse suffit largement
+  document.getElementById('sync-up').addEventListener('click', () => {
+    decalageManuel = Math.min(800, decalageManuel + 40); majSync();
+  });
+  document.getElementById('sync-down').addEventListener('click', () => {
+    decalageManuel = Math.max(-200, decalageManuel - 40); majSync();
+  });
+  document.getElementById('sync-reset').addEventListener('click', () => {
+    decalageManuel = 0; majSync();
+  });
+
   document.getElementById('clear').addEventListener('click', () => {
     KITS.forEach((k) => grille[k.id].fill(0));
     rafraichirGrille();
@@ -1043,6 +1103,7 @@
   chargerMotif('Boom bap');
   menuToggle.textContent = 'Boom bap';
   setTempo(96);
+  majSync();
   requestAnimationFrame(boucleAffichage);
 })();
 </script>

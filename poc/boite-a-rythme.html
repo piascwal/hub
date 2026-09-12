@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Boîte à rythme — POC</title>
+<meta name="description" content="Boîte à rythme et pads de batterie, entièrement synthétisés en Web Audio.">
+<meta name="theme-color" content="#08080f">
+<style>
+  :root {
+    --bg: #08080f;
+    --panel: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.13);
+    --text: #f0f1f3;
+    --muted: #9aa1ac;
+    --accent: #7dd3fc;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    overscroll-behavior: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+
+  /* ---------------------------------------------------------- en-tête ---- */
+
+  header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: max(0.7rem, env(safe-area-inset-top)) 0.8rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.95rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 8px;
+  }
+
+  .back:hover { color: var(--text); background: var(--panel); }
+
+  h1 {
+    margin: 0;
+    margin-right: auto;
+    font-size: 1rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .segmented {
+    display: inline-flex;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px;
+  }
+
+  .segmented button {
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .segmented button[aria-pressed="true"] {
+    color: #08080f;
+    background: var(--accent);
+    font-weight: 600;
+  }
+
+  /* -------------------------------------------------------- transport ---- */
+
+  .transport {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .play {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease;
+  }
+
+  .play[aria-pressed="true"] {
+    border-color: #4ade80;
+    color: #4ade80;
+    box-shadow: 0 0 18px rgba(74, 222, 128, 0.35);
+  }
+
+  .tempo {
+    display: inline-flex;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .tempo button {
+    background: none;
+    border: 0;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+  }
+
+  .tempo button:active { background: rgba(255, 255, 255, 0.12); }
+
+  .tempo span {
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-width: 4.6rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .chip:hover { border-color: rgba(255, 255, 255, 0.3); }
+
+  .chip[aria-pressed="true"], .chip.selected {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(125, 211, 252, 0.1);
+  }
+
+  .spacer { margin-left: auto; }
+
+  /* ------------------------------------------------------------ scène ---- */
+
+  main {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .view {
+    position: absolute;
+    inset: 0;
+    padding: 0.7rem 0.8rem max(0.7rem, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .view[hidden] { display: none; }
+
+  /* ---- séquenceur ---- */
+
+  .row {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    background: none;
+    border: 0;
+    font-family: inherit;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: var(--c);
+    box-shadow: 0 0 6px var(--c);
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(16, 1fr);
+    gap: 3px;
+    height: 100%;
+  }
+
+  .step {
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    min-width: 0;
+  }
+
+  /* un repère tous les quatre pas, sinon on perd le fil de la mesure */
+  .step[data-beat="1"] {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .step[data-on="1"] {
+    background: var(--c);
+    border-color: var(--c);
+    box-shadow: 0 0 10px var(--c);
+  }
+
+  .step[data-playing="1"] {
+    border-color: rgba(255, 255, 255, 0.65);
+  }
+
+  .step[data-hit="1"] {
+    box-shadow: 0 0 22px var(--c), 0 0 44px var(--c);
+    filter: brightness(1.6);
+  }
+
+  /* ---- pads de batterie ---- */
+
+  .pads {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: 1fr;
+    gap: 0.55rem;
+    height: 100%;
+  }
+
+  .pad {
+    position: relative;
+    border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at 50% 120%, color-mix(in srgb, var(--c) 18%, transparent), transparent 70%),
+      rgba(255, 255, 255, 0.02);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.06s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+  }
+
+  .pad::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle at 50% 50%, var(--c), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  .pad[data-hit="1"] {
+    transform: scale(0.97);
+    border-color: var(--c);
+    box-shadow: 0 0 26px var(--c);
+  }
+
+  .pad[data-hit="1"]::after { opacity: 0.55; transition: opacity 0.03s ease; }
+
+  @media (min-width: 620px) {
+    .pads { grid-template-columns: repeat(4, 1fr); }
+  }
+
+  /* ------------------------------------------------------- panneau ------- */
+
+  .sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    background: rgba(12, 12, 20, 0.95);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 0.9rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    transform: translateY(-100%);
+    opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+
+  .sheet.open { transform: translateY(0); opacity: 1; }
+
+  .sheet h2 {
+    margin: 0 0 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  .options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+  /* -------------------------------------------------------- démarrage ---- */
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    background: rgba(8, 8, 15, 0.85);
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 1.5rem;
+    transition: opacity 0.4s ease;
+  }
+
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .overlay strong { font-size: clamp(1.2rem, 5vw, 1.8rem); font-weight: 600; }
+  .overlay p { margin: 0; color: var(--muted); max-width: 26rem; font-size: 0.93rem; }
+
+  footer {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.8rem max(0.5rem, env(safe-area-inset-bottom));
+    color: var(--muted);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .build { opacity: 0.45; margin-left: 0.35rem; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 560px) {
+    h1 { font-size: 0.92rem; }
+    footer { font-size: 0.7rem; }
+    .label { font-size: 0.55rem; }
+    .row { grid-template-columns: 38px 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="../index.html">←</a>
+  <h1>Boîte à rythme</h1>
+  <div class="segmented" role="group" aria-label="Mode">
+    <button type="button" id="mode-seq" aria-pressed="true">Séquenceur</button>
+    <button type="button" id="mode-pads" aria-pressed="false">Batterie</button>
+  </div>
+</header>
+
+<div class="transport">
+  <button type="button" class="play" id="play" aria-pressed="false" aria-label="Lecture">▶</button>
+  <div class="tempo">
+    <button type="button" id="bpm-down" aria-label="Moins vite">−</button>
+    <span id="bpm-label">96 BPM</span>
+    <button type="button" id="bpm-up" aria-label="Plus vite">+</button>
+  </div>
+  <button type="button" class="chip spacer" id="menu-toggle" aria-expanded="false">Motifs</button>
+</div>
+
+<main>
+  <div class="view" id="view-seq"></div>
+
+  <div class="view" id="view-pads" hidden>
+    <div class="pads" id="pads"></div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <section>
+      <h2>Motifs</h2>
+      <div class="options" id="pattern-options"></div>
+    </section>
+    <section>
+      <h2>Swing</h2>
+      <div class="options" id="swing-options"></div>
+    </section>
+    <section>
+      <h2>Grille</h2>
+      <div class="options">
+        <button type="button" class="chip" id="clear">Effacer</button>
+        <button type="button" class="chip" id="random">Aléatoire</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <strong>Touche pour démarrer</strong>
+    <p>Tout est synthétisé : pas un seul fichier son. Compose sur la grille, ou passe en Batterie pour taper toi-même — le motif continue de tourner.</p>
+  </div>
+</main>
+
+<footer>
+  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 1</span>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ==================================================== instruments ====== */
+  // Tout est synthétisé : une grosse caisse est un sinus dont la hauteur
+  // chute, une caisse claire du bruit filtré plus deux oscillateurs, un
+  // charleston six carrés inharmoniques. C'est exactement ainsi que les
+  // boîtes à rythme analogiques fabriquaient ces sons.
+
+  const STEPS = 16;
+
+  const KITS = [
+    { id: 'kick',  nom: 'Kick',    court: 'KICK', couleur: '#ff5470' },
+    { id: 'snare', nom: 'Caisse',  court: 'SNR',  couleur: '#ffb454' },
+    { id: 'clap',  nom: 'Clap',    court: 'CLP',  couleur: '#ffe066' },
+    { id: 'hatC',  nom: 'Charley', court: 'HH',   couleur: '#7dd3fc' },
+    { id: 'hatO',  nom: 'Ouvert',  court: 'OH',   couleur: '#5eead4' },
+    { id: 'tom',   nom: 'Tom',     court: 'TOM',  couleur: '#c084fc' },
+    { id: 'rim',   nom: 'Rim',     court: 'RIM',  couleur: '#a3e635' },
+    { id: 'bell',  nom: 'Cloche',  court: 'BEL',  couleur: '#f472b6' },
+  ];
+
+  const MOTIFS = {
+    'Boom bap': {
+      kick:  [1,0,0,0, 0,0,1,0, 0,0,1,0, 0,0,0,0],
+      snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hatC:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,1],
+      rim:   [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+    },
+    'House': {
+      kick:  [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+      clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hatC:  [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+      hatO:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+      bell:  [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+    },
+    'Trap': {
+      kick:  [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,1,0],
+      snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+      hatC:  [1,1,1,0, 1,1,1,1, 1,0,1,1, 1,1,1,1],
+      tom:   [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+    },
+    'Break': {
+      kick:  [1,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,0,0],
+      snare: [0,0,0,0, 1,0,0,0, 0,1,0,0, 1,0,0,1],
+      hatC:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+      hatO:  [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+    },
+    'Bossa': {
+      kick:  [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+      rim:   [0,0,1,0, 0,1,0,0, 1,0,0,1, 0,0,1,0],
+      hatC:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+      bell:  [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    },
+  };
+
+  const grille = {};
+  KITS.forEach((k) => { grille[k.id] = new Array(STEPS).fill(0); });
+
+  function chargerMotif(nom) {
+    const m = MOTIFS[nom];
+    KITS.forEach((k) => {
+      const src = m[k.id];
+      for (let i = 0; i < STEPS; i++) grille[k.id][i] = src ? src[i] : 0;
+    });
+    rafraichirGrille();
+  }
+
+  /* ========================================================= audio ======= */
+
+  let audio = null;
+  let master = null;
+  let bruit = null;          // buffer de bruit, généré une fois
+  let hatOuvert = null;      // pour que le charley fermé coupe l'ouvert
+
+  function softClipCurve() {
+    const n = 2048;
+    const curve = new Float32Array(n);
+    const k = 1.1;
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * k) / k;
+    }
+    return curve;
+  }
+
+  function initAudio() {
+    if (audio) return;
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+
+    master = audio.createGain();
+    master.gain.value = 0.9;
+
+    const comp = audio.createDynamicsCompressor();
+    comp.threshold.value = -10;
+    comp.knee.value = 16;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.18;
+
+    const makeup = audio.createGain();
+    makeup.gain.value = 1.5;
+
+    // sécurité de sortie : au-delà, ça plafonne en douceur au lieu d'écrêter
+    const limiteur = audio.createWaveShaper();
+    limiteur.curve = softClipCurve();
+    limiteur.oversample = '2x';
+
+    master.connect(comp);
+    comp.connect(makeup);
+    makeup.connect(limiteur);
+    limiteur.connect(audio.destination);
+
+    // un seul buffer de bruit blanc, réutilisé par tous les sons
+    const n = Math.floor(audio.sampleRate * 1.2);
+    bruit = audio.createBuffer(1, n, audio.sampleRate);
+    const d = bruit.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  }
+
+  // enveloppe qui atteint vraiment zéro : sinon couper la source claque
+  function enveloppe(param, t0, crete, attaque, chute) {
+    param.setValueAtTime(0, t0);
+    param.linearRampToValueAtTime(crete, t0 + attaque);
+    param.exponentialRampToValueAtTime(Math.max(crete * 0.001, 1e-5), t0 + attaque + chute);
+    param.linearRampToValueAtTime(0, t0 + attaque + chute + 0.012);
+    return t0 + attaque + chute + 0.02;
+  }
+
+  function sourceBruit(t0) {
+    const src = audio.createBufferSource();
+    src.buffer = bruit;
+    src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    src.start(t0, Math.random() * 0.5);
+    return src;
+  }
+
+  function brancher(noeud, t0, fin) {
+    noeud.connect(master);
+    return fin;
+  }
+
+  /* ---- les huit instruments ---- */
+
+  const VOIX = {
+    // sinus dont la hauteur chute : c'est toute la grosse caisse
+    kick(t0, v = 1) {
+      const osc = audio.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(125, t0);
+      osc.frequency.exponentialRampToValueAtTime(42, t0 + 0.09);
+
+      const g = audio.createGain();
+      const fin = enveloppe(g.gain, t0, 0.9 * v, 0.002, 0.34);
+      osc.connect(g); brancher(g, t0, fin);
+      osc.start(t0); osc.stop(fin);
+
+      // petit claquement d'attaque
+      const clic = sourceBruit(t0);
+      const cg = audio.createGain();
+      const hp = audio.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 1200;
+      const finClic = enveloppe(cg.gain, t0, 0.22 * v, 0.001, 0.012);
+      clic.connect(hp); hp.connect(cg); brancher(cg, t0, finClic);
+      clic.stop(finClic);
+    },
+
+    // bruit filtré + deux oscillateurs désaccordés
+    snare(t0, v = 1) {
+      const src = sourceBruit(t0);
+      const bp = audio.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 1750; bp.Q.value = 0.8;
+      const g = audio.createGain();
+      const fin = enveloppe(g.gain, t0, 0.5 * v, 0.001, 0.16);
+      src.connect(bp); bp.connect(g); brancher(g, t0, fin);
+      src.stop(fin);
+
+      [188, 331].forEach((f, i) => {
+        const osc = audio.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = f;
+        const og = audio.createGain();
+        const of = enveloppe(og.gain, t0, (i ? 0.16 : 0.24) * v, 0.001, 0.1);
+        osc.connect(og); brancher(og, t0, of);
+        osc.start(t0); osc.stop(of);
+      });
+    },
+
+    // quatre rebonds de bruit très rapprochés : c'est ce qui fait le clap
+    clap(t0, v = 1) {
+      [0, 0.011, 0.022, 0.034].forEach((retard, i) => {
+        const src = sourceBruit(t0 + retard);
+        const bp = audio.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 1150; bp.Q.value = 0.9;
+        const g = audio.createGain();
+        const dernier = i === 3;
+        const fin = enveloppe(g.gain, t0 + retard, (dernier ? 0.42 : 0.3) * v,
+                              0.001, dernier ? 0.17 : 0.022);
+        src.connect(bp); bp.connect(g); brancher(g, t0, fin);
+        src.stop(fin);
+      });
+    },
+
+    hatC(t0, v = 1) { metal(t0, 0.045, 0.3 * v, 9000); },
+    hatO(t0, v = 1) { hatOuvert = metal(t0, 0.42, 0.26 * v, 8200); },
+
+    tom(t0, v = 1) {
+      const osc = audio.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(230, t0);
+      osc.frequency.exponentialRampToValueAtTime(95, t0 + 0.22);
+      const g = audio.createGain();
+      const fin = enveloppe(g.gain, t0, 0.6 * v, 0.002, 0.3);
+      osc.connect(g); brancher(g, t0, fin);
+      osc.start(t0); osc.stop(fin);
+
+      const src = sourceBruit(t0);
+      const bp = audio.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 400;
+      const ng = audio.createGain();
+      const nf = enveloppe(ng.gain, t0, 0.12 * v, 0.001, 0.04);
+      src.connect(bp); bp.connect(ng); brancher(ng, t0, nf);
+      src.stop(nf);
+    },
+
+    rim(t0, v = 1) {
+      const osc = audio.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = 1720;
+      const g = audio.createGain();
+      const fin = enveloppe(g.gain, t0, 0.3 * v, 0.0005, 0.028);
+      osc.connect(g); brancher(g, t0, fin);
+      osc.start(t0); osc.stop(fin);
+
+      const src = sourceBruit(t0);
+      const hp = audio.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 2400;
+      const ng = audio.createGain();
+      const nf = enveloppe(ng.gain, t0, 0.2 * v, 0.0005, 0.02);
+      src.connect(hp); hp.connect(ng); brancher(ng, t0, nf);
+      src.stop(nf);
+    },
+
+    bell(t0, v = 1) {
+      const sortie = audio.createGain();
+      const bp = audio.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 1.2;
+      const fin = enveloppe(sortie.gain, t0, 0.3 * v, 0.001, 0.26);
+      bp.connect(sortie); brancher(sortie, t0, fin);
+      [540, 800].forEach((f) => {
+        const osc = audio.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = f;
+        osc.connect(bp);
+        osc.start(t0); osc.stop(fin);
+      });
+    },
+  };
+
+  // Son métallique : six carrés aux rapports inharmoniques des 808, passés en
+  // passe-haut. Aucun sample ne serait plus fidèle, c'est la recette d'origine.
+  const RAPPORTS = [1, 1.4471, 1.6170, 1.9265, 2.5028, 2.6637];
+
+  function metal(t0, chute, crete, coupure) {
+    const hp = audio.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = coupure;
+    const bp = audio.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 10000; bp.Q.value = 0.6;
+    const g = audio.createGain();
+    const fin = enveloppe(g.gain, t0, crete, 0.0005, chute);
+    hp.connect(bp); bp.connect(g); brancher(g, t0, fin);
+
+    const oscs = RAPPORTS.map((r) => {
+      const osc = audio.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 263 * r;
+      osc.connect(hp);
+      osc.start(t0); osc.stop(fin);
+      return osc;
+    });
+    return { g, oscs, fin };
+  }
+
+  function jouer(id, t0, v = 1) {
+    if (!audio) return;
+    // le charley fermé coupe l'ouvert, comme sur une vraie batterie
+    if (id === 'hatC' && hatOuvert && t0 >= audio.currentTime) {
+      const h = hatOuvert;
+      hatOuvert = null;
+      try {
+        h.g.gain.cancelScheduledValues(t0);
+        h.g.gain.setTargetAtTime(0, t0, 0.005);
+      } catch (e) { /* déjà terminé */ }
+    }
+    VOIX[id](t0, v);
+  }
+
+  /* ==================================================== séquenceur ======= */
+  // Horloge audio avec anticipation : un minuteur approximatif réveille le
+  // programmateur, mais chaque frappe est calée sur l'horloge audio, qui est
+  // exacte. C'est ce qui donne un tempo qui ne flotte pas.
+
+  const ANTICIPATION = 0.12;   // secondes programmées à l'avance
+  const REVEIL = 25;           // ms
+
+  let tempo = 96;
+  let swing = 0;
+  let enLecture = false;
+  let minuteur = null;
+  let prochainTemps = 0;
+  let pasCourant = 0;
+  const aVenir = [];           // {pas, temps} pour caler l'affichage
+
+  function dureePas(indice) {
+    const base = 60 / tempo / 4;
+    // le swing retarde les doubles-croches impaires
+    return indice % 2 === 0 ? base * (1 + swing) : base * (1 - swing);
+  }
+
+  function programmer() {
+    while (prochainTemps < audio.currentTime + ANTICIPATION) {
+      KITS.forEach((k) => {
+        if (grille[k.id][pasCourant]) jouer(k.id, prochainTemps);
+      });
+      aVenir.push({ pas: pasCourant, temps: prochainTemps });
+      prochainTemps += dureePas(pasCourant);
+      pasCourant = (pasCourant + 1) % STEPS;
+    }
+  }
+
+  function demarrer() {
+    initAudio();
+    if (audio.state === 'suspended') audio.resume();
+    if (enLecture) return;
+    enLecture = true;
+    pasCourant = 0;
+    aVenir.length = 0;
+    prochainTemps = audio.currentTime + 0.06;
+    minuteur = setInterval(programmer, REVEIL);
+    boutonPlay.setAttribute('aria-pressed', 'true');
+    boutonPlay.textContent = '■';
+  }
+
+  function arreter() {
+    enLecture = false;
+    clearInterval(minuteur);
+    minuteur = null;
+    aVenir.length = 0;
+    boutonPlay.setAttribute('aria-pressed', 'false');
+    boutonPlay.textContent = '▶';
+    document.querySelectorAll('[data-playing="1"]').forEach((el) => {
+      el.removeAttribute('data-playing');
+    });
+  }
+
+  /* ==================================================== affichage ======== */
+
+  const vueSeq = document.getElementById('view-seq');
+  const vuePads = document.getElementById('view-pads');
+  const conteneurPads = document.getElementById('pads');
+  const boutonPlay = document.getElementById('play');
+  const cases = {};
+  const pads = {};
+
+  KITS.forEach((k) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.setProperty('--c', k.couleur);
+
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'label';
+    label.innerHTML = `<span class="dot"></span>${k.court}`;
+    label.addEventListener('pointerdown', () => { demarrerAudio(); jouer(k.id, audio.currentTime); flashPas(k.id, -1); });
+    row.appendChild(label);
+
+    const steps = document.createElement('div');
+    steps.className = 'steps';
+    cases[k.id] = [];
+    for (let i = 0; i < STEPS; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'step';
+      b.dataset.beat = i % 4 === 0 ? '1' : '0';
+      b.setAttribute('aria-label', `${k.nom} pas ${i + 1}`);
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        demarrerAudio();
+        grille[k.id][i] = grille[k.id][i] ? 0 : 1;
+        b.dataset.on = grille[k.id][i] ? '1' : '0';
+        if (grille[k.id][i]) jouer(k.id, audio.currentTime);
+      });
+      steps.appendChild(b);
+      cases[k.id].push(b);
+    }
+    row.appendChild(steps);
+    vueSeq.appendChild(row);
+
+    // pad correspondant
+    const pad = document.createElement('button');
+    pad.type = 'button';
+    pad.className = 'pad';
+    pad.style.setProperty('--c', k.couleur);
+    pad.textContent = k.nom;
+    pad.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      demarrerAudio();
+      jouer(k.id, audio.currentTime, 0.85 + Math.random() * 0.15);
+      flashPad(k.id);
+    });
+    conteneurPads.appendChild(pad);
+    pads[k.id] = pad;
+  });
+
+  function rafraichirGrille() {
+    KITS.forEach((k) => {
+      for (let i = 0; i < STEPS; i++) {
+        cases[k.id][i].dataset.on = grille[k.id][i] ? '1' : '0';
+      }
+    });
+  }
+
+  function flashPas(id, pas) {
+    const el = pas >= 0 ? cases[id][pas] : null;
+    if (el) {
+      el.dataset.hit = '1';
+      setTimeout(() => el.removeAttribute('data-hit'), 110);
+    }
+    flashPad(id);
+  }
+
+  function flashPad(id) {
+    const pad = pads[id];
+    pad.dataset.hit = '1';
+    setTimeout(() => pad.removeAttribute('data-hit'), 90);
+  }
+
+  let dernierPas = -1;
+
+  function boucleAffichage() {
+    if (enLecture && audio) {
+      const maintenant = audio.currentTime;
+      let courant = dernierPas;
+      while (aVenir.length && aVenir[0].temps <= maintenant) {
+        courant = aVenir.shift().pas;
+      }
+      if (courant !== dernierPas) {
+        KITS.forEach((k) => {
+          if (dernierPas >= 0) cases[k.id][dernierPas].removeAttribute('data-playing');
+          cases[k.id][courant].dataset.playing = '1';
+          if (grille[k.id][courant]) flashPas(k.id, courant);
+        });
+        dernierPas = courant;
+      }
+    }
+    requestAnimationFrame(boucleAffichage);
+  }
+
+  /* ==================================================== interactions ===== */
+
+  const overlay = document.getElementById('overlay');
+  let demarre = false;
+
+  function demarrerAudio() {
+    initAudio();
+    if (audio.state === 'suspended') audio.resume();
+    if (demarre) return;
+    demarre = true;
+    overlay.classList.add('hidden');
+  }
+
+  overlay.addEventListener('pointerdown', demarrerAudio);
+
+  boutonPlay.addEventListener('click', () => {
+    demarrerAudio();
+    enLecture ? arreter() : demarrer();
+  });
+
+  const labelBpm = document.getElementById('bpm-label');
+  function setTempo(v) {
+    tempo = Math.max(50, Math.min(200, v));
+    labelBpm.textContent = tempo + ' BPM';
+  }
+  document.getElementById('bpm-up').addEventListener('click', () => setTempo(tempo + 2));
+  document.getElementById('bpm-down').addEventListener('click', () => setTempo(tempo - 2));
+
+  // mode
+  const boutonSeq = document.getElementById('mode-seq');
+  const boutonPads = document.getElementById('mode-pads');
+
+  function setMode(mode) {
+    const seq = mode === 'seq';
+    boutonSeq.setAttribute('aria-pressed', String(seq));
+    boutonPads.setAttribute('aria-pressed', String(!seq));
+    vueSeq.hidden = !seq;
+    vuePads.hidden = seq;
+  }
+  boutonSeq.addEventListener('click', () => setMode('seq'));
+  boutonPads.addEventListener('click', () => { demarrerAudio(); setMode('pads'); });
+
+  // panneau
+  const sheet = document.getElementById('sheet');
+  const menuToggle = document.getElementById('menu-toggle');
+
+  function fermerPanneau() {
+    sheet.classList.remove('open');
+    menuToggle.setAttribute('aria-expanded', 'false');
+  }
+
+  menuToggle.addEventListener('click', () => {
+    const ouvert = sheet.classList.toggle('open');
+    menuToggle.setAttribute('aria-expanded', String(ouvert));
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!sheet.classList.contains('open')) return;
+    if (e.target.closest('#menu-toggle, .chip, .sheet')) return;
+    fermerPanneau();
+  }, true);
+
+  function construireOptions(conteneur, entrees, actif, choisir) {
+    conteneur.innerHTML = '';
+    entrees.forEach((texte) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip' + (texte === actif ? ' selected' : '');
+      b.textContent = texte;
+      b.addEventListener('click', () => {
+        [...conteneur.children].forEach((c) => c.classList.remove('selected'));
+        b.classList.add('selected');
+        choisir(texte);
+      });
+      conteneur.appendChild(b);
+    });
+  }
+
+  construireOptions(
+    document.getElementById('pattern-options'),
+    Object.keys(MOTIFS), 'Boom bap',
+    (nom) => { chargerMotif(nom); menuToggle.textContent = nom; }
+  );
+
+  construireOptions(
+    document.getElementById('swing-options'),
+    ['Droit', 'Léger', 'Moyen', 'Fort'], 'Droit',
+    (nom) => { swing = { Droit: 0, 'Léger': 0.08, Moyen: 0.16, Fort: 0.26 }[nom]; }
+  );
+
+  document.getElementById('clear').addEventListener('click', () => {
+    KITS.forEach((k) => grille[k.id].fill(0));
+    rafraichirGrille();
+  });
+
+  document.getElementById('random').addEventListener('click', () => {
+    const densite = { kick: 0.22, snare: 0.12, clap: 0.1, hatC: 0.55,
+                      hatO: 0.08, tom: 0.07, rim: 0.12, bell: 0.05 };
+    KITS.forEach((k) => {
+      for (let i = 0; i < STEPS; i++) {
+        grille[k.id][i] = Math.random() < densite[k.id] ? 1 : 0;
+      }
+    });
+    // on garde un appui sur le premier temps, sinon ça ne tient pas debout
+    grille.kick[0] = 1;
+    rafraichirGrille();
+  });
+
+  // clavier : les huit instruments sur la rangée du milieu
+  const TOUCHES = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK'];
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.code === 'Space') { e.preventDefault(); demarrerAudio(); enLecture ? arreter() : demarrer(); return; }
+    const i = TOUCHES.indexOf(e.code);
+    if (i === -1) return;
+    e.preventDefault();
+    demarrerAudio();
+    jouer(KITS[i].id, audio.currentTime);
+    flashPad(KITS[i].id);
+  });
+
+  /* ========================================================== boot ======= */
+
+  chargerMotif('Boom bap');
+  menuToggle.textContent = 'Boom bap';
+  setTempo(96);
+  requestAnimationFrame(boucleAffichage);
+})();
+</script>
+</body>
+</html>

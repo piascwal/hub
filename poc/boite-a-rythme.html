@@ -481,7 +481,7 @@
 </main>
 
 <footer>
-  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 4</span>
+  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 5</span>
 </footer>
 
 <script>
@@ -1072,7 +1072,7 @@
   const detailSync = document.getElementById('sync-detail');
 
   function majSync() {
-    labelSync.textContent = decalageManuel + ' ms';
+    labelSync.textContent = (decalageManuel > 0 ? '+' : '') + decalageManuel + ' ms';
     localStorage.setItem('br-decalage', String(decalageManuel));
     const mesuree = latenceMesuree();
     if (mesuree === null) {
@@ -1082,29 +1082,31 @@
     const ms = Math.round(mesuree * 1000);
     detailSync.textContent =
       `Le navigateur annonce ${ms} ms de latence, déjà compensés. Total appliqué : ${ms + decalageManuel} ms. `
-      + 'Un casque Bluetooth en ajoute 150 à 400 de plus, qu\'aucune API ne voit : '
-      + 'monte le réglage jusqu\'à ce que la case s\'allume pile sur la frappe.';
+      + 'Case allumée AVANT la frappe : monte. Case allumée APRÈS : descends, y compris '
+      + 'dans le négatif — selon le navigateur, la compensation automatique peut en faire trop.';
   }
 
   // la latence bouge (démarrage, changement de sortie) : on rafraîchit
   setInterval(() => { if (audio) majSync(); }, 1000);
 
-  // pas de 40 ms : en Bluetooth il y a parfois 400 ms à rattraper, et un pas
-  // de séquenceur fait 156 ms à 96 BPM, donc cette finesse suffit largement
+  // Plage symétrique : selon le navigateur, outputLatency inclut déjà le
+  // Bluetooth ou pas du tout. Dans le premier cas la compensation automatique
+  // en fait trop et il faut du négatif pour avancer l'image, dans le second il
+  // faut du positif pour la retarder. Les deux sens doivent aller loin.
   document.getElementById('sync-up').addEventListener('click', () => {
     decalageManuel = Math.min(800, decalageManuel + 40); majSync();
   });
   document.getElementById('sync-down').addEventListener('click', () => {
-    decalageManuel = Math.max(-200, decalageManuel - 40); majSync();
+    decalageManuel = Math.max(-800, decalageManuel - 40); majSync();
   });
   // sauts rapides : en Bluetooth le retard se compte en centaines de ms,
   // autant ne pas obliger à appuyer quinze fois
   const presets = document.getElementById('sync-presets');
-  [0, 150, 300, 450].forEach((v) => {
+  [-450, -300, -150, 0, 150, 300, 450].forEach((v) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'chip';
-    b.textContent = v === 0 ? 'Aucun' : v + ' ms';
+    b.textContent = v === 0 ? 'Aucun' : (v > 0 ? '+' : '') + v + ' ms';
     b.addEventListener('click', () => { decalageManuel = v; majSync(); });
     presets.appendChild(b);
   });

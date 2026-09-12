@@ -424,37 +424,82 @@
   /* ============================================================ audio ==== */
 
   let audio = null;
-  let master, voiceBus, reverb, reverbSend, delayNode, delaySend, feedbackGain, droneGain;
+  let master, voiceBus, reverbSend, delaySend, delayNode, feedbackGain, droneGain;
 
-  // Un bruit blanc brut donne une queue de réverbe qui siffle : les aigus ne
-  // s'éteignent jamais. Ici les hautes fréquences meurent avant les graves
-  // (double passe-bas à un pôle dont la coupure descend avec le temps) et la
-  // décroissance est exponentielle, comme dans une vraie pièce.
-  function impulseResponse(seconds, decay) {
-    const rate = audio.sampleRate;
-    const length = Math.floor(rate * seconds);
-    const buffer = audio.createBuffer(2, length, rate);
+  // Réverbe algorithmique (Schroeder) plutôt qu'une convolution de bruit.
+  // Convoluer du bruit, même bien filtré, pose un voile de souffle sur chaque
+  // note : c'est du bruit, par construction. Ici la queue est faite de peignes
+  // récursifs diffusés par des passe-tout : c'est lisse, ça n'a aucun caractère
+  // de souffle, et ça coûte bien moins cher qu'un convolueur.
 
-    for (let ch = 0; ch < 2; ch++) {
-      const data = buffer.getChannelData(ch);
-      let lp1 = 0;
-      let lp2 = 0;
-      let cutoff = 0.42;
-      let env = 0;
-      for (let i = 0; i < length; i++) {
-        // pow() et exp() seulement tous les 64 échantillons : l'enveloppe
-        // varie bien trop lentement pour que ça s'entende
-        if ((i & 63) === 0) {
-          const t = i / length;
-          cutoff = 0.42 * Math.pow(1 - t, 1.8) + 0.015;
-          env = Math.min(1, t * 260) * Math.exp(-decay * t * 5.5);
-        }
-        lp1 += cutoff * ((Math.random() * 2 - 1) - lp1);
-        lp2 += cutoff * (lp1 - lp2);
-        data[i] = lp2 * env;
-      }
-    }
-    return buffer;
+  // peigne récursif amorti : les aigus s'éteignent avant les graves
+  function comb(time, feedback, damping) {
+    const input = audio.createGain();
+    const delay = audio.createDelay(0.2);
+    delay.delayTime.value = time;
+    const lp = audio.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = damping;
+    // Q par défaut = 1, ce qui donne une bosse de résonance de +1,25 dB à la
+    // coupure : le gain de boucle passerait à 0,84 x 1,15 = 0,97 et la réverbe
+    // ne s'éteindrait plus. En dessous de 0,707 la réponse est partout <= 1.
+    lp.Q.value = 0.5;
+    const fb = audio.createGain();
+    fb.gain.value = feedback;
+
+    input.connect(delay);
+    delay.connect(lp);
+    lp.connect(fb);
+    fb.connect(delay);
+    return { input, output: delay };
+  }
+
+  // passe-tout : densifie les échos sans colorer le spectre
+  function allpass(time, g) {
+    const input = audio.createGain();
+    const output = audio.createGain();
+    const delay = audio.createDelay(0.2);
+    delay.delayTime.value = time;
+    const fb = audio.createGain();
+    fb.gain.value = g;
+    const ff = audio.createGain();
+    ff.gain.value = -g;
+
+    input.connect(delay);
+    input.connect(ff);
+    ff.connect(output);
+    delay.connect(output);
+    delay.connect(fb);
+    fb.connect(delay);
+    return { input, output };
+  }
+
+  function buildReverb(destination) {
+    const input = audio.createGain();
+    const merge = audio.createGain();
+    // chaque peigne a un gain de 1/(1 - feedback) ~ 6 en régime établi, et ils
+    // sont quatre : on compense pour que la sortie reste au niveau de l'entrée
+    merge.gain.value = 0.075;
+
+    // durées volontairement non harmoniques, sinon la queue sonne métallique
+    [0.0297, 0.0371, 0.0411, 0.0437].forEach((time) => {
+      const c = comb(time, 0.84, 2600);
+      input.connect(c.input);
+      c.output.connect(merge);
+    });
+
+    let node = merge;
+    [[0.005, 0.7], [0.0117, 0.7]].forEach(([time, g]) => {
+      const ap = allpass(time, g);
+      node.connect(ap.input);
+      node = ap.output;
+    });
+
+    const width = audio.createStereoPanner();
+    width.pan.value = 0;
+    node.connect(width);
+    width.connect(destination);
+    return input;
   }
 
   // saturation douce de sécurité : pente 1 à bas niveau, plafonne vers ±0.9
@@ -476,6 +521,14 @@
     master = audio.createGain();
     master.gain.value = 0.8;
 
+    // Sous ~80 Hz, un haut-parleur de téléphone ne reproduit rien : il distord.
+    // Les notes les plus graves envoyaient là 16 dB de plus que partout
+    // ailleurs. On coupe : inaudible sur enceinte, propre sur téléphone.
+    const rumble = audio.createBiquadFilter();
+    rumble.type = 'highpass';
+    rumble.frequency.value = 80;
+    rumble.Q.value = 0.7;
+
     const compressor = audio.createDynamicsCompressor();
     compressor.threshold.value = -10;
     compressor.knee.value = 18;
@@ -492,7 +545,8 @@
     limiter.curve = softClipCurve();
     limiter.oversample = '2x';
 
-    master.connect(compressor);
+    master.connect(rumble);
+    rumble.connect(compressor);
     compressor.connect(makeup);
     makeup.connect(limiter);
     limiter.connect(audio.destination);
@@ -502,18 +556,10 @@
     voiceBus.gain.value = 2.8;
     voiceBus.connect(master);
 
-    reverb = audio.createConvolver();
-    reverb.normalize = true;
-    // Générer l'impulse response, c'est des centaines de milliers d'itérations.
-    // La calculer ici bloquerait le thread au moment précis du premier appui,
-    // et la première note en pâtissait. On la construit donc juste après, une
-    // fois la note lancée : le convolueur est muet en attendant.
-    setTimeout(() => { reverb.buffer = impulseResponse(2, 2.3); }, 0);
     reverbSend = audio.createGain();
     reverbSend.gain.value = 0;
     voiceBus.connect(reverbSend);
-    reverbSend.connect(reverb);
-    reverb.connect(master);
+    reverbSend.connect(buildReverb(master));
 
     delayNode = audio.createDelay(1.5);
     const damp = audio.createBiquadFilter();

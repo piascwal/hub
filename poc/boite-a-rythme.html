@@ -360,7 +360,14 @@
 
   .options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
-  .row-sync { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .sync-inline::before {
+    content: '⏱';
+    font-size: 0.8rem;
+    padding-left: 0.6rem;
+    opacity: 0.6;
+  }
+
+  .sync-inline span { min-width: 3.6rem; }
 
   .hint-sync {
     margin: 0.5rem 0 0;
@@ -429,6 +436,12 @@
     <button type="button" id="bpm-up" aria-label="Plus vite">+</button>
   </div>
   <button type="button" class="chip spacer" id="menu-toggle" aria-expanded="false">Motifs</button>
+
+  <div class="tempo sync-inline" title="Cale l'image sur le son">
+    <button type="button" id="sync-down" aria-label="Image plus tôt">−</button>
+    <span id="sync-label">0 ms</span>
+    <button type="button" id="sync-up" aria-label="Image plus tard">+</button>
+  </div>
 </div>
 
 <main>
@@ -449,14 +462,7 @@
     </section>
     <section>
       <h2>Synchro image / son</h2>
-      <div class="row-sync">
-        <div class="tempo">
-          <button type="button" id="sync-down" aria-label="Moins de décalage">−</button>
-          <span id="sync-label">0 ms</span>
-          <button type="button" id="sync-up" aria-label="Plus de décalage">+</button>
-        </div>
-        <button type="button" class="chip" id="sync-reset">Auto</button>
-      </div>
+      <div class="options" id="sync-presets"></div>
       <p class="hint-sync" id="sync-detail"></p>
     </section>
     <section>
@@ -475,7 +481,7 @@
 </main>
 
 <footer>
-  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 2</span>
+  Séquenceur : touche une case · Batterie : tape les pads <span class="build">build 4</span>
 </footer>
 
 <script>
@@ -923,18 +929,38 @@
   let dernierPas = -1;
 
   // audio.currentTime est l'horloge de RENDU : le son programmé à cet instant
-  // ne sort des écouteurs qu'un peu plus tard. En Bluetooth ça se compte en
-  // centaines de millisecondes. On retarde donc l'affichage d'autant, sinon la
-  // case s'allume avant qu'on entende la frappe.
-  function latence() {
+  // ne sort des écouteurs qu'un peu plus tard, et en Bluetooth ça se compte en
+  // centaines de millisecondes.
+  //
+  // getOutputTimestamp() donne l'heure du son EN TRAIN DE SORTIR, ce qui est
+  // exactement l'horloge qu'il faut pour caler l'image. C'est aussi la seule
+  // qui marche sur Safari, qui ne renseigne pas outputLatency.
+  function tempsEntendu() {
     if (!audio) return 0;
-    const auto = (audio.baseLatency || 0) + (audio.outputLatency || 0);
-    return auto + decalageManuel / 1000;
+    let t = null;
+    if (audio.getOutputTimestamp) {
+      const ts = audio.getOutputTimestamp();
+      if (ts && ts.contextTime > 0) t = ts.contextTime;
+    }
+    if (t === null) {
+      t = audio.currentTime - (audio.baseLatency || 0) - (audio.outputLatency || 0);
+    }
+    return t - decalageManuel / 1000;
+  }
+
+  // écart mesuré entre le son calculé et le son entendu, pour l'afficher
+  function latenceMesuree() {
+    if (!audio) return null;
+    if (audio.getOutputTimestamp) {
+      const ts = audio.getOutputTimestamp();
+      if (ts && ts.contextTime > 0) return audio.currentTime - ts.contextTime;
+    }
+    return (audio.baseLatency || 0) + (audio.outputLatency || 0);
   }
 
   function boucleAffichage() {
     if (enLecture && audio) {
-      const maintenant = audio.currentTime - latence();
+      const maintenant = tempsEntendu();
       let courant = dernierPas;
       while (aVenir.length && aVenir[0].temps <= maintenant) {
         courant = aVenir.shift().pas;
@@ -1048,12 +1074,20 @@
   function majSync() {
     labelSync.textContent = decalageManuel + ' ms';
     localStorage.setItem('br-decalage', String(decalageManuel));
-    const auto = audio ? Math.round(((audio.baseLatency || 0) + (audio.outputLatency || 0)) * 1000) : null;
-    detailSync.textContent = auto === null
-      ? 'Si la case s\'allume avant la frappe, augmente le décalage.'
-      : `Latence détectée : ${auto} ms. Total appliqué : ${auto + decalageManuel} ms. `
-        + 'Si la case s\'allume encore avant la frappe, augmente.';
+    const mesuree = latenceMesuree();
+    if (mesuree === null) {
+      detailSync.textContent = 'Si la case s\'allume avant la frappe, augmente le décalage.';
+      return;
+    }
+    const ms = Math.round(mesuree * 1000);
+    detailSync.textContent =
+      `Le navigateur annonce ${ms} ms de latence, déjà compensés. Total appliqué : ${ms + decalageManuel} ms. `
+      + 'Un casque Bluetooth en ajoute 150 à 400 de plus, qu\'aucune API ne voit : '
+      + 'monte le réglage jusqu\'à ce que la case s\'allume pile sur la frappe.';
   }
+
+  // la latence bouge (démarrage, changement de sortie) : on rafraîchit
+  setInterval(() => { if (audio) majSync(); }, 1000);
 
   // pas de 40 ms : en Bluetooth il y a parfois 400 ms à rattraper, et un pas
   // de séquenceur fait 156 ms à 96 BPM, donc cette finesse suffit largement
@@ -1063,8 +1097,16 @@
   document.getElementById('sync-down').addEventListener('click', () => {
     decalageManuel = Math.max(-200, decalageManuel - 40); majSync();
   });
-  document.getElementById('sync-reset').addEventListener('click', () => {
-    decalageManuel = 0; majSync();
+  // sauts rapides : en Bluetooth le retard se compte en centaines de ms,
+  // autant ne pas obliger à appuyer quinze fois
+  const presets = document.getElementById('sync-presets');
+  [0, 150, 300, 450].forEach((v) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.textContent = v === 0 ? 'Aucun' : v + ' ms';
+    b.addEventListener('click', () => { decalageManuel = v; majSync(); });
+    presets.appendChild(b);
   });
 
   document.getElementById('clear').addEventListener('click', () => {

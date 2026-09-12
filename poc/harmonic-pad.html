@@ -250,6 +250,14 @@
       <div class="options" id="scale-options"></div>
     </section>
     <section>
+      <h2>Effets</h2>
+      <div class="options">
+        <button type="button" class="chip" id="fx-reverb" aria-pressed="true">Réverbe</button>
+        <button type="button" class="chip" id="fx-delay" aria-pressed="true">Delay</button>
+        <button type="button" class="chip" id="fx-dry">Son brut</button>
+      </div>
+    </section>
+    <section>
       <h2>Registre</h2>
       <div class="row">
         <div class="octave">
@@ -377,6 +385,8 @@
   let scaleKey = 'penta-min';
   let octaveShift = 0;
   let droneOn = false;
+  let reverbOn = true;
+  let delayOn = true;
   let COLUMNS = 15;
 
   const amb = () => AMBIANCES[ambianceKey];
@@ -521,12 +531,12 @@
     master = audio.createGain();
     master.gain.value = 0.8;
 
-    // Sous ~80 Hz, un haut-parleur de téléphone ne reproduit rien : il distord.
-    // Les notes les plus graves envoyaient là 16 dB de plus que partout
-    // ailleurs. On coupe : inaudible sur enceinte, propre sur téléphone.
+    // Coupe le subsonique, qui ne s'entend pas mais mange de la marge et fait
+    // vibrer les petits haut-parleurs. Assez bas pour laisser intact le grave
+    // musical des notes les plus basses sur de bons écouteurs.
     const rumble = audio.createBiquadFilter();
     rumble.type = 'highpass';
-    rumble.frequency.value = 80;
+    rumble.frequency.value = 50;
     rumble.Q.value = 0.7;
 
     const compressor = audio.createDynamicsCompressor();
@@ -628,8 +638,8 @@
     if (!audio) return;
     const now = audio.currentTime;
     const a = amb();
-    reverbSend.gain.setTargetAtTime(a.reverb, now, ramp || 0.001);
-    delaySend.gain.setTargetAtTime(a.delayMix, now, ramp || 0.001);
+    reverbSend.gain.setTargetAtTime(reverbOn ? a.reverb : 0, now, ramp || 0.001);
+    delaySend.gain.setTargetAtTime(delayOn ? a.delayMix : 0, now, ramp || 0.001);
     delayNode.delayTime.setTargetAtTime(a.delayTime, now, ramp || 0.001);
     feedbackGain.gain.setTargetAtTime(a.feedback, now, ramp || 0.001);
     droneGain.gain.setTargetAtTime(droneOn ? a.drone : 0, now, 0.7);
@@ -1395,10 +1405,32 @@
   document.getElementById('oct-up').addEventListener('click', () => setOctave(octaveShift + 1));
   document.getElementById('oct-down').addEventListener('click', () => setOctave(octaveShift - 1));
 
+  const reverbButton = document.getElementById('fx-reverb');
+  const delayButton = document.getElementById('fx-delay');
+  const dryButton = document.getElementById('fx-dry');
+
+  function refreshFx() {
+    reverbButton.setAttribute('aria-pressed', String(reverbOn));
+    delayButton.setAttribute('aria-pressed', String(delayOn));
+    dryButton.setAttribute('aria-pressed', String(!reverbOn && !delayOn && !droneOn));
+    droneButton.setAttribute('aria-pressed', String(droneOn));
+    applyAmbianceAudio(0.08);
+  }
+
+  reverbButton.addEventListener('click', () => { reverbOn = !reverbOn; refreshFx(); });
+  delayButton.addEventListener('click', () => { delayOn = !delayOn; refreshFx(); });
+
+  // tout couper d'un coup : on entend les oscillateurs seuls, sans aucun effet
+  dryButton.addEventListener('click', () => {
+    const bare = reverbOn || delayOn || droneOn;
+    reverbOn = delayOn = !bare;
+    droneOn = false;
+    refreshFx();
+  });
+
   droneButton.addEventListener('click', () => {
     droneOn = !droneOn;
-    droneButton.setAttribute('aria-pressed', String(droneOn));
-    applyAmbianceAudio(0.5);
+    refreshFx();
   });
 
   /* ============================================================= boot ==== */

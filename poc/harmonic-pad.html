@@ -223,6 +223,12 @@
     text-align: center;
   }
 
+  .build {
+    opacity: 0.45;
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.35rem;
+  }
+
   @media (max-width: 560px) {
     h1 { font-size: 0.95rem; }
     footer { font-size: 0.72rem; }
@@ -276,7 +282,7 @@
   </div>
 </div>
 
-<footer id="hint">Glisse : la note suit le doigt · monte pour plus aigu · rapproche un 2ᵉ doigt pour moduler</footer>
+<footer id="hint">Glisse : la note suit le doigt · monte pour plus aigu · rapproche un 2ᵉ doigt pour moduler <span class="build">build 8</span></footer>
 
 <script>
 (() => {
@@ -447,6 +453,9 @@
   // ne s'éteigne plus (le Q d'un passe-bas s'exprime en dB dans Web Audio, et
   // même à 0,5 la boucle atteignait 1). L'amortissement est donc fait en
   // sortie, hors boucle, où il ne peut rien déstabiliser.
+  const COMB_FEEDBACK = 0.86;
+  const combFeedbacks = [];
+
   function comb(time, feedback) {
     const input = audio.createGain();
     const delay = audio.createDelay(0.2);
@@ -457,6 +466,7 @@
     input.connect(delay);
     delay.connect(fb);
     fb.connect(delay);
+    combFeedbacks.push(fb.gain);
     return { input, output: delay };
   }
 
@@ -494,7 +504,7 @@
 
     // durées volontairement non harmoniques, sinon la queue sonne métallique
     [0.0437, 0.0503, 0.0547, 0.0613].forEach((time) => {
-      const c = comb(time, 0.86);
+      const c = comb(time, COMB_FEEDBACK);
       input.connect(c.input);
       c.output.connect(merge);
     });
@@ -641,6 +651,28 @@
     filter.connect(droneGain);
     droneGain.connect(master);
     droneGain.connect(reverbSend);
+  }
+
+  // Filet de sécurité : quand plus rien ne joue depuis quelques secondes, on
+  // vide les boucles de réverbe et de delay. À ce stade les queues sont déjà
+  // sous le seuil d'audibilité, donc ça ne s'entend pas — mais si quoi que ce
+  // soit venait à s'entretenir, ça ne peut pas durer.
+  let flushTimer = null;
+
+  function scheduleFlush() {
+    if (!audio) return;
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(() => {
+      if (voices.size) return;
+      const now = audio.currentTime;
+      const a = amb();
+      combFeedbacks.forEach((g) => {
+        g.setTargetAtTime(0, now, 0.1);
+        g.setTargetAtTime(COMB_FEEDBACK, now + 0.6, 0.1);
+      });
+      feedbackGain.gain.setTargetAtTime(0, now, 0.1);
+      feedbackGain.gain.setTargetAtTime(a.feedback, now + 0.6, 0.1);
+    }, 5000);
   }
 
   function applyAmbianceAudio(ramp = 0.8) {
@@ -810,6 +842,7 @@
 
     voices.delete(id);
     faded.push(voice);
+    if (!voices.size) scheduleFlush();
   }
 
   /* ------------------------------------------------- doigt modulateur --- */

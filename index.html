@@ -14,9 +14,51 @@
 </header>
 
 <main>
-  <h2 class="section-title">Musique</h2>
-  <p class="section-note">Instruments et outils sonores.</p>
-  <div class="grid">
+  <div class="view" id="home">
+    <div class="grid">
+
+    <a class="card cat-card" href="#/musique">
+      <div class="card-icon">🎵</div>
+      <h3 class="card-title">Musique</h3>
+      <p class="card-desc">Instruments et outils sonores.</p>
+      <span class="card-link">1 projet →</span>
+    </a>
+
+    <a class="card cat-card" href="#/jeux">
+      <div class="card-icon">🎮</div>
+      <h3 class="card-title">Jeux</h3>
+      <p class="card-desc">À jouer directement dans le navigateur.</p>
+      <span class="card-link">5 projets →</span>
+    </a>
+
+    <a class="card cat-card" href="#/simulateurs">
+      <div class="card-icon">🎛️</div>
+      <h3 class="card-title">Simulateurs</h3>
+      <p class="card-desc">Reproduire un système pour le comprendre.</p>
+      <span class="card-link">3 projets →</span>
+    </a>
+
+    <a class="card cat-card" href="#/outils">
+      <div class="card-icon">🧰</div>
+      <h3 class="card-title">Outils</h3>
+      <p class="card-desc">Des choses utiles au quotidien.</p>
+      <span class="card-link">3 projets →</span>
+    </a>
+
+    <a class="card cat-card" href="#/labo">
+      <div class="card-icon">🧪</div>
+      <h3 class="card-title">Labo</h3>
+      <p class="card-desc">Expérimentations hébergées directement dans ce repo.</p>
+      <span class="card-link">3 projets →</span>
+    </a>
+    </div>
+  </div>
+
+  <section class="view" id="musique" hidden>
+    <a class="back-link" href="#/">← Toutes les catégories</a>
+    <h2 class="section-title">🎵 Musique</h2>
+    <p class="section-note">Instruments et outils sonores.</p>
+    <div class="grid">
 
     <a class="card" href="https://piascwal.github.io/zikof/" target="_blank" rel="noopener noreferrer">
       <div class="card-icon">🎸</div>
@@ -24,12 +66,14 @@
       <p class="card-desc">Boîte à outils web mobile pour guitaristes : accords, gammes, tablature, rythmiques et métronome.</p>
       <span class="card-link">piascwal.github.io/zikof →</span>
     </a>
+    </div>
+  </section>
 
-  </div>
-
-  <h2 class="section-title">Jeux</h2>
-  <p class="section-note">À jouer directement dans le navigateur.</p>
-  <div class="grid">
+  <section class="view" id="jeux" hidden>
+    <a class="back-link" href="#/">← Toutes les catégories</a>
+    <h2 class="section-title">🎮 Jeux</h2>
+    <p class="section-note">À jouer directement dans le navigateur.</p>
+    <div class="grid">
 
     <a class="card" href="https://piascwal.github.io/Stacker/" target="_blank" rel="noopener noreferrer">
       <div class="card-icon">🧱</div>
@@ -65,12 +109,14 @@
       <p class="card-desc">Jeu web d'entraînement aux tables de multiplication, avec plusieurs modes de jeu, des badges et des classements locaux.</p>
       <span class="card-link">piascwal.github.io/multix →</span>
     </a>
+    </div>
+  </section>
 
-  </div>
-
-  <h2 class="section-title">Simulateurs</h2>
-  <p class="section-note">Reproduire un système pour le comprendre.</p>
-  <div class="grid">
+  <section class="view" id="simulateurs" hidden>
+    <a class="back-link" href="#/">← Toutes les catégories</a>
+    <h2 class="section-title">🎛️ Simulateurs</h2>
+    <p class="section-note">Reproduire un système pour le comprendre.</p>
+    <div class="grid">
 
     <a class="card" href="https://piascwal.github.io/vroom/" target="_blank" rel="noopener noreferrer">
       <div class="card-icon">🏎️</div>
@@ -92,12 +138,14 @@
       <p class="card-desc">Simulation interactive de comportements collectifs d'agents simples suivant des règles locales.</p>
       <span class="card-link">piascwal.github.io/simularium →</span>
     </a>
+    </div>
+  </section>
 
-  </div>
-
-  <h2 class="section-title">Outils</h2>
-  <p class="section-note">Des choses utiles au quotidien.</p>
-  <div class="grid">
+  <section class="view" id="outils" hidden>
+    <a class="back-link" href="#/">← Toutes les catégories</a>
+    <h2 class="section-title">🧰 Outils</h2>
+    <p class="section-note">Des choses utiles au quotidien.</p>
+    <div class="grid">
 
     <a class="card" href="https://piascwal.github.io/valise/" target="_blank" rel="noopener noreferrer">
       <div class="card-icon">🧳</div>
@@ -119,12 +167,14 @@
       <p class="card-desc">Mesure en temps réel les économies financières et environnementales réalisées en conduisant un véhicule électrique plutôt que thermique.</p>
       <span class="card-link">piascwal.github.io/ev-saving →</span>
     </a>
+    </div>
+  </section>
 
-  </div>
-
-  <h2 class="section-title">Labo — POC</h2>
-  <p class="section-note">Petites expérimentations hébergées directement dans ce repo.</p>
-  <div class="grid" id="poc-grid">
+  <section class="view" id="labo" hidden>
+    <a class="back-link" href="#/">← Toutes les catégories</a>
+    <h2 class="section-title">🧪 Labo</h2>
+    <p class="section-note">Expérimentations hébergées directement dans ce repo.</p>
+    <div class="grid">
 
     <a class="card" href="poc/boite-a-rythme.html">
       <div class="card-icon">🥁</div>
@@ -140,8 +190,33 @@
       <span class="card-link">Ouvrir le pad →</span>
     </a>
 
-  </div>
+    <a class="card" href="poc/tissu-webgpu.html">
+      <div class="card-icon">🧵</div>
+      <h3 class="card-title">Tissu WebGPU <span class="badge">POC</span></h3>
+      <p class="card-desc">Simulation masse-ressort calculée sur le GPU par compute shader : attrapez le tissu et tirez, ou plaquez-y une photo.</p>
+      <span class="card-link">Ouvrir la simulation →</span>
+    </a>
+    </div>
+  </section>
 </main>
+
+<script>
+  // Navigation à deux niveaux : l'accueil liste les catégories, chacune ouvre
+  // sa propre vue. Passer par le hash garde le bouton retour du navigateur
+  // fonctionnel et rend chaque catégorie partageable par son lien.
+  (() => {
+    const vues = [...document.querySelectorAll('.view')];
+    function afficher() {
+      const id = location.hash.replace(/^#\/?/, '') || 'home';
+      const cible = document.getElementById(id) || document.getElementById('home');
+      vues.forEach((v) => { v.hidden = v !== cible; });
+      window.scrollTo(0, 0);
+    }
+    window.addEventListener('hashchange', afficher);
+    afficher();
+  })();
+</script>
+
 
 <footer class="page-footer">
   <p>Mis à jour manuellement · <a href="https://github.com/piascwal" target="_blank" rel="noopener noreferrer">github.com/piascwal</a></p>

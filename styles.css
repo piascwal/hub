@@ -59,7 +59,7 @@ main {
 
 .section-title {
   margin: 0 0 0.25rem;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -79,6 +79,51 @@ main {
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* ---- navigation à deux niveaux ---- */
+
+.view[hidden] { display: none; }
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.6rem;
+  margin-left: -0.6rem;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.back-link:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* une card de catégorie se distingue : plus aérée, et son accent se révèle
+   au survol pour signaler qu'elle mène ailleurs plutôt que dehors */
+.cat-card {
+  padding: 1.75rem 1.5rem;
+}
+
+.cat-card .card-icon {
+  font-size: 2.75rem;
+}
+
+.cat-card .card-title {
+  font-size: 1.35rem;
+}
+
+.cat-card .card-link {
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.cat-card:hover .card-link,
+.cat-card:focus-visible .card-link {
+  color: var(--accent);
 }
 
 .badge {

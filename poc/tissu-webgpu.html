@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>WebGPU — Tissu</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; touch-action: none; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .hud { position: fixed; top: 0; left: 0; right: 0; padding: 16px 18px; display: flex; justify-content: space-between; pointer-events: none; z-index: 10; }
+  .hud h1 { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+  .hud p { font-size: 10.5px; color: rgba(255,255,255,0.4); margin-top: 3px; max-width: 230px; line-height: 1.4; }
+  .fps { font-size: 10.5px; color: rgba(255,255,255,0.35); text-align: right; }
+  .fallback { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 32px; text-align: center; color: rgba(255,255,255,0.75); font-size: 14px; line-height: 1.6; }
+  .back { position: fixed; top: 14px; left: 14px; z-index: 30; pointer-events: auto; color: rgba(255,255,255,0.55); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 8px; background: rgba(20,22,26,0.6); backdrop-filter: blur(8px); }
+  .back:hover { color: #fff; }
+  .hud { padding-left: 58px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a class="back" href="../index.html#/labo">←</a>
+<div class="hud">
+  <div><h1>Tissu — WebGPU</h1><p>Grille masse-ressort simulée par compute shader. Attrape et tire.</p></div>
+  <div class="fps" id="fps">-- fps</div>
+</div>
+<label style="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:20;font-size:12px;color:rgba(255,255,255,0.8);padding:10px 18px;border-radius:20px;border:1px solid rgba(255,255,255,0.2);background:rgba(20,22,26,0.7);backdrop-filter:blur(10px);cursor:pointer;">
+  Choisir une photo
+  <input type="file" id="photoInput" accept="image/*" style="display:none;">
+</label>
+<script type="module">
+const canvas = document.getElementById('c');
+const fpsEl = document.getElementById('fps');
+function showFallback(msg) {
+  document.body.innerHTML = `<a class="back" href="../index.html#/labo">← Hub</a><div class="fallback">${msg}</div>`;
+}
+if (!navigator.gpu) { showFallback("WebGPU non disponible sur ce navigateur."); throw new Error('no webgpu'); }
+const adapter = await navigator.gpu.requestAdapter();
+if (!adapter) { showFallback("Aucun adaptateur WebGPU trouvé."); throw new Error('no adapter'); }
+const device = await adapter.requestDevice();
+
+// Diagnostic à l'écran : sans console accessible, on affiche les erreurs GPU ici.
+const errBox = document.createElement('div');
+errBox.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:45%;overflow:auto;background:rgba(60,0,0,0.85);color:#fdd;font:11px/1.4 monospace;padding:10px;z-index:99;white-space:pre-wrap;display:none;';
+document.body.appendChild(errBox);
+function logErr(msg) {
+  errBox.style.display = 'block';
+  errBox.textContent += msg + '\n\n';
+}
+device.addEventListener('uncapturederror', (e) => logErr('GPU: ' + e.error.message));
+window.addEventListener('error', (e) => logErr('JS: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => logErr('PROMISE: ' + (e.reason?.message || e.reason)));
+const context = canvas.getContext('webgpu');
+const format = navigator.gpu.getPreferredCanvasFormat();
+context.configure({ device, format, alphaMode: 'opaque' });
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ================= grille du tissu =================
+const COLS = 46, ROWS = 32;
+const NODES = COLS * ROWS;
+const SPACING = 0.017;
+const CLOTH_W = (COLS - 1) * SPACING;
+const CLOTH_H = (ROWS - 1) * SPACING;
+const CLOTH_ASPECT = CLOTH_W / CLOTH_H;
+
+// fil a linge tendu entre deux poteaux, avec affaissement naturel (parabole)
+const POLE_LEFT_X = 0.10, POLE_RIGHT_X = 0.90;
+const ROPE_Y = 0.16, ROPE_SAG = 0.055;
+const GROUND_Y = 0.94;
+function ropeYAt(x) {
+  const t = (x - POLE_LEFT_X) / (POLE_RIGHT_X - POLE_LEFT_X); // 0..1
+  return ROPE_Y + ROPE_SAG * 4.0 * t * (1.0 - t); // max d'affaissement au milieu
+}
+
+function nodeIndex(i, j) { return j * COLS + i; }
+
+// position initiale : grille posee exactement a la longueur de repos, centree, epinglee en haut
+const initPos = new Float32Array(NODES * 4); // x,y,invMass,_pad
+const ORIGIN_X = 0.5 - CLOTH_W / 2;
+for (let j = 0; j < ROWS; j++) {
+  for (let i = 0; i < COLS; i++) {
+    const idx = nodeIndex(i, j);
+    const x = ORIGIN_X + i * SPACING;
+    // la rangee du haut epouse la courbe du fil, le reste pend en dessous
+    initPos[idx*4] = x;
+    initPos[idx*4+1] = ropeYAt(x) + j * SPACING;
+    initPos[idx*4+2] = (j === 0) ? 0.0 : 1.0; // rangee du haut fixee sur le fil
+    initPos[idx*4+3] = 0;
+  }
+}
+
+function makeBuffer(data, usage) {
+  const buf = device.createBuffer({ size: data.byteLength, usage, mappedAtCreation: true });
+  new Float32Array(buf.getMappedRange()).set(data);
+  buf.unmap();
+  return buf;
+}
+function zeroedBuffer(floatCount, usage) {
+  const buf = device.createBuffer({ size: floatCount * 4, usage, mappedAtCreation: true });
+  new Float32Array(buf.getMappedRange()).fill(0);
+  buf.unmap();
+  return buf;
+}
+const RW = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+
+// deux jeux (cur,prev) qui alternent chaque frame — evite tout aliasing lecture/ecriture
+let curBuf = makeBuffer(initPos, RW);
+let prevBuf = makeBuffer(initPos, RW);
+let curBufAlt = zeroedBuffer(NODES * 4, RW);
+let prevBufAlt = zeroedBuffer(NODES * 4, RW);
+let workA = zeroedBuffer(NODES * 4, RW);
+let workB = zeroedBuffer(NODES * 4, RW);
+
+// cols,rows,dt,spacing,gravityY,damping,grabIndex,grabActive,grabX,grabY,aspect,_pad
+const PARAM_FLOATS = 12;
+const paramsBuf = device.createBuffer({ size: PARAM_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+let texAspect = 1.0; // ratio largeur/hauteur de la texture, pour un cadrage sans deformation
+const paramsArr = new Float32Array(PARAM_FLOATS);
+function writeParams(o) {
+  paramsArr[0] = COLS; paramsArr[1] = ROWS;
+  paramsArr[2] = o.dt ?? 0; paramsArr[3] = SPACING;
+  paramsArr[4] = o.gravityY ?? 0.9; paramsArr[5] = o.damping ?? 0.978;
+  paramsArr[6] = o.grabIndex ?? -1; paramsArr[7] = o.grabActive ?? 0;
+  paramsArr[8] = o.grabX ?? 0; paramsArr[9] = o.grabY ?? 0;
+  paramsArr[10] = o.aspect ?? 1;
+  paramsArr[11] = texAspect;
+  device.queue.writeBuffer(paramsBuf, 0, paramsArr);
+}
+
+const common = `
+struct Params {
+  cols: f32, rows: f32, dt: f32, spacing: f32,
+  gravityY: f32, damping: f32, grabIndex: f32, grabActive: f32,
+  grabX: f32, grabY: f32, aspect: f32, texAspect: f32,
+};
+// projection commune : garde des proportions egales en x et y, avec du padding sur les cotes
+const FIT: f32 = 0.86;
+fn toClip(p: vec2<f32>, aspect: f32) -> vec4<f32> {
+  let cx = (p.x - 0.5) * 2.0 * FIT;
+  let cy = (p.y - 0.5) * 2.0 * FIT * aspect;
+  return vec4<f32>(cx, -cy, 0.0, 1.0);
+}
+
+fn nodeIdx(i: i32, j: i32, cols: i32) -> i32 { return j * cols + i; }
+`;
+
+// ---- integration de Verlet : predit la nouvelle position avant contraintes ----
+const integrateWGSL = common + `
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> posCurIn: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> posPrevIn: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> workOut: array<vec4<f32>>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let n = i32(params.cols) * i32(params.rows);
+  let idx = i32(gid.x);
+  if (idx >= n) { return; }
+
+  let cur = posCurIn[idx];
+  let prev = posPrevIn[idx];
+  let invMass = cur.z;
+
+  if (idx == i32(params.grabIndex) && params.grabActive > 0.5) {
+    workOut[idx] = vec4<f32>(params.grabX, params.grabY, invMass, 0.0);
+    return;
+  }
+  if (invMass < 0.5) {
+    workOut[idx] = cur; // ancre fixe
+    return;
+  }
+
+  let vel = (cur.xy - prev.xy) * params.damping;
+  let gravity = vec2<f32>(0.0, params.gravityY) * params.dt * params.dt;
+  let newPos = cur.xy + vel + gravity;
+  workOut[idx] = vec4<f32>(newPos, invMass, 0.0);
+}
+`;
+
+// ---- une iteration de relaxation de contraintes (style Jacobi, moyenne des corrections) ----
+const relaxWGSL = common + `
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> posIn: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> posOut: array<vec4<f32>>;
+
+fn correct(pos: vec2<f32>, other: vec4<f32>, rest: f32) -> vec2<f32> {
+  let delta = pos - other.xy;
+  let dist = max(length(delta), 0.0001);
+  let diff = (dist - rest) / dist;
+  return delta * (0.5 * diff);
+}
+
+@compute @workgroup_size(8,8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let cols = i32(params.cols); let rows = i32(params.rows);
+  let i = i32(gid.x); let j = i32(gid.y);
+  if (i >= cols || j >= rows) { return; }
+  let idx = nodeIdx(i,j,cols);
+  let node = posIn[idx];
+
+  if (node.z < 0.5) { posOut[idx] = node; return; }
+  if (idx == i32(params.grabIndex) && params.grabActive > 0.5) { posOut[idx] = node; return; }
+
+  var correction = vec2<f32>(0.0, 0.0);
+  var count = 0.0;
+
+  if (i > 0) { let o = posIn[nodeIdx(i-1,j,cols)]; correction -= correct(node.xy, o, params.spacing); count += 1.0; }
+  if (i < cols-1) { let o = posIn[nodeIdx(i+1,j,cols)]; correction -= correct(node.xy, o, params.spacing); count += 1.0; }
+  if (j > 0) { let o = posIn[nodeIdx(i,j-1,cols)]; correction -= correct(node.xy, o, params.spacing); count += 1.0; }
+  if (j < rows-1) { let o = posIn[nodeIdx(i,j+1,cols)]; correction -= correct(node.xy, o, params.spacing); count += 1.0; }
+
+  var newPos = node.xy;
+  if (count > 0.0) { newPos = node.xy + correction / count; }
+  posOut[idx] = vec4<f32>(newPos, node.z, 0.0);
+}
+`;
+
+// ---- finalisation : posPrev <- ancien posCur, posCur <- resultat relaxe ----
+const finalizeWGSL = common + `
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> posCurOld: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> relaxed: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> posCurOut: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read_write> posPrevOut: array<vec4<f32>>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let n = i32(params.cols) * i32(params.rows);
+  let idx = i32(gid.x);
+  if (idx >= n) { return; }
+  posPrevOut[idx] = posCurOld[idx];
+  posCurOut[idx] = relaxed[idx];
+}
+`;
+
+function computePipeline(code) {
+  return device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
+}
+const integratePipeline = computePipeline(integrateWGSL);
+const relaxPipeline = computePipeline(relaxWGSL);
+const finalizePipeline = computePipeline(finalizeWGSL);
+
+// ---- rendu : triangles textures ----
+const indices = [];
+for (let j = 0; j < ROWS - 1; j++) {
+  for (let i = 0; i < COLS - 1; i++) {
+    const a = nodeIndex(i, j), b = nodeIndex(i+1, j), c = nodeIndex(i, j+1), d = nodeIndex(i+1, j+1);
+    indices.push(a, b, c, c, b, d);
+  }
+}
+const indexData = new Uint32Array(indices);
+const indexBuf = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+new Uint32Array(indexBuf.getMappedRange()).set(indexData);
+indexBuf.unmap();
+
+// texture par defaut : tissu uni clair (le quadrillage suffit a lire la deformation)
+function makePlainTexture() {
+  const S = 4;
+  const data = new Uint8Array(S * S * 4);
+  for (let i = 0; i < S * S; i++) {
+    data[i*4] = 226; data[i*4+1] = 232; data[i*4+2] = 240; data[i*4+3] = 255;
+  }
+  const tex = device.createTexture({
+    size: [S, S], format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: S * 4 }, [S, S]);
+  return tex;
+}
+let clothTexture = makePlainTexture();
+let hasPhoto = false;
+const clothSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+
+const renderWGSL = `
+struct Params {
+  cols: f32, rows: f32, dt: f32, spacing: f32,
+  gravityY: f32, damping: f32, grabIndex: f32, grabActive: f32,
+  grabX: f32, grabY: f32, aspect: f32, texAspect: f32,
+};
+// projection commune : garde des proportions egales en x et y, avec du padding sur les cotes
+const FIT: f32 = 0.86;
+fn toClip(p: vec2<f32>, aspect: f32) -> vec4<f32> {
+  let cx = (p.x - 0.5) * 2.0 * FIT;
+  let cy = (p.y - 0.5) * 2.0 * FIT * aspect;
+  return vec4<f32>(cx, -cy, 0.0, 1.0);
+}
+
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(2) var clothTex: texture_2d<f32>;
+@group(0) @binding(3) var clothSamp: sampler;
+
+struct VSOut {
+  @builtin(position) clip: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) shade: f32,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) vIdx: u32) -> VSOut {
+  let data = pos[vIdx];
+  let clipPos = toClip(data.xy, params.aspect);
+
+  let cols = u32(params.cols);
+  let i = vIdx % cols;
+  let j = vIdx / cols;
+
+  var out: VSOut;
+  out.clip = clipPos;
+  var uv = vec2<f32>(f32(i) / (params.cols - 1.0), f32(j) / (params.rows - 1.0));
+
+  // cadrage "cover" : la photo garde son ratio, on recadre plutot que de la deformer
+  let clothAspect = (params.cols - 1.0) / (params.rows - 1.0);
+  if (params.texAspect > clothAspect) {
+    let s = clothAspect / params.texAspect;
+    uv.x = 0.5 + (uv.x - 0.5) * s;
+  } else {
+    let s = params.texAspect / clothAspect;
+    uv.y = 0.5 + (uv.y - 0.5) * s;
+  }
+  out.uv = uv;
+
+  // ombrage simple : les zones etirees s'assombrissent legerement
+  out.shade = 1.0;
+  return out;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4<f32> {
+  let c = textureSample(clothTex, clothSamp, in.uv);
+  return vec4<f32>(c.rgb * in.shade, 1.0);
+}
+`;
+const renderModule = device.createShaderModule({ code: renderWGSL });
+const renderPipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: { module: renderModule, entryPoint: 'vs' },
+  fragment: { module: renderModule, entryPoint: 'fs', targets: [{ format }] },
+  primitive: { topology: 'triangle-list', cullMode: 'none' },
+});
+
+// ---- quadrillage en lignes, dessine par-dessus la texture ----
+const lineIndices = [];
+for (let j = 0; j < ROWS; j++) {
+  for (let i = 0; i < COLS; i++) {
+    if (i < COLS - 1) { lineIndices.push(nodeIndex(i,j), nodeIndex(i+1,j)); }
+    if (j < ROWS - 1) { lineIndices.push(nodeIndex(i,j), nodeIndex(i,j+1)); }
+  }
+}
+const lineIndexData = new Uint32Array(lineIndices);
+const lineIndexBuf = device.createBuffer({ size: lineIndexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+new Uint32Array(lineIndexBuf.getMappedRange()).set(lineIndexData);
+lineIndexBuf.unmap();
+
+const gridWGSL = `
+struct Params {
+  cols: f32, rows: f32, dt: f32, spacing: f32,
+  gravityY: f32, damping: f32, grabIndex: f32, grabActive: f32,
+  grabX: f32, grabY: f32, aspect: f32, texAspect: f32,
+};
+// projection commune : garde des proportions egales en x et y, avec du padding sur les cotes
+const FIT: f32 = 0.86;
+fn toClip(p: vec2<f32>, aspect: f32) -> vec4<f32> {
+  let cx = (p.x - 0.5) * 2.0 * FIT;
+  let cy = (p.y - 0.5) * 2.0 * FIT * aspect;
+  return vec4<f32>(cx, -cy, 0.0, 1.0);
+}
+
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec4<f32>>;
+
+@vertex
+fn vs(@builtin(vertex_index) vIdx: u32) -> @builtin(position) vec4<f32> {
+  let data = pos[vIdx];
+  return toClip(data.xy, params.aspect);
+}
+
+@fragment
+fn fs() -> @location(0) vec4<f32> {
+  return vec4<f32>(0.55, 0.75, 0.95, 0.35);
+}
+`;
+const gridModule = device.createShaderModule({ code: gridWGSL });
+const gridPipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: { module: gridModule, entryPoint: 'vs' },
+  fragment: {
+    module: gridModule, entryPoint: 'fs',
+    targets: [{
+      format,
+      blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      },
+    }],
+  },
+  primitive: { topology: 'line-list' },
+});
+
+// ---- decor statique : deux poteaux et le fil a linge ----
+const sceneVerts = [];
+function pushLine(x1, y1, x2, y2) { sceneVerts.push(x1, y1, x2, y2); }
+// le fil, en segments suivant la courbe d'affaissement
+const ROPE_SEGS = 40;
+for (let s = 0; s < ROPE_SEGS; s++) {
+  const xa = POLE_LEFT_X + (s / ROPE_SEGS) * (POLE_RIGHT_X - POLE_LEFT_X);
+  const xb = POLE_LEFT_X + ((s + 1) / ROPE_SEGS) * (POLE_RIGHT_X - POLE_LEFT_X);
+  pushLine(xa, ropeYAt(xa), xb, ropeYAt(xb));
+}
+// les deux poteaux verticaux, plus une base en croix
+pushLine(POLE_LEFT_X, ROPE_Y, POLE_LEFT_X, GROUND_Y);
+pushLine(POLE_RIGHT_X, ROPE_Y, POLE_RIGHT_X, GROUND_Y);
+pushLine(POLE_LEFT_X - 0.03, GROUND_Y, POLE_LEFT_X + 0.03, GROUND_Y);
+pushLine(POLE_RIGHT_X - 0.03, GROUND_Y, POLE_RIGHT_X + 0.03, GROUND_Y);
+
+const sceneData = new Float32Array(sceneVerts);
+const sceneBuf = device.createBuffer({ size: sceneData.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+new Float32Array(sceneBuf.getMappedRange()).set(sceneData);
+sceneBuf.unmap();
+
+const sceneWGSL = `
+struct Params {
+  cols: f32, rows: f32, dt: f32, spacing: f32,
+  gravityY: f32, damping: f32, grabIndex: f32, grabActive: f32,
+  grabX: f32, grabY: f32, aspect: f32, texAspect: f32,
+};
+// projection commune : garde des proportions egales en x et y, avec du padding sur les cotes
+const FIT: f32 = 0.86;
+fn toClip(p: vec2<f32>, aspect: f32) -> vec4<f32> {
+  let cx = (p.x - 0.5) * 2.0 * FIT;
+  let cy = (p.y - 0.5) * 2.0 * FIT * aspect;
+  return vec4<f32>(cx, -cy, 0.0, 1.0);
+}
+
+@group(0) @binding(0) var<uniform> params: Params;
+
+@vertex
+fn vs(@location(0) inPos: vec2<f32>) -> @builtin(position) vec4<f32> {
+  return toClip(inPos, params.aspect);
+}
+
+@fragment
+fn fs() -> @location(0) vec4<f32> {
+  return vec4<f32>(0.62, 0.58, 0.52, 1.0);
+}
+`;
+const sceneModule = device.createShaderModule({ code: sceneWGSL });
+const scenePipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: {
+    module: sceneModule, entryPoint: 'vs',
+    buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] }],
+  },
+  fragment: { module: sceneModule, entryPoint: 'fs', targets: [{ format }] },
+  primitive: { topology: 'line-list' },
+});
+
+function bg(pipeline, entries) {
+  return device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
+}
+const WG_NODES = Math.ceil(NODES / 64);
+const WG_GRID_X = Math.ceil(COLS / 8), WG_GRID_Y = Math.ceil(ROWS / 8);
+
+// ================= interaction : le point regulier permet de trouver le noeud le plus proche par calcul direct =================
+let grabIndex = -1, grabActive = 0;
+let grabTarget = { x: 0.5, y: 0.5 };
+
+const FIT = 0.86; // doit correspondre au FIT des shaders
+function pointerToCloth(e) {
+  const aspect = canvas.width / canvas.height;
+  const clipX = (e.clientX / window.innerWidth) * 2 - 1;
+  const clipY = 1 - (e.clientY / window.innerHeight) * 2;
+  const x = clipX / (2 * FIT) + 0.5;
+  const y = -clipY / (2 * FIT * aspect) + 0.5;
+  return { x, y };
+}
+// Copie CPU des positions, rafraichie en continu en arriere-plan (jamais bloquante).
+// Permet une attrape instantanee basee sur la vraie position du tissu.
+const readBuf = device.createBuffer({ size: NODES * 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+let cpuPositions = new Float32Array(initPos); // pré-remplie avec l'état initial
+let readPending = false;
+
+function refreshPositions() {
+  if (readPending) return;
+  readPending = true;
+  const encoder = device.createCommandEncoder();
+  encoder.copyBufferToBuffer(curBuf, 0, readBuf, 0, NODES * 16);
+  device.queue.submit([encoder.finish()]);
+  readBuf.mapAsync(GPUMapMode.READ).then(() => {
+    cpuPositions.set(new Float32Array(readBuf.getMappedRange()));
+    readBuf.unmap();
+    readPending = false;
+  }).catch((err) => {
+    readPending = false;
+  });
+}
+
+function nearestNode(p) {
+  let best = -1, bestDist = Infinity;
+  for (let n = 0; n < NODES; n++) {
+    if (cpuPositions[n*4+2] < 0.5) continue; // jamais une ancre fixe
+    const dx = cpuPositions[n*4] - p.x, dy = cpuPositions[n*4+1] - p.y;
+    const d = dx*dx + dy*dy;
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return best;
+}
+
+window.addEventListener('pointerdown', (e) => {
+  const p = pointerToCloth(e);
+  grabTarget = p;
+  const found = nearestNode(p);
+  if (found >= 0) {
+    grabIndex = found; grabActive = 1;
+    fpsEl.textContent = 'attrapé #' + found;
+  } else {
+    fpsEl.textContent = 'aucun noeud trouvé';
+  }
+});
+window.addEventListener('pointermove', (e) => {
+  if (grabActive > 0.5) grabTarget = pointerToCloth(e);
+});
+window.addEventListener('pointerup', () => { grabActive = 0; });
+window.addEventListener('pointercancel', () => { grabActive = 0; });
+
+// ---- import d'une photo comme texture du tissu ----
+document.getElementById('photoInput').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const tex = device.createTexture({
+      size: [bitmap.width, bitmap.height],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: tex }, [bitmap.width, bitmap.height]);
+    clothTexture = tex;
+    texAspect = bitmap.width / bitmap.height;
+    hasPhoto = true;
+    bitmap.close();
+  } catch (err) {
+    logErr('PHOTO: ' + err.message);
+  }
+});
+
+// ================= boucle =================
+let lastTime = performance.now();
+let frameCount = 0, fpsAccum = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - lastTime) / 1000, 0.0333);
+  lastTime = now;
+  frameCount++; fpsAccum += dt;
+  if (fpsAccum > 0.5) { fpsEl.textContent = Math.round(frameCount / fpsAccum) + ' fps'; frameCount = 0; fpsAccum = 0; }
+
+  const aspect = canvas.width / canvas.height;
+  writeParams({ dt, gravityY: 0.9, damping: 0.978, grabIndex, grabActive, grabX: grabTarget.x, grabY: grabTarget.y, aspect });
+
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+
+  pass.setPipeline(integratePipeline);
+  pass.setBindGroup(0, bg(integratePipeline, [
+    { binding: 0, resource: { buffer: paramsBuf } },
+    { binding: 1, resource: { buffer: curBuf } },
+    { binding: 2, resource: { buffer: prevBuf } },
+    { binding: 3, resource: { buffer: workA } },
+  ]));
+  pass.dispatchWorkgroups(WG_NODES);
+
+  for (let iter = 0; iter < 6; iter++) {
+    pass.setPipeline(relaxPipeline);
+    pass.setBindGroup(0, bg(relaxPipeline, [
+      { binding: 0, resource: { buffer: paramsBuf } },
+      { binding: 1, resource: { buffer: workA } },
+      { binding: 2, resource: { buffer: workB } },
+    ]));
+    pass.dispatchWorkgroups(WG_GRID_X, WG_GRID_Y);
+    [workA, workB] = [workB, workA];
+  }
+
+  // ecrit dans le jeu inactif (curBufAlt/prevBufAlt) : aucun aliasing avec curBuf/prevBuf lus ci-dessus
+  pass.setPipeline(finalizePipeline);
+  pass.setBindGroup(0, bg(finalizePipeline, [
+    { binding: 0, resource: { buffer: paramsBuf } },
+    { binding: 1, resource: { buffer: curBuf } },
+    { binding: 2, resource: { buffer: workA } },
+    { binding: 3, resource: { buffer: curBufAlt } },
+    { binding: 4, resource: { buffer: prevBufAlt } },
+  ]));
+  pass.dispatchWorkgroups(WG_NODES);
+
+  pass.end();
+
+  // le jeu qu'on vient d'ecrire devient l'actif pour la prochaine frame
+  [curBuf, curBufAlt] = [curBufAlt, curBuf];
+  [prevBuf, prevBufAlt] = [prevBufAlt, prevBuf];
+
+  const view = context.getCurrentTexture().createView();
+  const rpass = encoder.beginRenderPass({ colorAttachments: [{ view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
+  // decor : poteaux et fil, dessines derriere le tissu
+  rpass.setPipeline(scenePipeline);
+  rpass.setBindGroup(0, bg(scenePipeline, [
+    { binding: 0, resource: { buffer: paramsBuf } },
+  ]));
+  rpass.setVertexBuffer(0, sceneBuf);
+  rpass.draw(sceneData.length / 2);
+
+  rpass.setPipeline(renderPipeline);
+  rpass.setBindGroup(0, bg(renderPipeline, [
+    { binding: 0, resource: { buffer: paramsBuf } },
+    { binding: 1, resource: { buffer: curBuf } },
+    { binding: 2, resource: clothTexture.createView() },
+    { binding: 3, resource: clothSampler },
+  ]));
+  rpass.setIndexBuffer(indexBuf, 'uint32');
+  rpass.drawIndexed(indexData.length);
+
+  // quadrillage seulement quand aucune photo n'est importee
+  if (!hasPhoto) {
+    rpass.setPipeline(gridPipeline);
+    rpass.setBindGroup(0, bg(gridPipeline, [
+      { binding: 0, resource: { buffer: paramsBuf } },
+      { binding: 1, resource: { buffer: curBuf } },
+    ]));
+    rpass.setIndexBuffer(lineIndexBuf, 'uint32');
+    rpass.drawIndexed(lineIndexData.length);
+  }
+
+  rpass.end();
+
+  device.queue.submit([encoder.finish()]);
+
+  refreshPositions();
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

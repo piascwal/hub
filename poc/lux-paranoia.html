@@ -135,7 +135,7 @@
   <button type="button" class="btn" id="next">Niveau suivant</button>
 </div>
 
-<p class="hint" id="hint">Pose le doigt : la lumière suit. Les carrés éclairés relaient leur regard.</p>
+<p class="hint" id="hint">Pose le doigt : les bonhommes éclairés relaient la lumière de leur regard, jusqu'à la sortie.<br><b>Les rouges foncent sur ta lumière et coupent les faisceaux</b> — sers-t'en pour dégager le passage.</p>
 
 <div class="win" id="win">
   <strong>Lumière atteinte</strong>
@@ -222,12 +222,16 @@
   let numero = 1;
 
   function dims() {
-    const t = clamp(Math.min(W, H) * 0.105, 26, 52);   // côté d'un carré
+    const t = clamp(Math.min(W, H) * 0.125, 30, 62);   // côté d'un bonhomme
     return {
       taille: t,
       portee: Math.min(W, H) * 0.62,                    // longueur d'un faisceau
-      lanterne: Math.min(W, H) * 0.19,                  // rayon du doigt
+      // Rayon du doigt. Élargi (0.19 -> 0.27) le jour où viser un bonhomme a
+      // cessé d'être une solution : il faut maintenant un anneau utilisable
+      // entre « trop près, ça ne compte pas » et « trop loin, ça n'éclaire plus ».
+      lanterne: Math.min(W, H) * 0.27,                  // rayon du doigt
       cone: 0.20,                                       // demi-angle du faisceau
+      laisse: t * 2.8,                                  // course d'un coléreux
     };
   }
 
@@ -256,7 +260,9 @@
     let cible = { x: sortie.x, y: sortie.y };
 
     for (let i = 0; i < nbRelais; i++) {
-      const y = hautZone + pasY * (i + 1);
+      // un peu de jeu en hauteur : sinon la chaîne est une échelle et son
+      // entrée est toujours le bonhomme le plus bas de l'écran
+      const y = hautZone + pasY * (i + 1) + (rnd() * 2 - 1) * pasY * 0.42;
       // décalage latéral : assez pour que la chaîne serpente, pas trop pour
       // que le faisceau reste dans sa portée
       const ecart = (rnd() * 2 - 1) * Math.min(W * 0.34, D.portee * 0.55);
@@ -276,10 +282,6 @@
       cible = { x, y };
     }
 
-    // Le dernier maillon doit rester à portée de doigt : c'est par lui que le
-    // joueur entre dans la chaîne.
-    const entree = persos[persos.length - 1];
-    if (entree.y < H * 0.45) return null;
 
     // --- émotions ---
     // La chaîne alterne curieux (le regard vagabonde, le faisceau tremble) et
@@ -295,25 +297,52 @@
       p.amplitude = 0.10 + rnd() * 0.09;
     });
 
-    // --- coléreux : ils chargent la lumière et bloquent les faisceaux ---
-    const nbColere = rnd() < 0.65 ? 1 : 2;
-    for (let i = 0; i < nbColere; i++) {
-      for (let essai = 0; essai < 30; essai++) {
+    // --- coléreux ---
+    const nouveauColere = (x, y) => {
+      const c = {
+        x, y, baseX: x, baseY: y, vx: 0, vy: 0,
+        sx: 1, sy: 1, vsx: 0, vsy: 0,
+        regard: rnd() * TAU, emotion: EMOTIONS.COLERE,
+        eclaire: false, tremble: rnd() * TAU,
+        balayage: 0, amplitude: 0,
+      };
+      c.regardRepos = c.regard;
+      persos.push(c);
+      return c;
+    };
+
+    // Le premier se met EN TRAVERS d'un maillon, et c'est tout le sujet du
+    // niveau : au repos la chaîne est coupée là, aucune position de doigt ne
+    // gagne. Il faut l'attirer hors de la ligne de mire pour ouvrir le passage.
+    // (L'ancienne génération faisait l'inverse — elle l'écartait de tout le
+    // monde « sinon le niveau est mort-né » — d'où un jeu sans décision.)
+    let barrage = null;
+    for (let essai = 0; essai < 40 && !barrage; essai++) {
+      const j = Math.floor(rnd() * nbRelais);
+      const a = persos[j];
+      const b = j === 0 ? sortie : persos[j - 1];
+      const t = 0.32 + rnd() * 0.36;
+      const nx = -(b.y - a.y), ny = b.x - a.x;
+      const n = Math.hypot(nx, ny) || 1;
+      const jitter = (rnd() * 2 - 1) * D.taille * 0.3;
+      const x = clamp(a.x + (b.x - a.x) * t + (nx / n) * jitter, marge * 0.6, W - marge * 0.6);
+      const y = clamp(a.y + (b.y - a.y) * t + (ny / n) * jitter, hautZone, basZone);
+      if (persos.some((p) => Math.hypot(p.x - x, p.y - y) < D.taille * 1.7)) continue;
+      if (Math.hypot(sortie.x - x, sortie.y - y) < D.taille * 1.7) continue;
+      const test = [{ x, y, demi: D.taille * 0.5 }];
+      if (vueLibre(a.x, a.y, b.x, b.y, [], test)) continue;   // il ne coupe rien
+      barrage = nouveauColere(x, y);
+    }
+    if (!barrage) return null;
+
+    // un second, posé librement, pour que le bon bloqueur ne soit pas évident
+    if (rnd() < 0.55) {
+      for (let essai = 0; essai < 25; essai++) {
         const x = marge + rnd() * (W - marge * 2);
         const y = hautZone + rnd() * (basZone - hautZone);
-        // il ne doit gêner aucun maillon dès le départ, sinon le niveau est
-        // mort-né
-        if (persos.some((p) => Math.hypot(p.x - x, p.y - y) < D.taille * 2.6)) continue;
-        if (Math.hypot(sortie.x - x, sortie.y - y) < D.taille * 3) continue;
-        const c = {
-          x, y, baseX: x, baseY: y, vx: 0, vy: 0,
-          sx: 1, sy: 1, vsx: 0, vsy: 0,
-          regard: rnd() * TAU, emotion: EMOTIONS.COLERE,
-          eclaire: false, tremble: rnd() * TAU,
-          balayage: 0, amplitude: 0,
-        };
-        c.regardRepos = c.regard;
-        persos.push(c);
+        if (persos.some((p) => Math.hypot(p.x - x, p.y - y) < D.taille * 2.2)) continue;
+        if (Math.hypot(sortie.x - x, sortie.y - y) < D.taille * 2.6) continue;
+        nouveauColere(x, y);
         break;
       }
     }
@@ -375,14 +404,33 @@
 
   // Calcule qui est éclairé, à partir d'un point de lanterne. Renvoie aussi le
   // nombre de relais traversés : c'est ce qui sert au solver.
-  function propager(etat, lanterneX, lanterneY, D, rayonLanterne) {
+  // Où se tient un coléreux pour une lanterne donnée. Il fonce en ligne droite
+  // vers le doigt et s'arrête au bout de sa laisse, ou juste avant le doigt.
+  // C'est volontairement déterministe : le doigt du joueur ne fait pas
+  // qu'éclairer, il déplace les bloqueurs — et le solver peut donc prévoir
+  // exactement où ils seront au lieu de valider un plateau figé qui n'existe
+  // jamais en jeu.
+  function posColere(c, lx, ly, D) {
+    const dx = lx - c.baseX, dy = ly - c.baseY;
+    const d = Math.hypot(dx, dy) || 1;
+    const course = Math.min(D.laisse, Math.max(0, d - D.taille * 1.15));
+    return { x: c.baseX + (dx / d) * course, y: c.baseY + (dy / d) * course };
+  }
+
+  // prevoir = true : on place les coléreux là où la lanterne va les attirer
+  // (le solver raisonne dessus). false : on prend leur position réelle à
+  // l'écran (le jeu, pendant qu'ils se déplacent encore).
+  function propager(etat, lanterneX, lanterneY, D, rayonLanterne, prevoir) {
     const { persos, murs, sortie } = etat;
     const eclaires = new Set();
     let profondeur = new Map();
 
     const bloqueurs = persos
       .filter((p) => p.emotion === EMOTIONS.COLERE)
-      .map((p) => ({ x: p.x, y: p.y, demi: D.taille * 0.5 }));
+      .map((p) => {
+        const q = prevoir ? posColere(p, lanterneX, lanterneY, D) : p;
+        return { x: q.x, y: q.y, demi: D.taille * 0.5 };
+      });
 
     // Premier cercle : la lanterne du joueur.
     // Marge d'hystérésis sur ce qui est déjà allumé : mesuré, un peureux reculait
@@ -393,7 +441,7 @@
     for (const p of persos) {
       if (p.emotion === EMOTIONS.COLERE) continue;
       if (Math.hypot(p.x - lanterneX, p.y - lanterneY) > rayonLanterne * (p.eclaire ? 1.3 : 1)) continue;
-      if (!vueLibre(lanterneX, lanterneY, p.x, p.y, murs, bloqueurs.filter((b) => b.x !== p.x || b.y !== p.y))) continue;
+      if (!vueLibre(lanterneX, lanterneY, p.x, p.y, murs, bloqueurs)) continue;
       eclaires.add(p);
       profondeur.set(p, 1);
     }
@@ -407,8 +455,7 @@
           if (cible.emotion === EMOTIONS.COLERE) continue;
           const m = cible.eclaire ? 1.22 : 1;
           if (!dansLeCone(src.x, src.y, src.regard, cible.x, cible.y, D.portee * m, D.cone * m)) continue;
-          const autres = bloqueurs.filter((b) => !(b.x === cible.x && b.y === cible.y));
-          if (!vueLibre(src.x, src.y, cible.x, cible.y, murs, autres)) continue;
+          if (!vueLibre(src.x, src.y, cible.x, cible.y, murs, bloqueurs)) continue;
           eclaires.add(cible);
           profondeur.set(cible, (profondeur.get(src) || 1) + 1);
           ajout = true;
@@ -439,51 +486,110 @@
   // relais ? En dessous de 3, le niveau est trop pauvre et la graine part à la
   // poubelle. C'est une vérification du graphe de lumière, pas une simulation
   // de la physique : celle-ci vient se superposer ensuite.
-  function resoudre(etat, D) {
-    let meilleur = 0;
-    let solutions = 0;
-    const pas = Math.max(28, Math.min(W, H) / 14);
-
-    for (let y = H * 0.45; y < H - 30; y += pas) {
-      for (let x = 20; x < W - 20; x += pas) {
-        const r = propager(etat, x, y, D, D.lanterne);
-        if (r.directe) continue;          // trop facile : on ignore ce point
-        if (r.relais >= 1) {
-          solutions++;
-          meilleur = Math.max(meilleur, r.relais);
+  // L'exploit du joueur, encodé : viser un bonhomme non-rouge. C'est
+  // l'heuristique qui se trouve en dix secondes et qui rendait le jeu trivial.
+  // C'est aussi le test le plus discriminant et le moins cher — quelques
+  // dizaines de positions au lieu de quatre cents — donc il passe en premier.
+  function seResoutEnVisantUnPerso(etat, D) {
+    const rayon = D.taille * 1.0;
+    const pas = D.taille * 0.4;
+    for (const q of etat.persos) {
+      if (q.emotion === EMOTIONS.COLERE) continue;
+      for (let dy = -rayon; dy <= rayon; dy += pas) {
+        for (let dx = -rayon; dx <= rayon; dx += pas) {
+          if (dx * dx + dy * dy > rayon * rayon) continue;
+          const r = propager(etat, q.x + dx, q.y + dy, D, D.lanterne, true);
+          if (!r.directe && r.relais >= 1) return true;
         }
       }
     }
-    return { relais: meilleur, solutions };
+    return false;
   }
 
-  function genererNiveau(grainTexte) {
-    const rnd = mulberry32(grainDepuisTexte(grainTexte));
+  function resoudre(etat, D) {
+    const pas = Math.max(26, Math.min(W, H) / 16);
+    const haut = D.taille + 60;           // sous la barre du menu
+    const vide = { relais: 0, solutions: 0, figees: 0, total: 0, faciles: 0 };
+
+    if (seResoutEnVisantUnPerso(etat, D)) return { ...vide, faciles: 1 };
+
+    // Premier temps — plateau figé, coléreux à leur poste. Si une position
+    // gagne déjà comme ça, le niveau se résout en posant le doigt au bon
+    // endroit et rien d'autre : la physique n'est plus qu'un décor, ce qui est
+    // exactement ce qui rendait le jeu trivial. On jette.
+    for (let y = haut; y < H - 20; y += pas) {
+      for (let x = 18; x < W - 18; x += pas) {
+        const r = propager(etat, x, y, D, D.lanterne, false);
+        if (!r.directe && r.relais >= 1) return { ...vide, figees: 1 };
+      }
+    }
+
+    // Second temps — les coléreux suivent le doigt. Les seules solutions qui
+    // restent passent forcément par le déplacement d'un bloqueur.
+    const chaine = etat.persos.filter((q) => q.emotion !== EMOTIONS.COLERE);
+    const rayonFacile = D.taille * 1.0;
+
+    let meilleur = 0, solutions = 0, total = 0;
+    for (let y = haut; y < H - 20; y += pas) {
+      for (let x = 18; x < W - 18; x += pas) {
+        total++;
+        if (chaine.some((q) => Math.hypot(q.x - x, q.y - y) < rayonFacile)) continue;
+        const r = propager(etat, x, y, D, D.lanterne, true);
+        if (r.directe) continue;
+        if (r.relais >= 1) { solutions++; meilleur = Math.max(meilleur, r.relais); }
+      }
+    }
+    return { relais: meilleur, solutions, figees: 0, total, faciles: 0 };
+  }
+
+  function genererNiveau(grainTexte, variante) {
+    // Une graine qui n'aboutit pas est relancée décalée plutôt que de servir un
+    // niveau non validé : le résultat reste déterministe pour une graine donnée.
+    const v = variante || 0;
+    const rnd = mulberry32(grainDepuisTexte(grainTexte) + v * 7919);
     const D = dims();
     const t0 = performance.now();
     let rejets = 0;
 
-    for (let essai = 0; essai < 120; essai++) {
-      const etat = construire(rnd, D);
-      if (!etat) { rejets++; continue; }
-      const verdict = resoudre(etat, D);
-      // au moins 3 relais traversés, et assez de positions gagnantes pour que
-      // ce ne soit pas un coup de chance au pixel près
-      if (verdict.relais >= 3 && verdict.solutions >= 3) {
-        etat.grain = grainTexte;
-        etat.verdict = verdict;
-        etat.msSolver = performance.now() - t0;
-        etat.rejets = rejets;
-        return etat;
+    // Deux règles ne se négocient jamais, ce sont elles qui font le jeu :
+    //   figees === 0   le niveau n'est pas résoluble sans déplacer un bloqueur
+    //   faciles === 0  il ne se résout pas en visant un bonhomme
+    // Le reste — longueur de chaîne, étroitesse de la solution — se relâche par
+    // paliers : mesuré, une graine sur trois n'avait rien trouvé en 120 essais
+    // sous les seuils stricts et servait un niveau non validé.
+    const paliers = [
+      { relais: 3, mini: 2, part: 0.12 },
+      { relais: 3, mini: 1, part: 0.25 },
+      { relais: 2, mini: 1, part: 1 },
+    ];
+
+    for (const seuil of paliers) {
+      for (let essai = 0; essai < 60; essai++) {
+        const etat = construire(rnd, D);
+        if (!etat) { rejets++; continue; }
+        const verdict = resoudre(etat, D);
+        const plafond = Math.max(3, Math.round(verdict.total * seuil.part));
+        if (!verdict.faciles && !verdict.figees &&
+            verdict.relais >= seuil.relais &&
+            verdict.solutions >= seuil.mini && verdict.solutions <= plafond) {
+          etat.grain = grainTexte;
+          etat.verdict = verdict;
+          etat.msSolver = performance.now() - t0;
+          etat.rejets = rejets;
+          return etat;
+        }
+        rejets++;
       }
-      rejets++;
     }
 
-    // repli : on rend le dernier construit plutôt que rien
+    if (v < 4) return genererNiveau(grainTexte, v + 1);
+
+    // repli, après cinq variantes infructueuses : mieux vaut un niveau tiède
+    // qu'un écran vide, mais son verdict dit clairement qu'il n'est pas validé
     const secours = construire(rnd, D) || construire(mulberry32(1), D);
     if (secours) {
       secours.grain = grainTexte;
-      secours.verdict = { relais: 0, solutions: 0 };
+      secours.verdict = { relais: 0, solutions: 0, total: 0, figees: 0, faciles: 0, valide: false };
       secours.msSolver = performance.now() - t0;
       secours.rejets = rejets;
     }
@@ -496,8 +602,11 @@
   // et un ressort la ramène vers 1. D'où l'écrasement à l'impact puis le
   // ballotement qui suit.
   function majJelly(p, dt) {
-    const cibleX = clamp(1 + p.vy * 0.02 - p.vx * 0.02, 0.62, 1.42);
-    const cibleY = clamp(1 + p.vx * 0.02 - p.vy * 0.02, 0.62, 1.42);
+    // Bornes resserrées (0.62..1.42 au départ) : au-delà, un bonhomme qui fuit
+    // vite devenait une flaque ou une barre, et son visage partait avec.
+    // On garde l'élasticité, on perd la caricature.
+    const cibleX = clamp(1 + p.vy * 0.013 - p.vx * 0.013, 0.84, 1.19);
+    const cibleY = clamp(1 + p.vx * 0.013 - p.vy * 0.013, 0.84, 1.19);
     const RAIDEUR = 190, AMORTI = 13;
     p.vsx += (cibleX - p.sx) * RAIDEUR * dt;
     p.vsy += (cibleY - p.sy) * RAIDEUR * dt;
@@ -542,19 +651,17 @@
         }
 
       } else if (p.emotion === EMOTIONS.COLERE) {
-        // charge la source de lumière pour la bloquer
-        if (doigt.actif) {
-          const dx = doigt.x - p.x, dy = doigt.y - p.y;
-          const d = Math.hypot(dx, dy) || 1;
-          if (d < D.portee) {
-            p.vx += (dx / d) * 170 * dt;
-            p.vy += (dy / d) * 170 * dt;
-          }
-          p.regard = Math.atan2(dy, dx);
-        } else {
-          p.vx += (p.baseX - p.x) * 1.6 * dt;
-          p.vy += (p.baseY - p.y) * 1.6 * dt;
-        }
+        // Il fonce sur la lumière et vient rejoindre exactement la position que
+        // le solver a prévue pour lui — c'est ce qui fait que ce qu'on voit à
+        // l'écran et ce que le jeu calcule ne divergent jamais. Il charge vite,
+        // il rentre lentement : ça laisse au joueur une fenêtre pour se
+        // repositionner après l'avoir attiré.
+        const cible = doigt.actif ? posColere(p, doigt.x, doigt.y, D)
+                                  : { x: p.baseX, y: p.baseY };
+        const raideur = doigt.actif ? 60 : 10;
+        p.vx += (cible.x - p.x) * raideur * dt;
+        p.vy += (cible.y - p.y) * raideur * dt;
+        if (doigt.actif) p.regard = Math.atan2(doigt.y - p.y, doigt.x - p.x);
       }
 
       // frottement
@@ -567,7 +674,7 @@
       // laisse : un coléreux mesuré parcourait 79 px et venait couper la chaîne
       // au milieu du plateau. Il charge toujours, mais sans quitter son poste :
       // le graphe de lumière validé par le solver reste valable.
-      const laisse = D.taille * 1.15;
+      const laisse = p.emotion === EMOTIONS.COLERE ? D.laisse * 1.05 : D.taille * 1.15;
       const ex = p.x - p.baseX, ey = p.y - p.baseY;
       const d = Math.hypot(ex, ey);
       if (d > laisse) {
@@ -583,8 +690,12 @@
       if (p.y < demi + 44) { p.y = demi + 44; p.vy = Math.abs(p.vy) * 0.55; }
       if (p.y > H - demi) { p.y = H - demi; p.vy = -Math.abs(p.vy) * 0.55; }
 
-      // dalles
-      for (const m of murs) {
+      // Dalles. Le coléreux en est exempté, comme il l'est des collisions entre
+      // bonhommes juste en dessous : sa position est le pivot du puzzle et le
+      // solver la calcule d'avance, donc rien ne doit pouvoir l'arrêter en
+      // route. Mesuré avant ça : un bloqueur coincé par une dalle finissait à
+      // 81 px de la position prévue, et le niveau devenait insoluble.
+      for (const m of (p.emotion === EMOTIONS.COLERE ? [] : murs)) {
         if (p.x + demi < m.x || p.x - demi > m.x + m.w) continue;
         if (p.y + demi < m.y || p.y - demi > m.y + m.h) continue;
         const gauche = (m.x - demi) - p.x, droite = (m.x + m.w + demi) - p.x;
@@ -596,10 +707,13 @@
       }
     }
 
-    // collisions entre carrés : rebond élastique, d'où l'écrasement mutuel
+    // Collisions entre carrés : rebond élastique, d'où l'écrasement mutuel.
+    // Les coléreux passent au travers : mesuré, un coléreux qui charge poussait
+    // un maillon de 56 px et démolissait la solution que le solver avait validée.
     for (let i = 0; i < persos.length; i++) {
       for (let j = i + 1; j < persos.length; j++) {
         const a = persos[i], b = persos[j];
+        if (a.emotion === EMOTIONS.COLERE || b.emotion === EMOTIONS.COLERE) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.hypot(dx, dy);
         const mini = D.taille * 0.95;
@@ -632,6 +746,15 @@
     c.closePath();
   }
 
+  function melange(hex, vers, t) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+      .map((v) => Math.round(v + (vers - v) * t));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
+  }
+  const eclaircir = (hex, t) => melange(hex, 255, t);
+  const assombrir = (hex, t) => melange(hex, 0, t);
+
   const COULEURS = {
     [EMOTIONS.PEUR]: '#8fd0ff',
     [EMOTIONS.COLERE]: '#ff7a6b',
@@ -647,14 +770,35 @@
     ctx.translate(p.x, p.y);
 
     const couleur = COULEURS[p.emotion];
-    ctx.fillStyle = p.eclaire ? couleur : '#1b1b26';
-    ctx.strokeStyle = p.eclaire ? '#ffffff' : couleur;
-    ctx.lineWidth = p.eclaire ? 2 : 1.6;
+    const arrondi = Math.min(w, h) * 0.32;
     ctx.globalAlpha = base * (p.eclaire ? 1 : 0.85);
 
-    carreArrondi(ctx, -w / 2, -h / 2, w, h, Math.min(w, h) * 0.32);
+    // --- corps : dégradé vertical + reflet, pour du volume plutôt qu'un aplat ---
+    const corps = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    if (p.eclaire) {
+      corps.addColorStop(0, eclaircir(couleur, 0.42));
+      corps.addColorStop(0.55, couleur);
+      corps.addColorStop(1, assombrir(couleur, 0.3));
+    } else {
+      corps.addColorStop(0, '#23232f');
+      corps.addColorStop(1, '#12121a');
+    }
+    ctx.fillStyle = corps;
+    carreArrondi(ctx, -w / 2, -h / 2, w, h, arrondi);
     ctx.fill();
+
+    ctx.strokeStyle = p.eclaire ? 'rgba(255,255,255,0.75)' : couleur;
+    ctx.lineWidth = p.eclaire ? 2 : 1.6;
     ctx.stroke();
+
+    // reflet spéculaire, en haut à gauche
+    const reflet = ctx.createRadialGradient(-w * 0.2, -h * 0.28, 0, -w * 0.2, -h * 0.28, w * 0.42);
+    reflet.addColorStop(0, `rgba(255,255,255,${p.eclaire ? 0.5 : 0.1})`);
+    reflet.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = reflet;
+    carreArrondi(ctx, -w / 2, -h / 2, w, h, arrondi);
+    ctx.fill();
+
     ctx.globalAlpha = base;
 
     // --- visage ---
@@ -760,7 +904,9 @@
       ctx.fill();
     }
 
-    for (const p of persos) if (!p.eclaire) dessinerPerso(p, D, temps, 0.4);
+    const ordre = [...persos].sort((a, b) =>
+      (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
+    for (const p of ordre) if (!p.eclaire) dessinerPerso(p, D, temps, 0.4);
     ctx.restore();
   }
 
@@ -796,7 +942,9 @@
     ctx.fill();
     ctx.restore();
 
-    for (const p of persos) dessinerPerso(p, D, temps);
+    const ordre = [...persos].sort((a, b) =>
+      (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
+    for (const p of ordre) dessinerPerso(p, D, temps);
 
     // --- calque d'obscurité : on perce, puis on pose ---
     lctx.setTransform(DPR * QLUM, 0, 0, DPR * QLUM, 0, 0);
@@ -906,7 +1054,7 @@
     majPhysique(niveau, D, dt, doigt, temps);
 
     const r = doigt.actif
-      ? propager(niveau, doigt.x, doigt.y, D, D.lanterne)
+      ? propager(niveau, doigt.x, doigt.y, D, D.lanterne, false)
       : { eclaires: new Set(), relais: 0, directe: false };
 
     for (const p of niveau.persos) p.eclaire = r.eclaires.has(p);
@@ -998,14 +1146,17 @@
       grain: niveau.grain,
       relais: niveau.verdict.relais,
       solutions: niveau.verdict.solutions,
+      total: niveau.verdict.total,
       msSolver: niveau.msSolver,
       rejets: niveau.rejets,
       persos: niveau.persos.length,
       murs: niveau.murs.length,
     },
     charger,
-    tester: (x, y) => propager(niveau, x, y, D, D.lanterne).relais,
+    tester: (x, y) => propager(niveau, x, y, D, D.lanterne, true).relais,
     etat: () => niveau,
+    prevu: (c, x, y) => { const q = posColere(c, x, y, D); return [q.x, q.y]; },
+    reel: (x, y) => propager(niveau, x, y, D, D.lanterne, false).relais,
     doigt: () => ({ ...doigt }),
   };
 })();

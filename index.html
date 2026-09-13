@@ -14,212 +14,292 @@
 </header>
 
 <main>
-  <div class="view" id="home">
-    <div class="grid">
-
-    <a class="card cat-card" href="#/musique">
-      <div class="card-icon">🎵</div>
-      <h3 class="card-title">Musique</h3>
-      <p class="card-desc">Instruments et outils sonores.</p>
-      <span class="card-link">1 projet →</span>
-    </a>
-
-    <a class="card cat-card" href="#/jeux">
-      <div class="card-icon">🎮</div>
-      <h3 class="card-title">Jeux</h3>
-      <p class="card-desc">À jouer directement dans le navigateur.</p>
-      <span class="card-link">5 projets →</span>
-    </a>
-
-    <a class="card cat-card" href="#/simulateurs">
-      <div class="card-icon">🎛️</div>
-      <h3 class="card-title">Simulateurs</h3>
-      <p class="card-desc">Reproduire un système pour le comprendre.</p>
-      <span class="card-link">3 projets →</span>
-    </a>
-
-    <a class="card cat-card" href="#/outils">
-      <div class="card-icon">🧰</div>
-      <h3 class="card-title">Outils</h3>
-      <p class="card-desc">Des choses utiles au quotidien.</p>
-      <span class="card-link">3 projets →</span>
-    </a>
-
-    <a class="card cat-card" href="#/labo">
-      <div class="card-icon">🧪</div>
-      <h3 class="card-title">Labo</h3>
-      <p class="card-desc">Expérimentations hébergées directement dans ce repo.</p>
-      <span class="card-link">3 projets →</span>
-    </a>
-    </div>
+  <div class="search-bar">
+    <span class="search-icon" aria-hidden="true">🔍</span>
+    <input type="search" id="q" placeholder="Rechercher un projet…" autocomplete="off"
+           aria-label="Rechercher un projet">
+    <button type="button" id="clear" hidden aria-label="Effacer la recherche">✕</button>
   </div>
 
-  <section class="view" id="musique" hidden>
-    <a class="back-link" href="#/">← Toutes les catégories</a>
-    <h2 class="section-title">🎵 Musique</h2>
-    <p class="section-note">Instruments et outils sonores.</p>
-    <div class="grid">
+  <div class="tags" id="tags"></div>
 
-    <a class="card" href="https://piascwal.github.io/zikof/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🎸</div>
-      <h3 class="card-title">Zikof</h3>
-      <p class="card-desc">Boîte à outils web mobile pour guitaristes : accords, gammes, tablature, rythmiques et métronome.</p>
-      <span class="card-link">piascwal.github.io/zikof →</span>
-    </a>
-    </div>
+  <section id="browse">
+    <h2 class="section-title">Catégories</h2>
+    <p class="section-note">Un projet peut appartenir à plusieurs d'entre elles.</p>
+    <div class="grid" id="cats"></div>
   </section>
 
-  <section class="view" id="jeux" hidden>
-    <a class="back-link" href="#/">← Toutes les catégories</a>
-    <h2 class="section-title">🎮 Jeux</h2>
-    <p class="section-note">À jouer directement dans le navigateur.</p>
-    <div class="grid">
-
-    <a class="card" href="https://piascwal.github.io/Stacker/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🧱</div>
-      <h3 class="card-title">Neon Ascension</h3>
-      <p class="card-desc">Jeu d'empilement rétro-futuriste : coupez le câble au bon moment pour aligner les blocs, enchaînez les combos et grimpez le plus haut possible.</p>
-      <span class="card-link">piascwal.github.io/Stacker →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/galacticrush/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🚀</div>
-      <h3 class="card-title">Galactic Rush</h3>
-      <p class="card-desc">Jeu de gestion spatiale idle/clicker : développez des colonies planétaires et récoltez de l'énergie.</p>
-      <span class="card-link">piascwal.github.io/galacticrush →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/ya/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🎲</div>
-      <h3 class="card-title">Ya</h3>
-      <p class="card-desc">Jeu de société numérique à faire tourner autour de la table : un seul téléphone, des gestes à enchaîner et six manches à gagner.</p>
-      <span class="card-link">piascwal.github.io/ya →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/agile-inferno/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🔥</div>
-      <h3 class="card-title">Agile Inferno</h3>
-      <p class="card-desc">Simulateur satirique de tech lead : arbitrez des crises d'entreprise absurdes en jonglant entre avancement, dette technique, moral de l'équipe et pression de la direction.</p>
-      <span class="card-link">piascwal.github.io/agile-inferno →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/multix/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🔢</div>
-      <h3 class="card-title">Multi Fusion</h3>
-      <p class="card-desc">Jeu web d'entraînement aux tables de multiplication, avec plusieurs modes de jeu, des badges et des classements locaux.</p>
-      <span class="card-link">piascwal.github.io/multix →</span>
-    </a>
-    </div>
-  </section>
-
-  <section class="view" id="simulateurs" hidden>
-    <a class="back-link" href="#/">← Toutes les catégories</a>
-    <h2 class="section-title">🎛️ Simulateurs</h2>
-    <p class="section-note">Reproduire un système pour le comprendre.</p>
-    <div class="grid">
-
-    <a class="card" href="https://piascwal.github.io/vroom/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🏎️</div>
-      <h3 class="card-title">Vroom</h3>
-      <p class="card-desc">Simulateur de moteur avec une interface de cockpit interactive pour explorer son fonctionnement.</p>
-      <span class="card-link">piascwal.github.io/vroom →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/vehicle-dashboard/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">✈️</div>
-      <h3 class="card-title">Vehicle Dashboard</h3>
-      <p class="card-desc">Simulateur de cockpit d'avion de chasse interactif : commandes tactiles, gestion des systèmes (carburant, armement, moteur) et combat arcade.</p>
-      <span class="card-link">piascwal.github.io/vehicle-dashboard →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/simularium/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🧬</div>
-      <h3 class="card-title">Simularium</h3>
-      <p class="card-desc">Simulation interactive de comportements collectifs d'agents simples suivant des règles locales.</p>
-      <span class="card-link">piascwal.github.io/simularium →</span>
-    </a>
-    </div>
-  </section>
-
-  <section class="view" id="outils" hidden>
-    <a class="back-link" href="#/">← Toutes les catégories</a>
-    <h2 class="section-title">🧰 Outils</h2>
-    <p class="section-note">Des choses utiles au quotidien.</p>
-    <div class="grid">
-
-    <a class="card" href="https://piascwal.github.io/valise/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🧳</div>
-      <h3 class="card-title">Valise</h3>
-      <p class="card-desc">Générateur de checklist de bagages qui produit une liste personnalisée selon les caractéristiques du voyage.</p>
-      <span class="card-link">piascwal.github.io/valise →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/carte-tresor/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">🗺️</div>
-      <h3 class="card-title">Carte au trésor</h3>
-      <p class="card-desc">Outil interactif pour concevoir des cartes au trésor personnalisées, à exporter et imprimer.</p>
-      <span class="card-link">piascwal.github.io/carte-tresor →</span>
-    </a>
-
-    <a class="card" href="https://piascwal.github.io/ev-saving/" target="_blank" rel="noopener noreferrer">
-      <div class="card-icon">⚡</div>
-      <h3 class="card-title">EV Saving</h3>
-      <p class="card-desc">Mesure en temps réel les économies financières et environnementales réalisées en conduisant un véhicule électrique plutôt que thermique.</p>
-      <span class="card-link">piascwal.github.io/ev-saving →</span>
-    </a>
-    </div>
-  </section>
-
-  <section class="view" id="labo" hidden>
-    <a class="back-link" href="#/">← Toutes les catégories</a>
-    <h2 class="section-title">🧪 Labo</h2>
-    <p class="section-note">Expérimentations hébergées directement dans ce repo.</p>
-    <div class="grid">
-
-    <a class="card" href="poc/boite-a-rythme.html">
-      <div class="card-icon">🥁</div>
-      <h3 class="card-title">Boîte à rythme <span class="badge">POC</span></h3>
-      <p class="card-desc">Séquenceur 16 pas et pads de batterie, entièrement synthétisés en Web Audio : pas un seul fichier son.</p>
-      <span class="card-link">Ouvrir la boîte à rythme →</span>
-    </a>
-
-    <a class="card" href="poc/harmonic-pad.html">
-      <div class="card-icon">🎹</div>
-      <h3 class="card-title">Harmonic Pad <span class="badge">POC</span></h3>
-      <p class="card-desc">Pad musical en Web Audio : chaque doigt déclenche une voix, quantisée sur une gamme pour rester harmonique, avec sa propre couleur.</p>
-      <span class="card-link">Ouvrir le pad →</span>
-    </a>
-
-    <a class="card" href="poc/tissu-webgpu.html">
-      <div class="card-icon">🧵</div>
-      <h3 class="card-title">Tissu WebGPU <span class="badge">POC</span></h3>
-      <p class="card-desc">Simulation masse-ressort calculée sur le GPU par compute shader : attrapez le tissu et tirez, ou plaquez-y une photo.</p>
-      <span class="card-link">Ouvrir la simulation →</span>
-    </a>
-    </div>
+  <section id="results" hidden>
+    <p class="result-count" id="count"></p>
+    <div class="grid" id="list"></div>
+    <p class="empty" id="empty" hidden>Aucun projet ne correspond.</p>
   </section>
 </main>
-
-<script>
-  // Navigation à deux niveaux : l'accueil liste les catégories, chacune ouvre
-  // sa propre vue. Passer par le hash garde le bouton retour du navigateur
-  // fonctionnel et rend chaque catégorie partageable par son lien.
-  (() => {
-    const vues = [...document.querySelectorAll('.view')];
-    function afficher() {
-      const id = location.hash.replace(/^#\/?/, '') || 'home';
-      const cible = document.getElementById(id) || document.getElementById('home');
-      vues.forEach((v) => { v.hidden = v !== cible; });
-      window.scrollTo(0, 0);
-    }
-    window.addEventListener('hashchange', afficher);
-    afficher();
-  })();
-</script>
-
 
 <footer class="page-footer">
   <p>Mis à jour manuellement · <a href="https://github.com/piascwal" target="_blank" rel="noopener noreferrer">github.com/piascwal</a></p>
 </footer>
+
+<script>
+(() => {
+  'use strict';
+
+  // Les catégories sont des tags comme les autres : un projet en porte
+  // plusieurs, donc il apparaît dans plusieurs catégories sans être dupliqué.
+  // EV Saving est à la fois un outil et un truc de voiture, la boîte à rythme
+  // est un POC et de la musique.
+  const PROJETS = [
+    { nom: 'Zikof', icone: '🎸', url: 'https://piascwal.github.io/zikof/',
+      tags: ['musique', 'outil'],
+      mots: 'guitare accords gammes tablature métronome musicien',
+      desc: "Boîte à outils web mobile pour guitaristes : accords, gammes, tablature, rythmiques et métronome." },
+
+    { nom: 'Neon Ascension', icone: '🧱', url: 'https://piascwal.github.io/Stacker/',
+      tags: ['jeu'],
+      mots: 'stacker arcade blocs empilement tour altitude',
+      desc: "Jeu d'empilement rétro-futuriste : coupez le câble au bon moment pour aligner les blocs, enchaînez les combos et grimpez le plus haut possible." },
+
+    { nom: 'Galactic Rush', icone: '🚀', url: 'https://piascwal.github.io/galacticrush/',
+      tags: ['jeu'],
+      mots: 'espace idle clicker incrémental planètes',
+      desc: "Jeu de gestion spatiale idle/clicker : développez des colonies planétaires et récoltez de l'énergie." },
+
+    { nom: 'Ya', icone: '🎲', url: 'https://piascwal.github.io/ya/',
+      tags: ['jeu'],
+      mots: 'soirée société amis table téléphone manches',
+      desc: "Jeu de société numérique à faire tourner autour de la table : un seul téléphone, des gestes à enchaîner et six manches à gagner." },
+
+    { nom: 'Agile Inferno', icone: '🔥', url: 'https://piascwal.github.io/agile-inferno/',
+      tags: ['jeu', 'simulateur'],
+      mots: 'travail équipe management scrum développeurs bureau humour',
+      desc: "Simulateur satirique de tech lead : arbitrez des crises d'entreprise absurdes en jonglant entre avancement, dette technique, moral de l'équipe et pression de la direction." },
+
+    { nom: 'Multi Fusion', icone: '🔢', url: 'https://piascwal.github.io/multix/',
+      tags: ['jeu', 'enfants'],
+      mots: 'multiplication tables maths école calcul mental révisions',
+      desc: "Jeu web d'entraînement aux tables de multiplication, avec plusieurs modes de jeu, des badges et des classements locaux." },
+
+    { nom: 'Vroom', icone: '🏎️', url: 'https://piascwal.github.io/vroom/',
+      tags: ['simulateur', 'véhicule'],
+      mots: 'moteur voiture auto mécanique pistons cockpit',
+      desc: "Simulateur de moteur avec une interface de cockpit interactive pour explorer son fonctionnement." },
+
+    { nom: 'Vehicle Dashboard', icone: '✈️', url: 'https://piascwal.github.io/vehicle-dashboard/',
+      tags: ['simulateur', 'véhicule', 'jeu'],
+      mots: 'avion chasse cockpit pilote vol tableau de bord',
+      desc: "Simulateur de cockpit d'avion de chasse : commandes tactiles, gestion des systèmes (carburant, armement, moteur) et combat arcade." },
+
+    { nom: 'Simularium', icone: '🧬', url: 'https://piascwal.github.io/simularium/',
+      tags: ['simulateur'],
+      mots: 'agents émergence essaim boids comportement collectif',
+      desc: "Simulation interactive de comportements collectifs d'agents simples suivant des règles locales." },
+
+    { nom: 'EV Saving', icone: '⚡', url: 'https://piascwal.github.io/ev-saving/',
+      tags: ['outil', 'véhicule'],
+      mots: 'voiture auto électrique thermique essence économies consommation trajet',
+      desc: "Mesure en temps réel les économies financières et environnementales réalisées en conduisant un véhicule électrique plutôt que thermique." },
+
+    { nom: 'Valise', icone: '🧳', url: 'https://piascwal.github.io/valise/',
+      tags: ['outil'],
+      mots: 'voyage bagage vacances checklist partir préparer',
+      desc: "Générateur de checklist de bagages qui produit une liste personnalisée selon les caractéristiques du voyage." },
+
+    { nom: 'Carte au trésor', icone: '🗺️', url: 'https://piascwal.github.io/carte-tresor/',
+      tags: ['outil', 'enfants'],
+      mots: 'pirate imprimer dessiner aventure chasse au trésor',
+      desc: "Outil interactif pour concevoir des cartes au trésor personnalisées, à exporter et imprimer." },
+
+    { nom: 'Boîte à rythme', icone: '🥁', url: 'poc/boite-a-rythme.html',
+      tags: ['poc', 'musique', 'audio'],
+      mots: 'drum machine séquenceur percussions batterie 808 tempo beat',
+      desc: "Séquenceur 16 pas et pads de batterie, entièrement synthétisés en Web Audio : pas un seul fichier son." },
+
+    { nom: 'Harmonic Pad', icone: '🎹', url: 'poc/harmonic-pad.html',
+      tags: ['poc', 'musique', 'audio'],
+      mots: 'synthé synthétiseur gammes pentatonique notes accords toucher',
+      desc: "Pad musical en Web Audio : chaque doigt déclenche une voix, quantisée sur une gamme pour rester harmonique, avec sa propre couleur." },
+
+    { nom: 'Tissu WebGPU', icone: '🧵', url: 'poc/tissu-webgpu.html',
+      tags: ['poc', 'simulateur', '3d'],
+      mots: 'gpu shader physique simulation étoffe drap textile compute',
+      desc: "Simulation masse-ressort calculée sur le GPU par compute shader : attrapez le tissu et tirez, ou plaquez-y une photo." },
+  ];
+
+  // Les catégories mises en avant sur l'accueil. Les autres tags restent
+  // accessibles par la barre de tags et la recherche.
+  const CATEGORIES = [
+    { tag: 'musique',    icone: '🎵',  note: 'Instruments et outils sonores.' },
+    { tag: 'jeu',        icone: '🎮',  nom: 'Jeux', note: 'À jouer directement dans le navigateur.' },
+    { tag: 'simulateur', icone: '🎛️', nom: 'Simulateurs', note: 'Reproduire un système pour le comprendre.' },
+    { tag: 'véhicule',   icone: '🚗',  note: 'À emmener dans la voiture.' },
+    { tag: 'outil',      icone: '🧰',  nom: 'Outils', note: 'Des choses utiles au quotidien.' },
+    { tag: 'poc',        icone: '🧪',  nom: 'Labo', note: 'Expérimentations hébergées dans ce repo.' },
+  ];
+
+  /* ------------------------------------------------------------ état ----- */
+
+  let actifs = new Set();   // tags sélectionnés (cumulatifs)
+  let requete = '';
+
+  // recherche insensible aux accents : « tresor » doit trouver « trésor »
+  const simplifie = (t) => t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
+  PROJETS.forEach((p) => {
+    // les mots-clés ne s'affichent pas : ils servent à ce que « voiture »
+    // trouve EV Saving, ou « drum machine » la boîte à rythme
+    p.recherche = simplifie([p.nom, p.desc, p.tags.join(' '), p.mots || ''].join(' '));
+  });
+
+  const compte = (tag) => PROJETS.filter((p) => p.tags.includes(tag)).length;
+  const filtreActif = () => actifs.size > 0 || requete.trim() !== '';
+
+  function resultats() {
+    const q = simplifie(requete.trim());
+    const mots = q ? q.split(/\s+/) : [];
+    return PROJETS.filter((p) => {
+      for (const t of actifs) if (!p.tags.includes(t)) return false;
+      return mots.every((m) => p.recherche.includes(m));
+    });
+  }
+
+  /* ------------------------------------------------------------ rendu ---- */
+
+  const echap = (t) => t.replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function carte(p) {
+    const externe = p.url.startsWith('http');
+    const lien = externe
+      ? p.url.replace(/^https:\/\//, '').replace(/\/$/, '')
+      : 'Ouvrir';
+    const cible = externe ? ' target="_blank" rel="noopener noreferrer"' : '';
+    const badge = p.tags.includes('poc') ? ' <span class="badge">POC</span>' : '';
+    const tags = p.tags.map((t) =>
+      `<button type="button" class="tag tag-sm${actifs.has(t) ? ' on' : ''}" data-tag="${echap(t)}">${echap(t)}</button>`
+    ).join('');
+
+    return `<div class="card">
+      <div class="card-icon">${p.icone}</div>
+      <h3 class="card-title"><a href="${echap(p.url)}"${cible}>${echap(p.nom)}</a>${badge}</h3>
+      <p class="card-desc">${echap(p.desc)}</p>
+      <div class="card-tags">${tags}</div>
+      <span class="card-link">${echap(lien)} →</span>
+    </div>`;
+  }
+
+  const elTags = document.getElementById('tags');
+  const elCats = document.getElementById('cats');
+  const elListe = document.getElementById('list');
+  const elCount = document.getElementById('count');
+  const elVide = document.getElementById('empty');
+  const elBrowse = document.getElementById('browse');
+  const elResults = document.getElementById('results');
+  const champ = document.getElementById('q');
+  const boutonClear = document.getElementById('clear');
+
+  function rendreTags() {
+    // tous les tags existants, les plus utilisés d'abord
+    const tous = [...new Set(PROJETS.flatMap((p) => p.tags))]
+      .sort((a, b) => compte(b) - compte(a) || a.localeCompare(b));
+    elTags.innerHTML = tous.map((t) =>
+      `<button type="button" class="tag${actifs.has(t) ? ' on' : ''}" data-tag="${echap(t)}">`
+      + `${echap(t)}<span class="tag-count">${compte(t)}</span></button>`
+    ).join('')
+      + (filtreActif() ? '<button type="button" class="tag tag-clear" id="reset">Tout effacer</button>' : '');
+  }
+
+  function rendreCats() {
+    elCats.innerHTML = CATEGORIES.map((c) => {
+      const n = compte(c.tag);
+      const nom = c.nom || (c.tag.charAt(0).toUpperCase() + c.tag.slice(1));
+      return `<button type="button" class="card cat-card" data-tag="${echap(c.tag)}">
+        <div class="card-icon">${c.icone}</div>
+        <h3 class="card-title">${echap(nom)}</h3>
+        <p class="card-desc">${echap(c.note)}</p>
+        <span class="card-link">${n} projet${n > 1 ? 's' : ''} →</span>
+      </button>`;
+    }).join('');
+  }
+
+  function rendre() {
+    rendreTags();
+
+    if (!filtreActif()) {
+      elBrowse.hidden = false;
+      elResults.hidden = true;
+      return;
+    }
+
+    elBrowse.hidden = true;
+    elResults.hidden = false;
+
+    const trouves = resultats();
+    elListe.innerHTML = trouves.map(carte).join('');
+    elVide.hidden = trouves.length > 0;
+
+    const parties = [];
+    if (actifs.size) parties.push([...actifs].join(' + '));
+    if (requete.trim()) parties.push(`« ${requete.trim()} »`);
+    elCount.textContent = trouves.length
+      ? `${trouves.length} projet${trouves.length > 1 ? 's' : ''} · ${parties.join(' · ')}`
+      : parties.join(' · ');
+  }
+
+  /* ------------------------------------------------ interactions --------- */
+
+  function bascule(tag) {
+    actifs.has(tag) ? actifs.delete(tag) : actifs.add(tag);
+    majHash();
+    rendre();
+  }
+
+  // un seul écouteur pour tous les tags, où qu'ils soient
+  document.addEventListener('click', (e) => {
+    const tag = e.target.closest('[data-tag]');
+    if (tag) { bascule(tag.dataset.tag); return; }
+    if (e.target.id === 'reset') {
+      actifs.clear(); requete = ''; champ.value = '';
+      boutonClear.hidden = true;
+      majHash(); rendre();
+    }
+  });
+
+  champ.addEventListener('input', () => {
+    requete = champ.value;
+    boutonClear.hidden = requete === '';
+    rendre();
+  });
+
+  boutonClear.addEventListener('click', () => {
+    requete = ''; champ.value = ''; boutonClear.hidden = true;
+    champ.focus();
+    rendre();
+  });
+
+  // Les tags passent par le hash : chaque sélection a son lien partageable et
+  // le bouton retour du navigateur fonctionne. La recherche texte, elle, reste
+  // hors URL pour ne pas polluer l'historique à chaque frappe.
+  let ignoreHash = false;
+
+  function majHash() {
+    ignoreHash = true;
+    const cible = actifs.size ? '#/t/' + [...actifs].join('+') : '#/';
+    if (location.hash !== cible) location.hash = cible;
+    setTimeout(() => { ignoreHash = false; }, 0);
+  }
+
+  function lireHash() {
+    if (ignoreHash) return;
+    const m = location.hash.match(/^#\/t\/(.+)$/);
+    actifs = new Set(m ? decodeURIComponent(m[1]).split('+').filter(Boolean) : []);
+    rendre();
+  }
+
+  window.addEventListener('hashchange', lireHash);
+
+  rendreCats();
+  lireHash();
+})();
+</script>
 </body>
 </html>

@@ -140,6 +140,9 @@
   }
 
   .rond {
+    position: relative;
+    overflow: hidden;
+    touch-action: manipulation;
     width: 72px;
     height: 72px;
     border-radius: 50%;
@@ -155,7 +158,18 @@
   }
 
   .rond.on { display: block; }
-  .rond:disabled { opacity: 0.3; }
+  .rond:disabled { opacity: 0.34; }
+  /* anneau de recharge : sans lui, un bouton indisponible ressemble à un bouton
+     cassé — c'est la même sensation que « ça ne marche pas » */
+  .rond::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 50%;
+    background: conic-gradient(currentColor calc(var(--recharge, 1) * 360deg), transparent 0);
+    opacity: 0.18;
+    pointer-events: none;
+  }
 
   #braise { border-color: rgba(255, 196, 120, 0.55); color: #ffc478; }
   #charge { border-color: rgba(255, 154, 107, 0.55); color: #ff9a6b; }
@@ -317,7 +331,7 @@
       texte: "Tu peux poser des braises. Elles éclairent pour toujours, et les rouges ne supportent pas leur lumière : une braise, c'est un abri." },
     { nom: 'Ardent', couleur: '#ff9a6b', seuil: 108, halo: 1.62, portee: 7.0, cone: 0.30,
       verbe: 'La charge',
-      texte: "Tu peux charger : une ruée qui repousse violemment tout ce qui t'entoure. De quoi te sortir d'un couloir bouché." },
+      texte: "La charge est ta sortie de secours : une ruée où AUCUN regard ne peut te vider, et qui étourdit ce qu'elle bouscule. C'est comme ça qu'on traverse le cône d'une sentinelle." },
     { nom: 'Solaire', couleur: '#fff2c4', seuil: 170, halo: 1.9, portee: 8.2, cone: 0.30,
       verbe: "L'éclat",
       texte: "Un éclat circulaire qui aveugle tous les rouges autour de toi : quelques secondes où plus aucun regard ne te vide." },
@@ -332,12 +346,20 @@
 
   // Les lueurs à effet. Chacune n'apparaît qu'à partir d'une forme donnée :
   // on n'introduit jamais un bonus avant que le joueur ait digéré le précédent.
+  // Chaque bonus porte sa propre phrase : un nom seul ne dit rien. Et chacun se
+  // VOIT sur le personnage — couleur du corps, du halo, particules — parce que
+  // le mot dans la barre du haut n'est pas là où le joueur regarde.
   const BONUS = {
-    eclat:   { couleur: '#ffe9a8', forme: 0, duree: 0,  nom: 'Lueur' },
-    souffle: { couleur: '#8fd0ff', forme: 1, duree: 7,  nom: 'Voilé' },
-    braise:  { couleur: '#ffc478', forme: 2, duree: 0,  nom: 'Braise' },
-    hate:    { couleur: '#a8f0c8', forme: 3, duree: 8,  nom: 'Hâte' },
-    prisme:  { couleur: '#d7b4ff', forme: 4, duree: 10, nom: 'Prisme' },
+    eclat:   { couleur: '#ffe9a8', forme: 0, duree: 0,  nom: 'Lueur',
+               phrase: '' },
+    souffle: { couleur: '#8fd0ff', forme: 1, duree: 7,  nom: 'Voilé',
+               phrase: 'Voilé — les sentinelles ne te voient plus' },
+    braise:  { couleur: '#ffc478', forme: 2, duree: 0,  nom: 'Braise',
+               phrase: '+1 braise à poser' },
+    hate:    { couleur: '#a8f0c8', forme: 3, duree: 8,  nom: 'Hâte',
+               phrase: 'Hâte — tu files bien plus vite' },
+    prisme:  { couleur: '#d7b4ff', forme: 4, duree: 10, nom: 'Prisme',
+               phrase: 'Prisme — ton faisceau s\'élargit et porte plus loin' },
   };
 
   /* ==================================================== le monde ========= */
@@ -468,6 +490,19 @@
             emotion: palette[Math.floor(rnd() * palette.length)],
             eclaire: false, calme: false, aveugle: 0, compteCalme: 0,
             tremble: rnd() * TAU, humeur: 0,
+            alerte: 0, etape: 0,
+            // points de passage de la ronde, pris dans les cases libres autour
+            ronde: (() => {
+              const pts = [];
+              for (let k = 0; k < 24 && pts.length < 3; k++) {
+                const ox = cx + Math.floor(rnd() * 9) - 4;
+                const oy = cy + Math.floor(rnd() * 9) - 4;
+                if (ox < 0 || oy < 0 || ox >= z.cols || oy >= z.lignes) continue;
+                if (z.mur[oy][ox] || d[oy][ox] < 0) continue;
+                pts.push({ x: (ox + 0.5) * CASE, y: (oy + 0.5) * CASE });
+              }
+              return pts;
+            })(),
           });
         }
       }
@@ -508,6 +543,7 @@
   let zone = null;
   const cam = { x: 0, y: 0 };
   let particules = [];
+  let ondes = [];                  // ondes de choc de la charge et de l'éclat
   let fil = [];                    // la trace du joueur : sa seule mémoire du terrain
 
   const joueur = {
@@ -656,6 +692,11 @@
       q.vie -= dt;
       if (q.vie <= 0) particules.splice(i, 1);
     }
+    for (let i = ondes.length - 1; i >= 0; i--) {
+      const o = ondes[i];
+      o.r += (o.max - o.r) * Math.min(1, 7 * dt) + 40 * dt;
+      if (o.r >= o.max * 0.97) ondes.splice(i, 1);
+    }
   }
 
   /* ==================================================== physique ========= */
@@ -723,7 +764,12 @@
       if (p.aveugle > 0) p.aveugle -= dt;
       const dx = joueur.x - p.x, dy = joueur.y - p.y;
       const d = Math.hypot(dx, dy) || 1;
-      const voit = d < CASE * 5 && vueLibre(p.x, p.y, joueur.x, joueur.y);
+      // Un peureux ou un curieux te remarque de partout : ils ne te chassent pas.
+      // Un coléreux, lui, est une SENTINELLE : il ne te voit que dans son cône.
+      const voit = p.emotion === EMOTIONS.COLERE
+        ? dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, CASE * 4.6, 0.42)
+            && vueLibre(p.x, p.y, joueur.x, joueur.y)
+        : d < CASE * 5 && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
       if (p.emotion === EMOTIONS.CURIEUX) {
         p.phase += p.balayage * (p.eclaire ? 0.18 : 1) * dt;
@@ -749,34 +795,55 @@
         }
 
       } else {
-        // Coléreux : il fixe et il charge — mais pas au-delà de son territoire,
-        // et pas dans la lumière d'une braise. Sans laisse, un seul rouge
-        // suivait le joueur à travers toute la zone et le revidait à chaque
-        // réapparition : boucle de mort insortable.
+        // SENTINELLE. Elle fait sa ronde et balaye du regard. Elle ne te
+        // détecte QUE si tu entres dans son cône — donc on peut la contourner,
+        // passer dans son dos, attendre que son balayage s'éloigne. La laisse
+        // reste : sans elle, un seul rouge suivait le joueur à travers toute la
+        // zone et le revidait à chaque réapparition.
         const loin = Math.hypot(p.x - p.baseX, p.y - p.baseY) > CASE * 5.5;
         const gene = p.aveugle > 0 || prochedUneBraise(p.x, p.y, 1);
-        if (voit && !loin && !gene) {
+        if (voit && !loin && !gene) p.alerte = 2.6;      // elle t'a vu : elle poursuit
+        else if (p.alerte > 0) p.alerte -= dt;
+        if (gene) p.alerte = 0;
+
+        if (p.alerte > 0) {
           p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 5 * dt;
-          if (d < CASE * 4.2) {
+          if (d < CASE * 4.6) {
             const vitesse = 210 + zone.numero * 12;
             p.vx += (dx / d) * vitesse * dt;
             p.vy += (dy / d) * vitesse * dt;
           }
           p.humeur = -1;
+          if (Math.random() < dt * 4) emettre(p.x, p.y - D.taille * 0.75, '#ff7a6b', 1, 34, 'trait');
+
         } else {
-          // il recule vers son poste, et fuit franchement une braise
+          // ronde : elle va d'un point de passage au suivant, et le regard
+          // balaye autour de sa direction de marche
           const b = zone.braises.find((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r);
           if (b) {
             const bx = p.x - b.x, by = p.y - b.y, bd = Math.hypot(bx, by) || 1;
             p.vx += (bx / bd) * 260 * dt;
             p.vy += (by / bd) * 260 * dt;
-          } else {
-            p.vx += (p.baseX - p.x) * 1.1 * dt;
-            p.vy += (p.baseY - p.y) * 1.1 * dt;
+            p.humeur = 0;
+          } else if (p.ronde && p.ronde.length) {
+            const c = p.ronde[p.etape % p.ronde.length];
+            const rx = c.x - p.x, ry = c.y - p.y;
+            const rd = Math.hypot(rx, ry) || 1;
+            if (rd < CASE * 0.5) p.etape++;
+            // 95 donnait 13 px/s : une ronde qu'on ne voyait pas bouger
+            else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
+            p.cap = Math.atan2(ry, rd > 1 ? rx : 1);
+            p.humeur = p.aveugle > 0 ? 0 : -1;
           }
-          p.phase += p.balayage * 0.6 * dt;
-          p.regard = p.regardRepos + Math.sin(p.phase) * 0.7;
-          p.humeur = p.aveugle > 0 ? 0 : -1;
+          p.phase += p.balayage * 0.8 * dt;
+          const cap = p.cap === undefined ? p.regardRepos : p.cap;
+          p.regard += ecartAngle(p.regard, cap + Math.sin(p.phase) * 0.9) * 3.2 * dt;
+        }
+
+        // aveuglée : elle ferme les yeux et stresse
+        if (p.aveugle > 0 && Math.random() < dt * 9) {
+          emettre(p.x + (Math.random() - 0.5) * D.taille, p.y - D.taille * 0.8,
+                  Math.random() < 0.5 ? '#ffffff' : '#ff7a6b', 1, 30);
         }
       }
 
@@ -823,6 +890,8 @@
     elBraise.disabled = joueur.braises <= 0;
     elCharge.disabled = joueur.chargeDispo < 1;
     elEclair.disabled = joueur.eclairDispo < 1;
+    elCharge.style.setProperty('--recharge', joueur.chargeDispo.toFixed(2));
+    elEclair.style.setProperty('--recharge', joueur.eclairDispo.toFixed(2));
   }
 
   function gagnerEclat(n) {
@@ -841,6 +910,8 @@
     joueur.x = zone.depart.x; joueur.y = zone.depart.y;
     joueur.vx = joueur.vy = 0;
     joueur.repit = 1.6;
+    fil.push(null);                     // coupure : on ne relie pas la mort au seuil
+    filDernier = { x: zone.depart.x, y: zone.depart.y };
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE) continue;
       p.x = p.baseX; p.y = p.baseY; p.vx = p.vy = 0;
@@ -854,10 +925,11 @@
     emettre(l.x, l.y, b.couleur, 10, 70);
     if (l.type === 'eclat') { priseCount++; gagnerEclat(4); return; }
     priseCount++;
-    if (l.type === 'braise') { joueur.braises++; majBoutons(); montrerToast('+1 braise'); return; }
+    if (l.type === 'braise') { joueur.braises++; majBoutons(); montrerToast(b.phrase, b.couleur); return; }
     if (l.type === 'souffle') joueur.souffle = 1;
     joueur.bonus = l.type;
     joueur.bonusT = b.duree;
+    montrerToast(b.phrase, b.couleur);
     gagnerEclat(2);
   }
 
@@ -904,7 +976,14 @@
 
     if (joueur.bonusT > 0) {
       joueur.bonusT -= dt;
-      if (joueur.bonusT <= 0) joueur.bonus = null;
+      // traînée continue à la couleur du bonus : on voit qu'il est actif même
+      // sans regarder la barre du haut
+      if (Math.random() < dt * 14) {
+        emettre(joueur.x + (Math.random() - 0.5) * D.taille,
+                joueur.y + (Math.random() - 0.5) * D.taille,
+                BONUS[joueur.bonus].couleur, 1, 18);
+      }
+      if (joueur.bonusT <= 0) { joueur.bonus = null; montrerToast('Le bonus s\'éteint', '#9aa1ac'); }
     }
 
     if (joueur.chargeDispo < 1) { joueur.chargeDispo = Math.min(1, joueur.chargeDispo + dt / 3.4); majBoutons(); }
@@ -937,13 +1016,18 @@
     if (joueur.niveau < 3 || joueur.chargeDispo < 1) return;
     joueur.chargeDispo = 0;
     joueur.chargeT = 0.22;
+    // Le vrai rôle de la charge : traverser. Pendant la ruée et juste après,
+    // aucun regard ne peut vider — sans ça on ne comprend pas à quoi elle sert.
+    joueur.repit = Math.max(joueur.repit, 0.75);
     majBoutons();
+    ondes.push({ x: joueur.x, y: joueur.y, r: 0, max: CASE * 2.4, couleur: '#ff9a6b' });
     for (const p of zone.persos) {
       const dx = p.x - joueur.x, dy = p.y - joueur.y;
       const d = Math.hypot(dx, dy) || 1;
       if (d > CASE * 2.2) continue;
       p.vx += (dx / d) * 620;
       p.vy += (dy / d) * 620;
+      if (p.emotion === EMOTIONS.COLERE) { p.aveugle = Math.max(p.aveugle, 1.8); p.alerte = 0; }
     }
     emettre(joueur.x, joueur.y, '#ff9a6b', 12, 120);
   }
@@ -952,9 +1036,10 @@
     if (joueur.niveau < 4 || joueur.eclairDispo < 1) return;
     joueur.eclairDispo = 0;
     majBoutons();
+    ondes.push({ x: joueur.x, y: joueur.y, r: 0, max: CASE * 6, couleur: '#fff2c4' });
     for (const p of zone.persos) {
       if (Math.hypot(p.x - joueur.x, p.y - joueur.y) > CASE * 6) continue;
-      if (p.emotion === EMOTIONS.COLERE) p.aveugle = 5;
+      if (p.emotion === EMOTIONS.COLERE) { p.aveugle = 5; p.alerte = 0; }
     }
     emettre(joueur.x, joueur.y, '#fff2c4', 26, 200);
     montrerToast('Éclat — les rouges sont aveuglés');
@@ -1013,11 +1098,24 @@
     const px = Math.cos(p.regard) * rOeil * 0.42;
     const py = Math.sin(p.regard) * rOeil * 0.42;
     const encre = allume ? '#0a0a10' : couleur;
-    for (const dx of [-ecart, ecart]) {
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(dx, oeilY, rOeil, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#0a0a10';
-      ctx.beginPath(); ctx.arc(dx + px, oeilY + py, rOeil * 0.5, 0, TAU); ctx.fill();
+    if (p.aveugle > 0) {
+      // aveuglée : les yeux se ferment. C'est le seul signe qui dit « elle ne
+      // te voit plus » — sans lui, l'éclat n'a aucun effet visible.
+      ctx.strokeStyle = encre;
+      ctx.lineWidth = Math.max(2, demi * 0.12);
+      ctx.lineCap = 'round';
+      for (const dx of [-ecart, ecart]) {
+        ctx.beginPath();
+        ctx.arc(dx, oeilY - rOeil * 0.35, rOeil, 0.5, Math.PI - 0.5);
+        ctx.stroke();
+      }
+    } else {
+      for (const dx of [-ecart, ecart]) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(dx, oeilY, rOeil, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#0a0a10';
+        ctx.beginPath(); ctx.arc(dx + px, oeilY + py, rOeil * 0.5, 0, TAU); ctx.fill();
+      }
     }
 
     // --- sourcils ---
@@ -1208,7 +1306,18 @@
     // --- le joueur : son humeur dit son état, c'est le retour de santé ---
     const humeurJoueur = joueur.vu > 0.35 ? -1 : joueur.souffle > 0.85 ? 1 : 0;
     const emotionJoueur = joueur.souffle < 0.4 ? EMOTIONS.PEUR : EMOTIONS.CURIEUX;
-    dessinerTete(joueur, f.couleur, D.taille * 1.06, true, 1, emotionJoueur, humeurJoueur, temps);
+    // un bonus actif teinte le corps et, pour « voilé », le rend translucide :
+    // c'est ce qui fait comprendre l'effet sans lire un mot
+    const teinte = joueur.bonus ? BONUS[joueur.bonus].couleur : f.couleur;
+    const opac = aBonus('souffle') ? 0.5 : 1;
+    dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, emotionJoueur, humeurJoueur, temps);
+
+    // --- ondes de choc ---
+    for (const o of ondes) {
+      ctx.strokeStyle = rgba(o.couleur, clamp(1 - o.r / o.max, 0, 1) * 0.6);
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(o.x - cam.x, o.y - cam.y, o.r, 0, TAU); ctx.stroke();
+    }
 
     // --- particules ---
     for (const q of particules) {
@@ -1253,6 +1362,9 @@
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       for (let i = 1; i < fil.length; i++) {
+        // un `null` marque une téléportation (mort puis réapparition au seuil) :
+        // relier les deux traçait un trait droit à travers les murs
+        if (!fil[i] || !fil[i - 1]) continue;
         const t = i / fil.length;
         ctx.strokeStyle = rgba(f.couleur, 0.04 + t * 0.16);
         ctx.lineWidth = 1 + t * 1.6;
@@ -1288,15 +1400,16 @@
     /* ---- halo chaud ---- */
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    const couleurLumiere = joueur.bonus ? BONUS[joueur.bonus].couleur : f.couleur;
     const chaud = ctx.createRadialGradient(jx, jy, 0, jx, jy, r);
-    chaud.addColorStop(0, rgba(f.couleur, 0.16));
+    chaud.addColorStop(0, rgba(couleurLumiere, 0.16));
     chaud.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = chaud;
     ctx.beginPath(); ctx.arc(jx, jy, r, 0, TAU); ctx.fill();
 
     if (portee) {
       const gf = ctx.createRadialGradient(jx, jy, 0, jx, jy, portee);
-      gf.addColorStop(0, rgba(f.couleur, 0.14));
+      gf.addColorStop(0, rgba(couleurLumiere, 0.14));
       gf.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gf;
       ctx.beginPath();
@@ -1359,10 +1472,13 @@
   /* ==================================================== interface ======== */
 
   let toastT = 0;
-  function montrerToast(texte) {
+  function montrerToast(texte, couleur) {
     elToast.textContent = texte;
+    elToast.style.color = couleur || '#ffb4a8';
+    elToast.style.borderColor = couleur ? rgba(couleur, 0.45) : 'rgba(255,122,107,0.4)';
+    elToast.style.background = couleur ? rgba(couleur, 0.14) : 'rgba(255,122,107,0.16)';
     elToast.classList.add('on');
-    toastT = 2.4;
+    toastT = 2.8;
   }
 
   let flashEnCours = false;
@@ -1412,6 +1528,7 @@
     numeroZone = numero;
     priseCount = 0;
     particules = [];
+    ondes = [];
     fil = [];
     joueur.x = zone.depart.x;
     joueur.y = zone.depart.y;
@@ -1525,9 +1642,20 @@
       manche.id = null;
     }));
 
-  elBraise.addEventListener('click', poserBraise);
-  elCharge.addEventListener('click', decharger);
-  elEclair.addEventListener('click', lancerEclat);
+  // pointerdown, pas click : mesuré, un `click` n'agissait qu'au RELÂCHEMENT du
+  // doigt, alors qu'on appuie sur ces boutons dans l'urgence. L'action part
+  // maintenant à l'instant où on touche.
+  const bouton = (element, action) => {
+    element.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!element.disabled) action();
+    });
+    element.addEventListener('click', (e) => e.preventDefault());
+  };
+  bouton(elBraise, poserBraise);
+  bouton(elCharge, decharger);
+  bouton(elEclair, lancerEclat);
 
   window.addEventListener('resize', () => {
     redimensionner();
@@ -1583,6 +1711,21 @@
       majBoutons();
     },
     poserBraise, decharger, lancerEclat,
+    fil: () => fil,
+    soigner: () => { joueur.souffle = 1; joueur.repit = 0; },
+    poser: (x, y) => { joueur.x = x; joueur.y = y; joueur.vx = joueur.vy = 0; cadrer(true); },
+    // ce que la boucle de drain calcule réellement, pour un perso donné
+    sonde: (q) => ({
+      emotion: q.emotion, aveugle: +q.aveugle.toFixed(1), alerte: +q.alerte.toFixed(2),
+      regard: +q.regard.toFixed(3),
+      angleVersJoueur: +Math.atan2(joueur.y - q.y, joueur.x - q.x).toFixed(3),
+      ecart: +Math.abs(ecartAngle(q.regard, Math.atan2(joueur.y - q.y, joueur.x - q.x))).toFixed(3),
+      dist: Math.round(Math.hypot(joueur.x - q.x, joueur.y - q.y)),
+      dansCone: dansLeCone(q.x, q.y, q.regard, joueur.x, joueur.y, CASE * 4.6, 0.42),
+      vueLibre: vueLibre(q.x, q.y, joueur.x, joueur.y),
+      abri: prochedUneBraise(joueur.x, joueur.y, 1),
+    }),
+    tuer: () => etouffer(9),
     chemin: (wx, wy) => {
       const dep = { cx: Math.floor(joueur.x / CASE), cy: Math.floor(joueur.y / CASE) };
       const d = distances(zone, dep);

@@ -490,7 +490,7 @@
             emotion: palette[Math.floor(rnd() * palette.length)],
             eclaire: false, calme: false, aveugle: 0, compteCalme: 0,
             tremble: rnd() * TAU, humeur: 0,
-            alerte: 0, etape: 0, charge: 0,
+            alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
             // Les sentinelles clignent des yeux : quelques dixièmes de seconde
             // où elles ne voient rien. C'est ce qui rend l'observation des yeux
             // dans le noir réellement utile, et donne une fenêtre pour passer.
@@ -699,6 +699,29 @@
 
   // Une braise tient les rouges à distance : c'est ce qui en fait un abri et
   // pas seulement un lampadaire.
+  // Chemin case par case entre deux points du monde, en descendant le gradient
+  // du parcours en largeur. Les sentinelles allaient tout droit vers leur point
+  // de ronde : mesuré, elles visaient un point derrière un mur 46 % du temps et
+  // 5 sur 23 restaient plantées contre la paroi plus de 60 % du temps.
+  function routeVers(x0, y0, x1, y1) {
+    const dep = { cx: Math.floor(x0 / CASE), cy: Math.floor(y0 / CASE) };
+    if (solide(dep.cx, dep.cy)) return null;
+    const d = distances(zone, dep);
+    let cx = Math.floor(x1 / CASE), cy = Math.floor(y1 / CASE);
+    if (!d[cy] || d[cy][cx] < 0) return null;
+    const route = [];
+    let garde = 0;
+    while (d[cy][cx] > 0 && garde++ < 400) {
+      route.push({ x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE });
+      const voisins = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]
+        .filter(([x, y]) => d[y] !== undefined && d[y][x] >= 0);
+      if (!voisins.length) break;
+      const suivant = voisins.reduce((a, [x, y]) => (d[y][x] < d[a[1]][a[0]] ? [x, y] : a), voisins[0]);
+      cx = suivant[0]; cy = suivant[1];
+    }
+    return route.reverse();
+  }
+
   const prochedUneBraise = (x, y, marge) =>
     zone.braises.some((b) => Math.hypot(b.x - x, b.y - y) < b.r * (marge || 1));
 
@@ -863,7 +886,9 @@
         if (gene) p.alerte = 0;
 
         if (p.alerte > 0) {
-          p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 5 * dt;
+          p.route = null;
+          p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * (p.bouscule > 0 ? 14 : 5) * dt;
+          if (p.bouscule > 0) p.bouscule -= dt;
           if (d < CASE * 4.6) {
             const vitesse = 210 + zone.numero * 12;
             p.vx += (dx / d) * vitesse * dt;
@@ -883,12 +908,28 @@
             p.humeur = 0;
           } else if (p.ronde && p.ronde.length) {
             const c = p.ronde[p.etape % p.ronde.length];
-            const rx = c.x - p.x, ry = c.y - p.y;
-            const rd = Math.hypot(rx, ry) || 1;
-            if (rd < CASE * 0.5) p.etape++;
-            // 95 donnait 13 px/s : une ronde qu'on ne voyait pas bouger
-            else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
-            p.cap = Math.atan2(ry, rd > 1 ? rx : 1);
+
+            // détecteur de blocage : si elle n'avance plus, elle abandonne
+            // l'étape et recalcule, plutôt que de pousser contre la pierre
+            p.immobile = Math.hypot(p.x - (p.dernierX || 0), p.y - (p.dernierY || 0)) < 0.4
+              ? (p.immobile || 0) + dt : 0;
+            p.dernierX = p.x; p.dernierY = p.y;
+
+            if (!p.route || !p.route.length || p.immobile > 1.1) {
+              p.route = routeVers(p.x, p.y, c.x, c.y);
+              p.immobile = 0;
+              if (!p.route || !p.route.length) { p.etape++; p.route = null; }
+            }
+
+            if (p.route && p.route.length) {
+              const w = p.route[0];
+              const rx = w.x - p.x, ry = w.y - p.y;
+              const rd = Math.hypot(rx, ry) || 1;
+              if (rd < CASE * 0.45) p.route.shift();
+              else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
+              p.cap = Math.atan2(ry, rx);
+            }
+            if (Math.hypot(c.x - p.x, c.y - p.y) < CASE * 0.6) { p.etape++; p.route = null; }
             p.humeur = p.aveugle > 0 ? 0 : -1;
           }
           p.phase += p.balayage * 0.8 * dt;
@@ -920,6 +961,14 @@
         p.x += (sx / sd) * k; p.y += (sy / sd) * k;
         joueur.x -= (sx / sd) * k; joueur.y -= (sy / sd) * k;
         degager(joueur, demi);
+        // On l'a touchée : elle se retourne. Se cogner dans une sentinelle sans
+        // qu'elle réagisse parce qu'on n'était pas dans son cône n'avait aucun sens.
+        if (p.emotion === EMOTIONS.COLERE && p.aveugle <= 0) {
+          p.alerte = 2.6;
+          p.bouscule = 0.5;              // le regard pivote vite pendant ce temps
+          p.route = null;
+          if (Math.random() < 0.3) emettre(p.x, p.y - D.taille * 0.8, '#ff7a6b', 2, 44, 'trait');
+        }
       }
 
       majJelly(p, dt);
@@ -1464,9 +1513,14 @@
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0 || p.cligne > 0) continue;
       const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
-      if (dj > CASE * 4.2) continue;
+      const traque = p.alerte > 0 || p.charge > 0.04;
+      // Traquée, elle ne se cache plus : son faisceau devient franchement
+      // visible et de plus loin. Discrète, elle ne fait que se deviner de près,
+      // pour garder le suspense des yeux dans le noir.
+      if (dj > CASE * (traque ? 8 : 4.2)) continue;
       const proximite = clamp(1 - (dj - CASE * 2.6) / (CASE * 1.6), 0, 1);
-      percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, CASE * 4.6, 0.42, 0.14 + proximite * 0.2);
+      const force = traque ? 0.72 : 0.14 + proximite * 0.2;
+      percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, CASE * 4.6, 0.42, force);
     }
     lctx.globalCompositeOperation = 'source-over';
 
@@ -1619,6 +1673,36 @@
       gb.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gb;
       ctx.beginPath(); ctx.arc(b.x - cam.x, b.y - cam.y, b.r, 0, TAU); ctx.fill();
+    }
+    // le balayage rouge, en lumière additive : sans ça ce n'était qu'un trou
+    // dans l'obscurité, on ne le lisait pas comme un faisceau
+    for (const p of zone.persos) {
+      if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0 || p.cligne > 0) continue;
+      const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
+      const traque = p.alerte > 0 || p.charge > 0.04;
+      if (dj > CASE * (traque ? 8 : 4.2)) continue;
+      const pr = CASE * 4.6;
+      const gr = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, pr);
+      gr.addColorStop(0, `rgba(255,90,74,${traque ? 0.2 : 0.07})`);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.moveTo(p.x - cam.x, p.y - cam.y);
+      ctx.arc(p.x - cam.x, p.y - cam.y, pr, p.regard - 0.42, p.regard + 0.42);
+      ctx.closePath();
+      ctx.fill();
+      // les deux bords du cône, qui donnent sa direction d'un coup d'œil
+      if (traque) {
+        ctx.strokeStyle = 'rgba(255,110,90,0.4)';
+        ctx.lineWidth = 1.5;
+        for (const sgn of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(p.x - cam.x, p.y - cam.y);
+          ctx.lineTo(p.x - cam.x + Math.cos(p.regard + sgn * 0.42) * pr,
+                     p.y - cam.y + Math.sin(p.regard + sgn * 0.42) * pr);
+          ctx.stroke();
+        }
+      }
     }
     for (const p of zone.persos) {
       if (!p.calme) continue;

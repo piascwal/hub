@@ -4,15 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Lux &amp; Paranoia</title>
-<meta name="description" content="Puzzle de lumière : éclairez des carrés émotifs pour relayer un faisceau jusqu'à la sortie.">
-<meta name="theme-color" content="#0a0a10">
+<meta name="description" content="Aventure procédurale dans le noir : un petit peureux qui grandit en lumière, change de couleur et gagne un faisceau.">
+<meta name="theme-color" content="#08080e">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
     width: 100%;
     height: 100%;
-    background: #0a0a10;
+    background: #08080e;
     overflow: hidden;
     overscroll-behavior: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -47,46 +47,119 @@
     background: rgba(255, 255, 255, 0.05);
   }
 
-  .seed {
-    margin-right: auto;
+  .zone {
     font-size: 0.72rem;
     letter-spacing: 0.08em;
     color: rgba(232, 232, 240, 0.4);
     font-variant-numeric: tabular-nums;
-    padding-left: 0.2rem;
   }
 
   .btn {
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     color: #e8e8f0;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
-    padding: 0.4rem 0.8rem;
+    padding: 0.4rem 0.85rem;
     cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
   }
 
-  .btn:hover { border-color: rgba(255, 255, 255, 0.3); }
-  .btn:active { background: rgba(255, 255, 255, 0.12); }
+  .btn:active { background: rgba(255, 255, 255, 0.14); }
+
+  /* jauge d'éclat : la seule ressource du jeu */
+  .jauge {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .forme {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: color 0.4s ease;
+  }
+
+  .barre {
+    width: 92px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+  }
+
+  .barre i {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    transition: width 0.18s linear, background 0.4s ease;
+  }
+
+  /* bouton de charge, apparaît à la troisième forme */
+  .charge {
+    position: fixed;
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1.6rem, env(safe-area-inset-bottom));
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 154, 107, 0.5);
+    background: rgba(255, 154, 107, 0.12);
+    color: #ff9a6b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    z-index: 12;
+    display: none;
+    cursor: pointer;
+  }
+
+  .charge.on { display: block; }
+  .charge:disabled { opacity: 0.32; }
+  .charge:active:not(:disabled) { background: rgba(255, 154, 107, 0.3); }
 
   .hint {
     position: fixed;
     left: 0; right: 0;
-    bottom: max(0.8rem, env(safe-area-inset-bottom));
+    bottom: max(1.1rem, env(safe-area-inset-bottom));
+    /* dégagé du bouton de charge, qui occupe le coin bas droit */
+    padding: 0 6.5rem 0 1.2rem;
     text-align: center;
-    font-size: 0.76rem;
-    color: rgba(232, 232, 240, 0.32);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: rgba(232, 232, 240, 0.5);
     pointer-events: none;
     z-index: 10;
-    padding: 0 1rem;
-    transition: opacity 0.4s ease;
+    transition: opacity 0.5s ease;
   }
 
-  /* ---- écran de victoire ---- */
+  /* bandeau passager : il informe sans arrêter le jeu */
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 22%;
+    transform: translateX(-50%);
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    background: rgba(255, 122, 107, 0.16);
+    border: 1px solid rgba(255, 122, 107, 0.4);
+    color: #ffb4a8;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 14;
+  }
 
-  .win {
+  .toast.on { opacity: 1; }
+
+  /* bandeau d'évolution et de passage de zone */
+  .flash {
     position: fixed;
     inset: 0;
     z-index: 20;
@@ -94,34 +167,19 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    background: rgba(10, 10, 16, 0.72);
+    gap: 0.6rem;
+    text-align: center;
+    padding: 2rem;
+    background: rgba(8, 8, 14, 0.74);
     backdrop-filter: blur(6px);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.35s ease;
+    transition: opacity 0.4s ease;
   }
 
-  .win.on { opacity: 1; pointer-events: auto; }
-
-  .win strong {
-    font-size: clamp(1.6rem, 7vw, 2.4rem);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: #ffe9a8;
-  }
-
-  .win p { color: rgba(232, 232, 240, 0.5); font-size: 0.9rem; }
-  .win-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
-  .win-astuce { font-size: 0.78rem !important; opacity: 0.6; }
-
-  .win .btn {
-    font-size: 0.95rem;
-    padding: 0.7rem 1.5rem;
-    background: rgba(255, 233, 168, 0.14);
-    border-color: rgba(255, 233, 168, 0.45);
-    color: #ffe9a8;
-  }
+  .flash.on { opacity: 1; pointer-events: auto; }
+  .flash strong { font-size: 1.7rem; letter-spacing: 0.02em; }
+  .flash p { font-size: 0.92rem; color: rgba(232, 232, 240, 0.6); max-width: 22rem; }
 </style>
 </head>
 <body>
@@ -129,42 +187,35 @@
 <canvas id="jeu"></canvas>
 
 <div class="hud">
-  <a class="back" href="../index.html#/t/poc" aria-label="Retour au hub">←</a>
-  <span class="seed" id="seed">LUX-0000</span>
-  <button type="button" class="btn" id="reset">Reset</button>
-  <button type="button" class="btn" id="next">Niveau suivant</button>
+  <a class="back" href="../index.html" aria-label="Retour au hub">←</a>
+  <span class="zone" id="zone">ZONE 1</span>
+  <span class="jauge">
+    <span class="forme" id="forme">Peureux</span>
+    <span class="barre"><i id="barre"></i></span>
+  </span>
 </div>
 
-<p class="hint" id="hint">Pose le doigt : les bonhommes éclairés relaient la lumière de leur regard, jusqu'à la sortie.<br><b>Les rouges foncent sur ta lumière et coupent les faisceaux</b> — sers-t'en pour dégager le passage.</p>
+<button type="button" class="charge" id="charge">CHARGE</button>
 
-<div class="win" id="win">
-  <strong>Lumière atteinte</strong>
-  <p id="win-detail"></p>
-  <div class="win-actions">
-    <button type="button" class="btn" id="win-rejouer">Rejouer</button>
-    <button type="button" class="btn" id="win-next">Niveau suivant</button>
-  </div>
-  <p class="win-astuce">Touche le fond pour revoir le niveau</p>
+<p class="hint" id="hint">
+  Pose le doigt : tu vas vers lui.<br>
+  Ramasse les lueurs. Fuis les regards rouges, ils te vident.
+</p>
+
+<div class="toast" id="toast"></div>
+
+<div class="flash" id="flash">
+  <strong id="flash-titre"></strong>
+  <p id="flash-texte"></p>
+  <button type="button" class="btn" id="flash-ok">Continuer</button>
 </div>
 
 <script>
 (() => {
   'use strict';
 
-  const canvas = document.getElementById('jeu');
-  const ctx = canvas.getContext('2d');
-  // calque d'obscurité séparé : on y perce des trous en destination-out, puis
-  // on le pose sur la scène. Tout ce qui n'a pas été percé reste dans la nuit.
-  // Le calque d'obscurité n'est fait que de dégradés très doux : le rendre à la
-  // moitié de la résolution puis l'étirer ne se voit pas, et sa rastérisation
-  // coûte quatre fois moins. Mesuré sous throttle CPU ×4 : dessin 23.1 ms -> 8.2 ms.
-  const QLUM = 0.5;
-  const lum = document.createElement('canvas');
-  const lctx = lum.getContext('2d');
-
-  let W = 0, H = 0, DPR = 1;
-
-  /* ==================================================== aléatoire ======== */
+  const TAU = Math.PI * 2;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
   function mulberry32(a) {
     return function () {
@@ -175,21 +226,12 @@
     };
   }
 
-  function grainDepuisTexte(txt) {
+  function grainDepuisTexte(s) {
     let h = 2166136261;
-    for (let i = 0; i < txt.length; i++) {
-      h ^= txt.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return h >>> 0;
   }
 
-  /* ==================================================== géométrie ======== */
-
-  const TAU = Math.PI * 2;
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
-  // écart angulaire signé le plus court
   function ecartAngle(a, b) {
     let d = (b - a) % TAU;
     if (d > Math.PI) d -= TAU;
@@ -197,416 +239,401 @@
     return d;
   }
 
-  // intersection segment / rectangle aligné (dalle opaque)
-  function segmentCoupeRect(x1, y1, x2, y2, r) {
-    const gauche = r.x, droite = r.x + r.w, haut = r.y, bas = r.y + r.h;
-    if (Math.max(x1, x2) < gauche || Math.min(x1, x2) > droite) return false;
-    if (Math.max(y1, y2) < haut || Math.min(y1, y2) > bas) return false;
-    // test de séparation : les quatre coins du même côté de la droite ?
-    const dx = x2 - x1, dy = y2 - y1;
-    let signe = 0;
-    for (const [cx, cy] of [[gauche, haut], [droite, haut], [droite, bas], [gauche, bas]]) {
-      const s = Math.sign(dx * (cy - y1) - dy * (cx - x1));
-      if (s === 0) continue;
-      if (signe === 0) signe = s;
-      else if (s !== signe) return true;
-    }
-    return signe === 0;
+  function melange(hex, vers, t) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+      .map((v) => Math.round(v + (vers - v) * t));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
   }
+  const eclaircir = (hex, t) => melange(hex, 255, t);
+  const assombrir = (hex, t) => melange(hex, 0, t);
 
-  /* ==================================================== le niveau ======== */
+  /* ==================================================== formes =========== */
+
+  // Le fil du jeu : on commence peureux, minuscule et aveugle, et on monte.
+  // Chaque palier change la couleur, le halo, et donne un verbe de plus.
+  const FORMES = [
+    { nom: 'Peureux',  couleur: '#8fd0ff', seuil: 0,  halo: 1.00, portee: 0,    cone: 0,
+      texte: "Tu n'as qu'un halo. Ramasse les lueurs, évite les regards." },
+    { nom: 'Curieux',  couleur: '#ffd479', seuil: 24, halo: 1.35, portee: 5.2,  cone: 0.34,
+      texte: "Un faisceau s'ouvre devant toi. Il porte loin, il réveille les autres — un bonhomme éclairé relaie ta lumière." },
+    { nom: 'Ardent',   couleur: '#ff9a6b', seuil: 72, halo: 1.75, portee: 7.4,  cone: 0.30,
+      texte: "Ton faisceau brûle, et tu peux charger : le bouton en bas repousse tout ce qui t'approche." },
+  ];
 
   const EMOTIONS = { PEUR: 'peur', COLERE: 'colere', CURIEUX: 'curieux' };
+  const COULEURS = {
+    [EMOTIONS.PEUR]: '#8fd0ff',
+    [EMOTIONS.COLERE]: '#ff7a6b',
+    [EMOTIONS.CURIEUX]: '#ffd479',
+  };
 
-  let niveau = null;
-  let numero = 1;
+  /* ==================================================== le monde ========= */
+
+  const CASE = 74;                 // côté d'une case de la grille, en pixels monde
+
+  // Une zone est un plan de salles reliées par des couloirs. C'est volontairement
+  // une grille : la seule chose qu'il faut garantir ici, c'est « peut-on aller
+  // d'ici à là », et sur une grille un parcours en largeur y répond exactement.
+  // (Le mode puzzle précédent demandait de valider un système physique continu ;
+  // c'était approximatif, et c'est ce qui l'a coulé.)
+  function construireZone(rnd, numero) {
+    const cols = 15 + Math.min(6, numero);
+    const lignes = 20 + Math.min(8, numero * 2);
+    const mur = [];
+    for (let y = 0; y < lignes; y++) mur.push(new Array(cols).fill(1));
+
+    const salles = [];
+    const vise = 6 + Math.min(5, Math.floor(numero * 0.8));
+    for (let essai = 0; essai < 220 && salles.length < vise; essai++) {
+      const w = 3 + Math.floor(rnd() * 4);
+      const h = 3 + Math.floor(rnd() * 4);
+      const x = 1 + Math.floor(rnd() * (cols - w - 2));
+      const y = 1 + Math.floor(rnd() * (lignes - h - 2));
+      const chevauche = salles.some((s) =>
+        x < s.x + s.w + 1 && x + w + 1 > s.x && y < s.y + s.h + 1 && y + h + 1 > s.y);
+      if (chevauche) continue;
+      salles.push({ x, y, w, h, cx: x + (w >> 1), cy: y + (h >> 1) });
+    }
+    if (salles.length < 3) return null;
+
+    for (const s of salles) {
+      for (let y = s.y; y < s.y + s.h; y++)
+        for (let x = s.x; x < s.x + s.w; x++) mur[y][x] = 0;
+    }
+
+    const couloir = (a, b) => {
+      let x = a.cx, y = a.cy;
+      while (x !== b.cx) { mur[y][x] = 0; x += x < b.cx ? 1 : -1; }
+      while (y !== b.cy) { mur[y][x] = 0; y += y < b.cy ? 1 : -1; }
+      mur[y][x] = 0;
+    };
+    for (let i = 1; i < salles.length; i++) couloir(salles[i - 1], salles[i]);
+    // deux raccourcis : sans ça le plan est un couloir unique et se parcourt bêtement
+    for (let i = 0; i < 2; i++) {
+      const a = salles[Math.floor(rnd() * salles.length)];
+      const b = salles[Math.floor(rnd() * salles.length)];
+      if (a !== b) couloir(a, b);
+    }
+
+    return { mur, cols, lignes, salles };
+  }
+
+  // Parcours en largeur sur les cases libres. Exact, et c'est tout l'intérêt :
+  // ce que la génération promet, on le vérifie vraiment.
+  function distances(zone, depart) {
+    const { mur, cols, lignes } = zone;
+    const d = [];
+    for (let y = 0; y < lignes; y++) d.push(new Array(cols).fill(-1));
+    if (mur[depart.cy][depart.cx]) return d;
+    d[depart.cy][depart.cx] = 0;
+    const file = [depart.cx, depart.cy];
+    for (let i = 0; i < file.length; i += 2) {
+      const x = file[i], y = file[i + 1];
+      const n = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+      for (const [nx, ny] of n) {
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= lignes) continue;
+        if (mur[ny][nx] || d[ny][nx] !== -1) continue;
+        d[ny][nx] = d[y][x] + 1;
+        file.push(nx, ny);
+      }
+    }
+    return d;
+  }
+
+  function genererZone(grainTexte, numero) {
+    const base = grainDepuisTexte(grainTexte);
+    for (let variante = 0; variante < 30; variante++) {
+      const rnd = mulberry32(base + variante * 7919 + numero * 104729);
+      const zone = construireZone(rnd, numero);
+      if (!zone) continue;
+
+      const depart = zone.salles[0];
+      const d = distances(zone, depart);
+
+      // la sortie va dans la salle la plus loin du départ, au sens du parcours
+      let sortie = null, loin = -1;
+      for (const s of zone.salles) {
+        const dist = d[s.cy][s.cx];
+        if (dist > loin) { loin = dist; sortie = s; }
+      }
+      if (!sortie || loin < 12) continue;      // trop court, ce n'est pas une zone
+
+      // les lueurs : réparties dans les salles, jamais celle du départ
+      const lueurs = [];
+      for (const s of zone.salles) {
+        if (s === depart) continue;
+        const combien = 2 + Math.floor(rnd() * 3);
+        for (let i = 0; i < combien; i++) {
+          const cx = s.x + Math.floor(rnd() * s.w);
+          const cy = s.y + Math.floor(rnd() * s.h);
+          if (d[cy][cx] < 0) continue;         // inatteignable : on jette
+          lueurs.push({ x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE, prise: false, phase: rnd() * TAU });
+        }
+      }
+      if (lueurs.length < 8) continue;
+
+      // les bonhommes : jamais dans la salle de départ, on laisse respirer
+      const persos = [];
+      const emotionsPossibles = numero === 1
+        ? [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE]
+        : [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE, EMOTIONS.COLERE];
+      for (const s of zone.salles) {
+        if (s === depart) continue;
+        const combien = 1 + Math.floor(rnd() * 2);
+        for (let i = 0; i < combien; i++) {
+          const cx = s.x + Math.floor(rnd() * s.w);
+          const cy = s.y + Math.floor(rnd() * s.h);
+          if (d[cy][cx] < 0) continue;
+          const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
+          const emotion = emotionsPossibles[Math.floor(rnd() * emotionsPossibles.length)];
+          const regard = rnd() * TAU;
+          persos.push({
+            x, y, baseX: x, baseY: y, vx: 0, vy: 0,
+            sx: 1, sy: 1, vsx: 0, vsy: 0,
+            regard, regardRepos: regard,
+            balayage: (rnd() < 0.5 ? 1 : -1) * (0.35 + rnd() * 0.5),
+            amplitude: 0.5 + rnd() * 0.9,
+            phase: rnd() * TAU,
+            emotion, eclaire: false, calme: false,
+            tremble: rnd() * TAU,
+          });
+        }
+      }
+
+      // Vérification finale, exacte : la sortie et chaque lueur sont-elles
+      // vraiment atteignables depuis le départ ?
+      const caseLibre = (p) => d[Math.floor(p.y / CASE)] && d[Math.floor(p.y / CASE)][Math.floor(p.x / CASE)] >= 0;
+      if (!lueurs.every(caseLibre)) continue;
+
+      return {
+        ...zone,
+        numero,
+        grain: grainTexte,
+        lueurs,
+        persos,
+        depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
+        sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.42 },
+        requis: Math.min(lueurs.length, 5 + numero * 2),
+        largeur: zone.cols * CASE,
+        hauteur: zone.lignes * CASE,
+        longueur: loin,
+      };
+    }
+    return null;
+  }
+
+  /* ==================================================== état ============= */
+
+  const canvas = document.getElementById('jeu');
+  const ctx = canvas.getContext('2d');
+
+  // Le calque d'obscurité n'est que du dégradé : demi-résolution, invisible à
+  // l'œil et quatre fois moins cher à rastériser.
+  const QLUM = 0.5;
+  const lum = document.createElement('canvas');
+  const lctx = lum.getContext('2d');
+
+  let W = 0, H = 0, DPR = 1;
+  const PALIERS = [2, 1.5, 1];
+  let palier = 0, fenetre = [];
+
+  let zone = null;
+  let vues = null;                 // mémoire du terrain : les cases déjà éclairées
+  const cam = { x: 0, y: 0 };
+
+  const joueur = {
+    x: 0, y: 0, vx: 0, vy: 0,
+    sx: 1, sy: 1, vsx: 0, vsy: 0,
+    regard: -Math.PI / 2,
+    eclat: 0, sommet: 0, niveau: 0,
+    souffle: 1,                    // la santé : ce que les regards rouges vident
+    repit: 0,                      // courte immunité après une extinction
+    vu: 0,                         // intensité du regard subi, pour le rendu
+    chargeDispo: 1, chargeT: 0,
+  };
+
+  const doigt = { x: 0, y: 0, actif: false };
+  let numeroZone = 1;
+  let grain = 'LUX-1042';
+  let priseCount = 0;
+
+  const elZone = document.getElementById('zone');
+  const elForme = document.getElementById('forme');
+  const elBarre = document.getElementById('barre');
+  const elHint = document.getElementById('hint');
+  const elCharge = document.getElementById('charge');
+  const elToast = document.getElementById('toast');
+  const elFlash = document.getElementById('flash');
+  const elFlashTitre = document.getElementById('flash-titre');
+  const elFlashTexte = document.getElementById('flash-texte');
+
+  const forme = () => FORMES[joueur.niveau];
 
   function dims() {
-    const t = clamp(Math.min(W, H) * 0.125, 30, 62);   // côté d'un bonhomme
-    return {
-      taille: t,
-      portee: Math.min(W, H) * 0.62,                    // longueur d'un faisceau
-      // Rayon du doigt. Élargi (0.19 -> 0.27) le jour où viser un bonhomme a
-      // cessé d'être une solution : il faut maintenant un anneau utilisable
-      // entre « trop près, ça ne compte pas » et « trop loin, ça n'éclaire plus ».
-      lanterne: Math.min(W, H) * 0.27,                  // rayon du doigt
-      cone: 0.20,                                       // demi-angle du faisceau
-      laisse: t * 2.8,                                  // course d'un coléreux
-    };
+    const t = clamp(Math.min(W, H) * 0.095, 30, 54);   // côté d'un bonhomme
+    return { taille: t, halo: Math.min(W, H) * 0.17, portee: CASE, cone: 0.20 };
+  }
+  let D = dims();
+
+  // Rayon réellement éclairé : il suit la forme, mais aussi l'éclat courant.
+  // Se faire vider par un regard rouge fait littéralement rétrécir sa lumière.
+  // Le halo EST la jauge de santé : se faire fixer le fait rétrécir, se cacher
+  // le fait revenir. Plus lisible qu'une deuxième barre, et ça dit la règle du
+  // jeu sans un mot — dans le noir tu récupères, dans un regard tu t'éteins.
+  function rayonHalo() {
+    const f = forme();
+    return D.halo * f.halo * (0.5 + joueur.souffle * 0.5);
   }
 
-  // ---------------------------------------------------------------------
-  // Génération en marche arrière : on part de la sortie et on remonte en
-  // plaçant des relais dont le regard au repos vise le maillon précédent.
-  // La solution est donc construite, pas cherchée — le solver ne fait que
-  // la vérifier, et rejette ce qui est trop court ou injouable.
-  // ---------------------------------------------------------------------
-  function construire(rnd, D) {
-    const marge = D.taille * 1.5;
-    const hautZone = marge + 40;
-    const basZone = H - marge - 90;
-    if (basZone - hautZone < D.taille * 5) return null;
+  /* ==================================================== collisions ======= */
 
-    const nbRelais = 3 + Math.floor(rnd() * 3);          // 3 à 5
-    const pasY = (basZone - hautZone) / (nbRelais + 0.6);
+  const solide = (cx, cy) =>
+    cx < 0 || cy < 0 || cx >= zone.cols || cy >= zone.lignes || zone.mur[cy][cx] === 1;
 
-    const sortie = {
-      x: marge + rnd() * (W - marge * 2),
-      y: hautZone,
-      r: D.taille * 0.62,
-    };
-
-    const persos = [];
-    let cible = { x: sortie.x, y: sortie.y };
-
-    for (let i = 0; i < nbRelais; i++) {
-      // un peu de jeu en hauteur : sinon la chaîne est une échelle et son
-      // entrée est toujours le bonhomme le plus bas de l'écran
-      const y = hautZone + pasY * (i + 1) + (rnd() * 2 - 1) * pasY * 0.42;
-      // décalage latéral : assez pour que la chaîne serpente, pas trop pour
-      // que le faisceau reste dans sa portée
-      const ecart = (rnd() * 2 - 1) * Math.min(W * 0.34, D.portee * 0.55);
-      const x = clamp(cible.x + ecart, marge, W - marge);
-
-      const p = {
-        x, y,
-        baseX: x, baseY: y,
-        vx: 0, vy: 0,
-        sx: 1, sy: 1, vsx: 0, vsy: 0,
-        regard: Math.atan2(cible.y - y, cible.x - x),
-        eclaire: false,
-        tremble: rnd() * TAU,
-      };
-      p.regardRepos = p.regard;
-      persos.push(p);
-      cible = { x, y };
-    }
-
-
-    // --- émotions ---
-    // La chaîne alterne curieux (le regard vagabonde, le faisceau tremble) et
-    // peureux (se décalent quand on les éclaire).
-    // L'amplitude du balayage est volontairement faible (~±9°) face au demi-cône
-    // de 0.20 rad : mesuré à ±1.3 rad, un maillon n'était aligné que 10 % du
-    // temps et une chaîne de quatre ne s'alignait jamais — le solver validait
-    // un graphe que la physique démolissait en 200 ms. Le balayage reste de la
-    // vie, la difficulté est ailleurs (placement de la lanterne, coléreux).
-    persos.forEach((p, i) => {
-      p.emotion = (i === persos.length - 1 || rnd() < 0.45) ? EMOTIONS.PEUR : EMOTIONS.CURIEUX;
-      p.balayage = (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.45);
-      p.amplitude = 0.10 + rnd() * 0.09;
-    });
-
-    // --- coléreux ---
-    const nouveauColere = (x, y) => {
-      const c = {
-        x, y, baseX: x, baseY: y, vx: 0, vy: 0,
-        sx: 1, sy: 1, vsx: 0, vsy: 0,
-        regard: rnd() * TAU, emotion: EMOTIONS.COLERE,
-        eclaire: false, tremble: rnd() * TAU,
-        balayage: 0, amplitude: 0,
-      };
-      c.regardRepos = c.regard;
-      persos.push(c);
-      return c;
-    };
-
-    // Le premier se met EN TRAVERS d'un maillon, et c'est tout le sujet du
-    // niveau : au repos la chaîne est coupée là, aucune position de doigt ne
-    // gagne. Il faut l'attirer hors de la ligne de mire pour ouvrir le passage.
-    // (L'ancienne génération faisait l'inverse — elle l'écartait de tout le
-    // monde « sinon le niveau est mort-né » — d'où un jeu sans décision.)
-    let barrage = null;
-    for (let essai = 0; essai < 40 && !barrage; essai++) {
-      const j = Math.floor(rnd() * nbRelais);
-      const a = persos[j];
-      const b = j === 0 ? sortie : persos[j - 1];
-      const t = 0.32 + rnd() * 0.36;
-      const nx = -(b.y - a.y), ny = b.x - a.x;
-      const n = Math.hypot(nx, ny) || 1;
-      const jitter = (rnd() * 2 - 1) * D.taille * 0.3;
-      const x = clamp(a.x + (b.x - a.x) * t + (nx / n) * jitter, marge * 0.6, W - marge * 0.6);
-      const y = clamp(a.y + (b.y - a.y) * t + (ny / n) * jitter, hautZone, basZone);
-      if (persos.some((p) => Math.hypot(p.x - x, p.y - y) < D.taille * 1.7)) continue;
-      if (Math.hypot(sortie.x - x, sortie.y - y) < D.taille * 1.7) continue;
-      const test = [{ x, y, demi: D.taille * 0.5 }];
-      if (vueLibre(a.x, a.y, b.x, b.y, [], test)) continue;   // il ne coupe rien
-      barrage = nouveauColere(x, y);
-    }
-    if (!barrage) return null;
-
-    // un second, posé librement, pour que le bon bloqueur ne soit pas évident
-    if (rnd() < 0.55) {
-      for (let essai = 0; essai < 25; essai++) {
-        const x = marge + rnd() * (W - marge * 2);
-        const y = hautZone + rnd() * (basZone - hautZone);
-        if (persos.some((p) => Math.hypot(p.x - x, p.y - y) < D.taille * 2.2)) continue;
-        if (Math.hypot(sortie.x - x, sortie.y - y) < D.taille * 2.6) continue;
-        nouveauColere(x, y);
-        break;
+  // Repousse un corps carré hors des cases pleines qu'il touche.
+  function degager(p, demi) {
+    const c0x = Math.floor((p.x - demi) / CASE), c1x = Math.floor((p.x + demi) / CASE);
+    const c0y = Math.floor((p.y - demi) / CASE), c1y = Math.floor((p.y + demi) / CASE);
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (!solide(cx, cy)) continue;
+        const mx = cx * CASE, my = cy * CASE;
+        const gauche = (mx - demi) - p.x, droite = (mx + CASE + demi) - p.x;
+        const haut = (my - demi) - p.y, bas = (my + CASE + demi) - p.y;
+        const dx = Math.abs(gauche) < Math.abs(droite) ? gauche : droite;
+        const dy = Math.abs(haut) < Math.abs(bas) ? haut : bas;
+        if (Math.abs(dx) < Math.abs(dy)) { p.x += dx; p.vx = 0; }
+        else { p.y += dy; p.vy = 0; }
       }
     }
+  }
 
-    // --- dalles opaques, posées hors des lignes de vue de la chaîne ---
-    const murs = [];
-    const nbMurs = 2 + Math.floor(rnd() * 3);
-    for (let i = 0; i < nbMurs; i++) {
-      for (let essai = 0; essai < 40; essai++) {
-        const w = D.taille * (0.7 + rnd() * 2.2);
-        const h = D.taille * (0.7 + rnd() * 2.2);
-        const m = {
-          x: marge * 0.3 + rnd() * (W - w - marge * 0.6),
-          y: hautZone + rnd() * (basZone - hautZone - h),
-          w, h,
-        };
-        if (persos.some((p) => segmentCoupeRect(p.x, p.y, p.x, p.y, m))) continue;
-        if (bloqueLaChaine(persos, sortie, m, nbRelais)) continue;
-        if (persos.some((p) => Math.hypot(p.x - (m.x + w / 2), p.y - (m.y + h / 2)) < D.taille * 1.6)) continue;
-        murs.push(m);
-        break;
+  /* ==================================================== vision =========== */
+
+  // Une case est vue si elle est dans le halo, ou dans le faisceau. On garde la
+  // mémoire : le terrain déjà traversé reste faiblement dessiné, sinon on
+  // explore à l'aveugle et on tourne en rond.
+  function marquerVu() {
+    const f = forme();
+    const r = rayonHalo();
+    const portee = f.portee * CASE;
+    const rmax = Math.max(r, portee) + CASE;
+    const c0x = Math.max(0, Math.floor((joueur.x - rmax) / CASE));
+    const c1x = Math.min(zone.cols - 1, Math.floor((joueur.x + rmax) / CASE));
+    const c0y = Math.max(0, Math.floor((joueur.y - rmax) / CASE));
+    const c1y = Math.min(zone.lignes - 1, Math.floor((joueur.y + rmax) / CASE));
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (vues[cy][cx]) continue;
+        const px = (cx + 0.5) * CASE, py = (cy + 0.5) * CASE;
+        const d = Math.hypot(px - joueur.x, py - joueur.y);
+        if (d < r + CASE * 0.5) { vues[cy][cx] = 1; continue; }
+        if (portee && d < portee) {
+          const a = Math.atan2(py - joueur.y, px - joueur.x);
+          if (Math.abs(ecartAngle(joueur.regard, a)) < f.cone + 0.12) vues[cy][cx] = 1;
+        }
       }
     }
-
-    return { persos, murs, sortie, nbRelais, chaine: persos.slice(0, nbRelais) };
   }
 
-  function bloqueLaChaine(persos, sortie, mur, nbRelais) {
-    for (let i = 0; i < nbRelais; i++) {
-      const a = persos[i];
-      const b = i === 0 ? sortie : persos[i - 1];
-      if (segmentCoupeRect(a.x, a.y, b.x, b.y, mur)) return true;
-    }
-    return false;
-  }
-
-  /* ============================================== propagation lumière ==== */
-
-  // Un carré est éclairé s'il tombe dans le cône d'un faisceau, à portée, et
-  // qu'aucune dalle ni aucun coléreux ne coupe la ligne de vue.
-  function vueLibre(x1, y1, x2, y2, murs, bloqueurs) {
-    for (const m of murs) if (segmentCoupeRect(x1, y1, x2, y2, m)) return false;
-    for (const b of bloqueurs) {
-      const demi = b.demi;
-      const r = { x: b.x - demi, y: b.y - demi, w: demi * 2, h: demi * 2 };
-      if (segmentCoupeRect(x1, y1, x2, y2, r)) return false;
+  // Ligne de vue sur la grille : un pas de demi-case suffit et coûte peu.
+  function vueLibre(x1, y1, x2, y2) {
+    const d = Math.hypot(x2 - x1, y2 - y1);
+    const pas = Math.max(1, Math.ceil(d / (CASE * 0.45)));
+    for (let i = 1; i < pas; i++) {
+      const t = i / pas;
+      const x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t;
+      if (solide(Math.floor(x / CASE), Math.floor(y / CASE))) return false;
     }
     return true;
   }
 
-  function dansLeCone(sx, sy, angle, tx, ty, portee, demiAngle) {
+  const dansLeCone = (sx, sy, angle, tx, ty, portee, demi) => {
     const d = Math.hypot(tx - sx, ty - sy);
     if (d > portee || d < 1) return false;
     const a = Math.atan2(ty - sy, tx - sx);
-    // le cône s'élargit un peu de près, sinon rien n'est jamais touché
-    const tolerance = demiAngle + Math.min(0.5, 26 / Math.max(d, 1));
-    return Math.abs(ecartAngle(angle, a)) <= tolerance;
-  }
+    return Math.abs(ecartAngle(angle, a)) <= demi + Math.min(0.45, 30 / Math.max(d, 1));
+  };
 
-  // Calcule qui est éclairé, à partir d'un point de lanterne. Renvoie aussi le
-  // nombre de relais traversés : c'est ce qui sert au solver.
-  // Où se tient un coléreux pour une lanterne donnée. Il fonce en ligne droite
-  // vers le doigt et s'arrête au bout de sa laisse, ou juste avant le doigt.
-  // C'est volontairement déterministe : le doigt du joueur ne fait pas
-  // qu'éclairer, il déplace les bloqueurs — et le solver peut donc prévoir
-  // exactement où ils seront au lieu de valider un plateau figé qui n'existe
-  // jamais en jeu.
-  function posColere(c, lx, ly, D) {
-    const dx = lx - c.baseX, dy = ly - c.baseY;
-    const d = Math.hypot(dx, dy) || 1;
-    const course = Math.min(D.laisse, Math.max(0, d - D.taille * 1.15));
-    return { x: c.baseX + (dx / d) * course, y: c.baseY + (dy / d) * course };
-  }
-
-  // prevoir = true : on place les coléreux là où la lanterne va les attirer
-  // (le solver raisonne dessus). false : on prend leur position réelle à
-  // l'écran (le jeu, pendant qu'ils se déplacent encore).
-  function propager(etat, lanterneX, lanterneY, D, rayonLanterne, prevoir) {
-    const { persos, murs, sortie } = etat;
+  // Relais : ton faisceau réveille un bonhomme, qui éclaire à son tour dans la
+  // direction de son regard. C'est ce qui reste du mode puzzle — mais ici ça ne
+  // décide de rien, ça sert seulement à voir plus loin. Donc rien à valider.
+  function propager() {
+    const f = forme();
     const eclaires = new Set();
-    let profondeur = new Map();
+    if (!f.portee) return eclaires;
+    const portee = f.portee * CASE;
 
-    const bloqueurs = persos
-      .filter((p) => p.emotion === EMOTIONS.COLERE)
-      .map((p) => {
-        const q = prevoir ? posColere(p, lanterneX, lanterneY, D) : p;
-        return { x: q.x, y: q.y, demi: D.taille * 0.5 };
-      });
-
-    // Premier cercle : la lanterne du joueur.
-    // Marge d'hystérésis sur ce qui est déjà allumé : mesuré, un peureux reculait
-    // de 4 px, sortait du halo de 1 px, s'éteignait, cessait donc de fuir,
-    // revenait, se rallumait — le maillon clignotait en boucle et la chaîne ne
-    // tenait jamais les 0.45 s. Élargir le seuil de sortie casse le cycle sans
-    // déplacer personne (déplacer un maillon casserait la géométrie en aval).
-    for (const p of persos) {
+    for (const p of zone.persos) {
       if (p.emotion === EMOTIONS.COLERE) continue;
-      if (Math.hypot(p.x - lanterneX, p.y - lanterneY) > rayonLanterne * (p.eclaire ? 1.3 : 1)) continue;
-      if (!vueLibre(lanterneX, lanterneY, p.x, p.y, murs, bloqueurs)) continue;
+      if (!dansLeCone(joueur.x, joueur.y, joueur.regard, p.x, p.y, portee, f.cone)) continue;
+      if (!vueLibre(joueur.x, joueur.y, p.x, p.y)) continue;
       eclaires.add(p);
-      profondeur.set(p, 1);
     }
-
-    // relais en chaîne, jusqu'au point fixe
-    for (let tour = 0; tour < 8; tour++) {
+    for (let tour = 0; tour < 4; tour++) {
       let ajout = false;
       for (const src of [...eclaires]) {
-        for (const cible of persos) {
+        for (const cible of zone.persos) {
           if (cible === src || eclaires.has(cible)) continue;
           if (cible.emotion === EMOTIONS.COLERE) continue;
-          const m = cible.eclaire ? 1.22 : 1;
-          if (!dansLeCone(src.x, src.y, src.regard, cible.x, cible.y, D.portee * m, D.cone * m)) continue;
-          if (!vueLibre(src.x, src.y, cible.x, cible.y, murs, bloqueurs)) continue;
+          if (!dansLeCone(src.x, src.y, src.regard, cible.x, cible.y, D.portee * 5, D.cone)) continue;
+          if (!vueLibre(src.x, src.y, cible.x, cible.y)) continue;
           eclaires.add(cible);
-          profondeur.set(cible, (profondeur.get(src) || 1) + 1);
           ajout = true;
         }
       }
       if (!ajout) break;
     }
-
-    // la sortie est-elle touchée ?
-    let sortieTouchee = 0;
-    for (const src of eclaires) {
-      if (!dansLeCone(src.x, src.y, src.regard, sortie.x, sortie.y, D.portee, D.cone)) continue;
-      if (!vueLibre(src.x, src.y, sortie.x, sortie.y, murs, bloqueurs)) continue;
-      sortieTouchee = Math.max(sortieTouchee, profondeur.get(src) || 1);
-    }
-    // la lanterne peut aussi toucher la sortie directement : c'est justement ce
-    // qu'il faut interdire, un niveau doit passer par des relais
-    const directe = Math.hypot(sortie.x - lanterneX, sortie.y - lanterneY) <= rayonLanterne
-      && vueLibre(lanterneX, lanterneY, sortie.x, sortie.y, murs, bloqueurs);
-
-    return { eclaires, relais: sortieTouchee, directe };
-  }
-
-  /* ==================================================== le solver ======== */
-
-  // Vérifie le niveau sur sa configuration au repos : depuis une grille de
-  // positions de doigt, la lumière atteint-elle la sortie, et en combien de
-  // relais ? En dessous de 3, le niveau est trop pauvre et la graine part à la
-  // poubelle. C'est une vérification du graphe de lumière, pas une simulation
-  // de la physique : celle-ci vient se superposer ensuite.
-  // L'exploit du joueur, encodé : viser un bonhomme non-rouge. C'est
-  // l'heuristique qui se trouve en dix secondes et qui rendait le jeu trivial.
-  // C'est aussi le test le plus discriminant et le moins cher — quelques
-  // dizaines de positions au lieu de quatre cents — donc il passe en premier.
-  function seResoutEnVisantUnPerso(etat, D) {
-    const rayon = D.taille * 1.0;
-    const pas = D.taille * 0.4;
-    for (const q of etat.persos) {
-      if (q.emotion === EMOTIONS.COLERE) continue;
-      for (let dy = -rayon; dy <= rayon; dy += pas) {
-        for (let dx = -rayon; dx <= rayon; dx += pas) {
-          if (dx * dx + dy * dy > rayon * rayon) continue;
-          const r = propager(etat, q.x + dx, q.y + dy, D, D.lanterne, true);
-          if (!r.directe && r.relais >= 1) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  function resoudre(etat, D) {
-    const pas = Math.max(26, Math.min(W, H) / 16);
-    const haut = D.taille + 60;           // sous la barre du menu
-    const vide = { relais: 0, solutions: 0, figees: 0, total: 0, faciles: 0 };
-
-    if (seResoutEnVisantUnPerso(etat, D)) return { ...vide, faciles: 1 };
-
-    // Premier temps — plateau figé, coléreux à leur poste. Si une position
-    // gagne déjà comme ça, le niveau se résout en posant le doigt au bon
-    // endroit et rien d'autre : la physique n'est plus qu'un décor, ce qui est
-    // exactement ce qui rendait le jeu trivial. On jette.
-    for (let y = haut; y < H - 20; y += pas) {
-      for (let x = 18; x < W - 18; x += pas) {
-        const r = propager(etat, x, y, D, D.lanterne, false);
-        if (!r.directe && r.relais >= 1) return { ...vide, figees: 1 };
-      }
-    }
-
-    // Second temps — les coléreux suivent le doigt. Les seules solutions qui
-    // restent passent forcément par le déplacement d'un bloqueur.
-    const chaine = etat.persos.filter((q) => q.emotion !== EMOTIONS.COLERE);
-    const rayonFacile = D.taille * 1.0;
-
-    let meilleur = 0, solutions = 0, total = 0;
-    for (let y = haut; y < H - 20; y += pas) {
-      for (let x = 18; x < W - 18; x += pas) {
-        total++;
-        if (chaine.some((q) => Math.hypot(q.x - x, q.y - y) < rayonFacile)) continue;
-        const r = propager(etat, x, y, D, D.lanterne, true);
-        if (r.directe) continue;
-        if (r.relais >= 1) { solutions++; meilleur = Math.max(meilleur, r.relais); }
-      }
-    }
-    return { relais: meilleur, solutions, figees: 0, total, faciles: 0 };
-  }
-
-  function genererNiveau(grainTexte, variante) {
-    // Une graine qui n'aboutit pas est relancée décalée plutôt que de servir un
-    // niveau non validé : le résultat reste déterministe pour une graine donnée.
-    const v = variante || 0;
-    const rnd = mulberry32(grainDepuisTexte(grainTexte) + v * 7919);
-    const D = dims();
-    const t0 = performance.now();
-    let rejets = 0;
-
-    // Deux règles ne se négocient jamais, ce sont elles qui font le jeu :
-    //   figees === 0   le niveau n'est pas résoluble sans déplacer un bloqueur
-    //   faciles === 0  il ne se résout pas en visant un bonhomme
-    // Le reste — longueur de chaîne, étroitesse de la solution — se relâche par
-    // paliers : mesuré, une graine sur trois n'avait rien trouvé en 120 essais
-    // sous les seuils stricts et servait un niveau non validé.
-    const paliers = [
-      { relais: 3, mini: 2, part: 0.12 },
-      { relais: 3, mini: 1, part: 0.25 },
-      { relais: 2, mini: 1, part: 1 },
-    ];
-
-    for (const seuil of paliers) {
-      for (let essai = 0; essai < 60; essai++) {
-        const etat = construire(rnd, D);
-        if (!etat) { rejets++; continue; }
-        const verdict = resoudre(etat, D);
-        const plafond = Math.max(3, Math.round(verdict.total * seuil.part));
-        if (!verdict.faciles && !verdict.figees &&
-            verdict.relais >= seuil.relais &&
-            verdict.solutions >= seuil.mini && verdict.solutions <= plafond) {
-          etat.grain = grainTexte;
-          etat.verdict = verdict;
-          etat.msSolver = performance.now() - t0;
-          etat.rejets = rejets;
-          return etat;
-        }
-        rejets++;
-      }
-    }
-
-    if (v < 4) return genererNiveau(grainTexte, v + 1);
-
-    // repli, après cinq variantes infructueuses : mieux vaut un niveau tiède
-    // qu'un écran vide, mais son verdict dit clairement qu'il n'est pas validé
-    const secours = construire(rnd, D) || construire(mulberry32(1), D);
-    if (secours) {
-      secours.grain = grainTexte;
-      secours.verdict = { relais: 0, solutions: 0, total: 0, figees: 0, faciles: 0, valide: false };
-      secours.msSolver = performance.now() - t0;
-      secours.rejets = rejets;
-    }
-    return secours;
+    return eclaires;
   }
 
   /* ==================================================== physique ========= */
 
-  // Jelly : l'échelle vise une cible dictée par la vitesse (formule du spec),
-  // et un ressort la ramène vers 1. D'où l'écrasement à l'impact puis le
-  // ballotement qui suit.
+  function majJoueur(dt) {
+    const demi = D.taille * 0.5;
+
+    if (doigt.actif) {
+      const cx = doigt.x + cam.x, cy = doigt.y + cam.y;
+      const dx = cx - joueur.x, dy = cy - joueur.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 4) {
+        const force = 1500 * clamp(d / 90, 0.25, 1);
+        joueur.vx += (dx / d) * force * dt;
+        joueur.vy += (dy / d) * force * dt;
+      }
+    }
+
+    // décharge : une poussée nette, puis on retombe dans le frottement normal
+    if (joueur.chargeT > 0) {
+      joueur.chargeT -= dt;
+      const a = joueur.regard;
+      joueur.vx += Math.cos(a) * 2600 * dt;
+      joueur.vy += Math.sin(a) * 2600 * dt;
+    }
+
+    const frottement = Math.pow(0.0009, dt);
+    joueur.vx *= frottement;
+    joueur.vy *= frottement;
+
+    const vmax = 340 + joueur.niveau * 40 + (joueur.chargeT > 0 ? 420 : 0);
+    const v = Math.hypot(joueur.vx, joueur.vy);
+    if (v > vmax) { joueur.vx = (joueur.vx / v) * vmax; joueur.vy = (joueur.vy / v) * vmax; }
+
+    joueur.x += joueur.vx * dt;
+    joueur.y += joueur.vy * dt;
+    joueur.x = clamp(joueur.x, demi, zone.largeur - demi);
+    joueur.y = clamp(joueur.y, demi, zone.hauteur - demi);
+    degager(joueur, demi);
+
+    if (v > 26) joueur.regard += ecartAngle(joueur.regard, Math.atan2(joueur.vy, joueur.vx)) * Math.min(1, 12 * dt);
+
+    majJelly(joueur, dt);
+  }
+
   function majJelly(p, dt) {
-    // Bornes resserrées (0.62..1.42 au départ) : au-delà, un bonhomme qui fuit
-    // vite devenait une flaque ou une barre, et son visage partait avec.
-    // On garde l'élasticité, on perd la caricature.
-    const cibleX = clamp(1 + p.vy * 0.013 - p.vx * 0.013, 0.84, 1.19);
-    const cibleY = clamp(1 + p.vx * 0.013 - p.vy * 0.013, 0.84, 1.19);
+    const cibleX = clamp(1 + p.vy * 0.00055 - p.vx * 0.00055, 0.84, 1.19);
+    const cibleY = clamp(1 + p.vx * 0.00055 - p.vy * 0.00055, 0.84, 1.19);
     const RAIDEUR = 190, AMORTI = 13;
     p.vsx += (cibleX - p.sx) * RAIDEUR * dt;
     p.vsy += (cibleY - p.sy) * RAIDEUR * dt;
@@ -616,122 +643,170 @@
     p.sy += p.vsy * dt;
   }
 
-  function majPhysique(etat, D, dt, doigt, temps) {
-    const { persos, murs } = etat;
-
-    for (const p of persos) {
-      const eclaire = p.eclaire;
+  function majPersos(dt, temps, eclaires) {
+    const demi = D.taille * 0.5;
+    for (const p of zone.persos) {
+      p.eclaire = eclaires.has(p);
+      const dx = joueur.x - p.x, dy = joueur.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const voit = d < CASE * 5 && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
       if (p.emotion === EMOTIONS.CURIEUX) {
-        // phare : balaye autour de son regard de repos. Éclairé, il ralentit —
-        // c'est le levier du joueur pour le figer au bon angle.
-        const vitesse = p.balayage * (eclaire ? 0.28 : 1);
-        p.phase = (p.phase || 0) + vitesse * dt;
+        // balaye largement — ici on peut se le permettre, aucun solveur ne
+        // dépend de son angle. Éclairé, il ralentit : c'est comme ça qu'on fige
+        // un relais dans la bonne direction.
+        p.phase += p.balayage * (p.eclaire ? 0.18 : 1) * dt;
         p.regard = p.regardRepos + Math.sin(p.phase) * p.amplitude;
-        // il reste immobile, mais frissonne quand on le regarde
-        if (eclaire) {
-          p.vx += Math.cos(temps * 9 + p.tremble) * 8 * dt;
-          p.vy += Math.sin(temps * 11 + p.tremble) * 8 * dt;
-        }
 
       } else if (p.emotion === EMOTIONS.PEUR) {
-        // fuit le doigt, mais garde son regard : il continue de relayer
-        if (eclaire && doigt.actif) {
-          const dx = p.x - doigt.x, dy = p.y - doigt.y;
-          const d = Math.hypot(dx, dy) || 1;
-          const force = 260 * clamp(1 - d / (D.lanterne * 1.6), 0, 1);
-          p.vx += (dx / d) * force * dt;
-          p.vy += (dy / d) * force * dt;
-          p.regard = p.regardRepos + Math.sin(temps * 14 + p.tremble) * 0.09;
+        if (p.calme) {
+          p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 2.4 * dt;   // il te suit du regard
+        } else if (voit && d < CASE * 2.6) {
+          p.vx -= (dx / d) * 300 * dt;
+          p.vy -= (dy / d) * 300 * dt;
+          p.regard = Math.atan2(-dy, -dx);
         } else {
-          // il revient tranquillement à sa place
-          p.vx += (p.baseX - p.x) * 2.4 * dt;
-          p.vy += (p.baseY - p.y) * 2.4 * dt;
-          p.regard += ecartAngle(p.regard, p.regardRepos) * 3 * dt;
+          p.vx += (p.baseX - p.x) * 1.6 * dt;
+          p.vy += (p.baseY - p.y) * 1.6 * dt;
+          p.phase += p.balayage * 0.5 * dt;
+          p.regard = p.regardRepos + Math.sin(p.phase) * 0.5;
         }
 
-      } else if (p.emotion === EMOTIONS.COLERE) {
-        // Il fonce sur la lumière et vient rejoindre exactement la position que
-        // le solver a prévue pour lui — c'est ce qui fait que ce qu'on voit à
-        // l'écran et ce que le jeu calcule ne divergent jamais. Il charge vite,
-        // il rentre lentement : ça laisse au joueur une fenêtre pour se
-        // repositionner après l'avoir attiré.
-        const cible = doigt.actif ? posColere(p, doigt.x, doigt.y, D)
-                                  : { x: p.baseX, y: p.baseY };
-        const raideur = doigt.actif ? 60 : 10;
-        p.vx += (cible.x - p.x) * raideur * dt;
-        p.vy += (cible.y - p.y) * raideur * dt;
-        if (doigt.actif) p.regard = Math.atan2(doigt.y - p.y, doigt.x - p.x);
+      } else {
+        // Coléreux : il fixe le joueur dès qu'il le voit, et il charge — mais
+        // pas au-delà de son territoire. Mesuré sans laisse : un seul rouge
+        // suivait le joueur à travers toute la zone, le rattrapait jusqu'au
+        // point de réapparition et le revidait en boucle.
+        const loin = Math.hypot(p.x - p.baseX, p.y - p.baseY) > CASE * 5.5;
+        if (voit && !loin) {
+          p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 5 * dt;
+          if (d < CASE * 4.2) {
+            const vitesse = 210 + zone.numero * 12;
+            p.vx += (dx / d) * vitesse * dt;
+            p.vy += (dy / d) * vitesse * dt;
+          }
+        } else {
+          p.vx += (p.baseX - p.x) * 1.1 * dt;
+          p.vy += (p.baseY - p.y) * 1.1 * dt;
+          p.phase += p.balayage * 0.6 * dt;
+          p.regard = p.regardRepos + Math.sin(p.phase) * 0.7;
+        }
       }
 
-      // frottement
       const f = Math.pow(0.0016, dt);
       p.vx *= f; p.vy *= f;
-
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      p.x = clamp(p.x, demi, zone.largeur - demi);
+      p.y = clamp(p.y, demi, zone.hauteur - demi);
+      degager(p, demi);
 
-      // laisse : un coléreux mesuré parcourait 79 px et venait couper la chaîne
-      // au milieu du plateau. Il charge toujours, mais sans quitter son poste :
-      // le graphe de lumière validé par le solver reste valable.
-      const laisse = p.emotion === EMOTIONS.COLERE ? D.laisse * 1.05 : D.taille * 1.15;
-      const ex = p.x - p.baseX, ey = p.y - p.baseY;
-      const d = Math.hypot(ex, ey);
-      if (d > laisse) {
-        p.x = p.baseX + (ex / d) * laisse;
-        p.y = p.baseY + (ey / d) * laisse;
-        p.vx *= 0.4; p.vy *= 0.4;
+      // séparation d'avec le joueur : un rouge collé dedans est illisible
+      const sx = p.x - joueur.x, sy = p.y - joueur.y;
+      const sd = Math.hypot(sx, sy);
+      const mini = D.taille * 0.95;
+      if (sd > 0.01 && sd < mini) {
+        const k = (mini - sd) * 0.5;
+        p.x += (sx / sd) * k; p.y += (sy / sd) * k;
+        joueur.x -= (sx / sd) * k; joueur.y -= (sy / sd) * k;
+        degager(joueur, demi);
       }
 
-      // bords
-      const demi = D.taille * 0.5;
-      if (p.x < demi) { p.x = demi; p.vx = Math.abs(p.vx) * 0.55; }
-      if (p.x > W - demi) { p.x = W - demi; p.vx = -Math.abs(p.vx) * 0.55; }
-      if (p.y < demi + 44) { p.y = demi + 44; p.vy = Math.abs(p.vy) * 0.55; }
-      if (p.y > H - demi) { p.y = H - demi; p.vy = -Math.abs(p.vy) * 0.55; }
+      majJelly(p, dt);
+    }
+  }
 
-      // Dalles. Le coléreux en est exempté, comme il l'est des collisions entre
-      // bonhommes juste en dessous : sa position est le pivot du puzzle et le
-      // solver la calcule d'avance, donc rien ne doit pouvoir l'arrêter en
-      // route. Mesuré avant ça : un bloqueur coincé par une dalle finissait à
-      // 81 px de la position prévue, et le niveau devenait insoluble.
-      for (const m of (p.emotion === EMOTIONS.COLERE ? [] : murs)) {
-        if (p.x + demi < m.x || p.x - demi > m.x + m.w) continue;
-        if (p.y + demi < m.y || p.y - demi > m.y + m.h) continue;
-        const gauche = (m.x - demi) - p.x, droite = (m.x + m.w + demi) - p.x;
-        const haut = (m.y - demi) - p.y, bas = (m.y + m.h + demi) - p.y;
-        const dx = Math.abs(gauche) < Math.abs(droite) ? gauche : droite;
-        const dy = Math.abs(haut) < Math.abs(bas) ? haut : bas;
-        if (Math.abs(dx) < Math.abs(dy)) { p.x += dx; p.vx = -p.vx * 0.5; }
-        else { p.y += dy; p.vy = -p.vy * 0.5; }
-      }
+  /* ==================================================== règles =========== */
+
+  function evoluer() {
+    const suivant = FORMES[joueur.niveau + 1];
+    if (!suivant || joueur.sommet < suivant.seuil) return;
+    joueur.niveau++;
+    elCharge.classList.toggle('on', joueur.niveau >= 2);
+    montrerFlash(suivant.nom, suivant.texte, suivant.couleur);
+  }
+
+  function gagnerEclat(n) {
+    joueur.eclat += n;
+    joueur.sommet = Math.max(joueur.sommet, joueur.eclat);
+    evoluer();
+  }
+
+  function etouffer(n) {
+    joueur.souffle = Math.max(0, joueur.souffle - n);
+    if (joueur.souffle > 0) return;
+    // Éteint : on repose au seuil de la zone. L'éclat n'est JAMAIS repris — la
+    // progression ne se perd pas, sinon la mort punit deux fois. Et c'est un
+    // bandeau qui s'efface, pas une fenêtre à valider : ça casserait le rythme.
+    joueur.souffle = 0.62;
+    joueur.x = zone.depart.x; joueur.y = zone.depart.y;
+    joueur.vx = joueur.vy = 0;
+    joueur.repit = 1.6;                 // sans ce répit on se fait revider à l'arrivée
+    for (const p of zone.persos) {      // et les rouges retournent à leur poste
+      if (p.emotion !== EMOTIONS.COLERE) continue;
+      p.x = p.baseX; p.y = p.baseY; p.vx = p.vy = 0;
+    }
+    montrerToast('Éteint — tu repars du seuil');
+  }
+
+  function majRegles(dt) {
+    // lueurs ramassées
+    for (const l of zone.lueurs) {
+      if (l.prise) continue;
+      if (Math.hypot(l.x - joueur.x, l.y - joueur.y) > D.taille * 0.9) continue;
+      l.prise = true;
+      priseCount++;
+      gagnerEclat(4);
     }
 
-    // Collisions entre carrés : rebond élastique, d'où l'écrasement mutuel.
-    // Les coléreux passent au travers : mesuré, un coléreux qui charge poussait
-    // un maillon de 56 px et démolissait la solution que le solver avait validée.
-    for (let i = 0; i < persos.length; i++) {
-      for (let j = i + 1; j < persos.length; j++) {
-        const a = persos[i], b = persos[j];
-        if (a.emotion === EMOTIONS.COLERE || b.emotion === EMOTIONS.COLERE) continue;
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const d = Math.hypot(dx, dy);
-        const mini = D.taille * 0.95;
-        if (d >= mini || d === 0) continue;
-        const nx = dx / d, ny = dy / d;
-        const chevauche = (mini - d) * 0.5;
-        a.x -= nx * chevauche; a.y -= ny * chevauche;
-        b.x += nx * chevauche; b.y += ny * chevauche;
-        const impact = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        if (impact < 0) {
-          const j2 = impact * 1.25;
-          a.vx += nx * j2; a.vy += ny * j2;
-          b.vx -= nx * j2; b.vy -= ny * j2;
-        }
-      }
+    // calmer un peureux avec son faisceau : il donne de l'éclat, une fois
+    for (const p of zone.persos) {
+      if (p.emotion !== EMOTIONS.PEUR || p.calme || !p.eclaire) continue;
+      p.compteCalme = (p.compteCalme || 0) + dt;
+      if (p.compteCalme > 0.9) { p.calme = true; gagnerEclat(6); }
     }
 
-    for (const p of persos) majJelly(p, dt);
+    // les regards rouges vident le souffle ; le noir le rend
+    let vide = 0;
+    for (const p of zone.persos) {
+      if (p.emotion !== EMOTIONS.COLERE) continue;
+      const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
+      if (d > CASE * 4.6) continue;
+      if (!dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, CASE * 4.6, 0.42)) continue;
+      if (!vueLibre(p.x, p.y, joueur.x, joueur.y)) continue;
+      vide += 0.4 * dt;
+      if (d < CASE * 1.4) vide += 0.5 * dt;
+    }
+    if (joueur.repit > 0) { joueur.repit -= dt; vide = 0; }
+    joueur.vu += ((vide > 0 ? 1 : 0) - joueur.vu) * Math.min(1, 6 * dt);
+    if (vide > 0) etouffer(vide);
+    else joueur.souffle = Math.min(1, joueur.souffle + 0.26 * dt);
+
+    // recharge de la charge
+    if (joueur.chargeDispo < 1) {
+      joueur.chargeDispo = Math.min(1, joueur.chargeDispo + dt / 3.4);
+      elCharge.disabled = joueur.chargeDispo < 1;
+    }
+
+    // sortie
+    if (priseCount >= zone.requis &&
+        Math.hypot(zone.sortie.x - joueur.x, zone.sortie.y - joueur.y) < zone.sortie.r) {
+      zoneSuivante();
+    }
+  }
+
+  function decharger() {
+    if (joueur.niveau < 2 || joueur.chargeDispo < 1) return;
+    joueur.chargeDispo = 0;
+    joueur.chargeT = 0.22;
+    elCharge.disabled = true;
+    for (const p of zone.persos) {
+      const dx = p.x - joueur.x, dy = p.y - joueur.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > CASE * 2.2) continue;
+      p.vx += (dx / d) * 620;
+      p.vy += (dy / d) * 620;
+    }
   }
 
   /* ==================================================== rendu ============ */
@@ -746,36 +821,15 @@
     c.closePath();
   }
 
-  function melange(hex, vers, t) {
-    const n = parseInt(hex.slice(1), 16);
-    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-      .map((v) => Math.round(v + (vers - v) * t));
-    return `rgb(${c[0]},${c[1]},${c[2]})`;
-  }
-  const eclaircir = (hex, t) => melange(hex, 255, t);
-  const assombrir = (hex, t) => melange(hex, 0, t);
-
-  const COULEURS = {
-    [EMOTIONS.PEUR]: '#8fd0ff',
-    [EMOTIONS.COLERE]: '#ff7a6b',
-    [EMOTIONS.CURIEUX]: '#ffd479',
-  };
-
-  function dessinerPerso(p, D, temps, opacite) {
-    const demi = D.taille * 0.5;
-    const w = D.taille * p.sx, h = D.taille * p.sy;
-    const base = opacite === undefined ? 1 : opacite;
-
-    ctx.save();
-    ctx.translate(p.x, p.y);
-
-    const couleur = COULEURS[p.emotion];
+  function dessinerCorps(p, couleur, taille, allume, opacite) {
+    const w = taille * p.sx, h = taille * p.sy;
     const arrondi = Math.min(w, h) * 0.32;
-    ctx.globalAlpha = base * (p.eclaire ? 1 : 0.85);
+    ctx.save();
+    ctx.translate(p.x - cam.x, p.y - cam.y);
+    ctx.globalAlpha = opacite;
 
-    // --- corps : dégradé vertical + reflet, pour du volume plutôt qu'un aplat ---
     const corps = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-    if (p.eclaire) {
+    if (allume) {
       corps.addColorStop(0, eclaircir(couleur, 0.42));
       corps.addColorStop(0.55, couleur);
       corps.addColorStop(1, assombrir(couleur, 0.3));
@@ -786,50 +840,49 @@
     ctx.fillStyle = corps;
     carreArrondi(ctx, -w / 2, -h / 2, w, h, arrondi);
     ctx.fill();
-
-    ctx.strokeStyle = p.eclaire ? 'rgba(255,255,255,0.75)' : couleur;
-    ctx.lineWidth = p.eclaire ? 2 : 1.6;
+    ctx.strokeStyle = allume ? 'rgba(255,255,255,0.7)' : couleur;
+    ctx.lineWidth = allume ? 2 : 1.5;
     ctx.stroke();
 
-    // reflet spéculaire, en haut à gauche
     const reflet = ctx.createRadialGradient(-w * 0.2, -h * 0.28, 0, -w * 0.2, -h * 0.28, w * 0.42);
-    reflet.addColorStop(0, `rgba(255,255,255,${p.eclaire ? 0.5 : 0.1})`);
+    reflet.addColorStop(0, `rgba(255,255,255,${allume ? 0.45 : 0.1})`);
     reflet.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = reflet;
     carreArrondi(ctx, -w / 2, -h / 2, w, h, arrondi);
     ctx.fill();
 
-    ctx.globalAlpha = base;
-
     // --- visage ---
+    const demi = taille * 0.5;
     const ecart = demi * 0.38 * p.sx;
     const oeilY = -demi * 0.08 * p.sy;
     const rOeil = demi * 0.23;
-    const rPupille = rOeil * 0.5;
-    // la pupille indique le vecteur du regard
     const px = Math.cos(p.regard) * rOeil * 0.42;
     const py = Math.sin(p.regard) * rOeil * 0.42;
-
     for (const dx of [-ecart, ecart]) {
       ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(dx, oeilY, rOeil, 0, TAU);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(dx, oeilY, rOeil, 0, TAU); ctx.fill();
       ctx.fillStyle = '#0a0a10';
-      ctx.beginPath();
-      ctx.arc(dx + px, oeilY + py, rPupille, 0, TAU);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(dx + px, oeilY + py, rOeil * 0.5, 0, TAU); ctx.fill();
     }
+    ctx.restore();
+    return { ecart, oeilY, rOeil };
+  }
 
-    // --- sourcils, dessinés selon l'émotion ---
-    ctx.strokeStyle = p.eclaire ? '#0a0a10' : couleur;
+  function dessinerSourcils(p, emotion, taille, allume, opacite, temps) {
+    const demi = taille * 0.5;
+    const ecart = demi * 0.38 * p.sx;
+    const oeilY = -demi * 0.08 * p.sy;
+    const rOeil = demi * 0.23;
+    ctx.save();
+    ctx.translate(p.x - cam.x, p.y - cam.y);
+    ctx.globalAlpha = opacite;
+    ctx.strokeStyle = allume ? '#0a0a10' : COULEURS[emotion];
     ctx.lineWidth = Math.max(2, demi * 0.13);
     ctx.lineCap = 'round';
     const sy = oeilY - rOeil * 1.5;
     const lg = rOeil * 1.15;
 
-    if (p.emotion === EMOTIONS.PEUR) {
-      // levés et tremblants
+    if (emotion === EMOTIONS.PEUR) {
       const t = Math.sin(temps * 16 + p.tremble) * rOeil * 0.12;
       for (const [dx, sens] of [[-ecart, 1], [ecart, -1]]) {
         ctx.beginPath();
@@ -837,8 +890,7 @@
         ctx.lineTo(dx + lg * 0.5 * sens, sy - rOeil * 0.5 + t);
         ctx.stroke();
       }
-    } else if (p.emotion === EMOTIONS.COLERE) {
-      // froncés en V
+    } else if (emotion === EMOTIONS.COLERE) {
       for (const [dx, sens] of [[-ecart, 1], [ecart, -1]]) {
         ctx.beginPath();
         ctx.moveTo(dx - lg * 0.5 * sens, sy - rOeil * 0.45);
@@ -846,7 +898,6 @@
         ctx.stroke();
       }
     } else {
-      // asymétriques : un levé, un droit
       ctx.beginPath();
       ctx.moveTo(-ecart - lg * 0.5, sy - rOeil * 0.55);
       ctx.lineTo(-ecart + lg * 0.5, sy - rOeil * 0.15);
@@ -856,14 +907,13 @@
       ctx.lineTo(ecart + lg * 0.5, sy);
       ctx.stroke();
     }
-
     ctx.restore();
   }
 
-  function percerFaisceau(c, x, y, angle, portee, demiAngle, force) {
+  function percerCone(c, x, y, angle, portee, demiAngle, force) {
     const g = c.createRadialGradient(x, y, 0, x, y, portee);
     g.addColorStop(0, `rgba(0,0,0,${force})`);
-    g.addColorStop(0.55, `rgba(0,0,0,${force * 0.75})`);
+    g.addColorStop(0.6, `rgba(0,0,0,${force * 0.7})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g;
     c.beginPath();
@@ -873,153 +923,259 @@
     c.fill();
   }
 
-  // Le voile d'obscurité est posé à 0.94 : tout ce qu'il recouvre disparaît
-  // complètement. Sans ce rappel dessiné par-dessus, un niveau non éclairé est
-  // un écran noir et le joueur n'a rien à viser. On garde donc une trace ténue
-  // du décor et des personnages dans le noir — assez pour planifier la chaîne,
-  // pas assez pour tuer le contraste quand la lumière arrive.
-  function rappelAmbiant(etat, D, temps) {
-    const { persos, murs, sortie } = etat;
-
-    ctx.save();
-    ctx.lineWidth = 1;
-    for (const m of murs) {
-      ctx.fillStyle = 'rgba(255,255,255,0.025)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-      carreArrondi(ctx, m.x, m.y, m.w, m.h, 6);
-      ctx.fill();
-      ctx.stroke();
+  // Sol + arêtes. Une arête n'est tracée que là où une case creusée touche un
+  // mur : c'est ce qui donne les contours de salle.
+  function dessinerSol(c0x, c1x, c0y, c1y, fond, trait) {
+    ctx.fillStyle = fond;
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (zone.mur[cy][cx] || !vues[cy][cx]) continue;
+        ctx.fillRect(cx * CASE - cam.x, cy * CASE - cam.y, CASE + 1, CASE + 1);
+      }
     }
-
-    if (!etat.sortieTouchee) {
-      const pulse = 1 + Math.sin(temps * 3) * 0.06;
-      ctx.strokeStyle = 'rgba(255,233,168,0.34)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(sortie.x, sortie.y, sortie.r * pulse, 0, TAU);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(255,233,168,0.12)';
-      ctx.beginPath();
-      ctx.arc(sortie.x, sortie.y, sortie.r * 0.52, 0, TAU);
-      ctx.fill();
+    ctx.strokeStyle = trait;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (zone.mur[cy][cx] || !vues[cy][cx]) continue;
+        const x = cx * CASE - cam.x, y = cy * CASE - cam.y;
+        if (solide(cx, cy - 1)) { ctx.moveTo(x, y); ctx.lineTo(x + CASE, y); }
+        if (solide(cx, cy + 1)) { ctx.moveTo(x, y + CASE); ctx.lineTo(x + CASE, y + CASE); }
+        if (solide(cx - 1, cy)) { ctx.moveTo(x, y); ctx.lineTo(x, y + CASE); }
+        if (solide(cx + 1, cy)) { ctx.moveTo(x + CASE, y); ctx.lineTo(x + CASE, y + CASE); }
+      }
     }
-
-    const ordre = [...persos].sort((a, b) =>
-      (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
-    for (const p of ordre) if (!p.eclaire) dessinerPerso(p, D, temps, 0.4);
-    ctx.restore();
+    ctx.stroke();
   }
 
-  function dessiner(etat, D, doigt, temps, eclaires) {
-    const { persos, murs, sortie } = etat;
+  function dessiner(temps, eclaires) {
+    const f = forme();
+    const r = rayonHalo();
 
-    ctx.fillStyle = '#0a0a10';
+    ctx.fillStyle = '#08080e';
     ctx.fillRect(0, 0, W, H);
 
-    // --- dalles ---
-    for (const m of murs) {
-      ctx.fillStyle = '#14141d';
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-      ctx.lineWidth = 1;
-      carreArrondi(ctx, m.x, m.y, m.w, m.h, 6);
-      ctx.fill();
-      ctx.stroke();
-    }
+    // --- le sol, limité à ce qui est à l'écran ---
+    // On dessine les cases CREUSÉES, pas les murs : en peignant les murs on
+    // obtenait des tuiles isolées qui se lisaient comme des plateformes
+    // flottantes. Sol clair, murs restés noirs, arêtes soulignées : ça se lit
+    // comme des salles et des couloirs.
+    const c0x = Math.max(0, Math.floor(cam.x / CASE));
+    const c1x = Math.min(zone.cols - 1, Math.floor((cam.x + W) / CASE));
+    const c0y = Math.max(0, Math.floor(cam.y / CASE));
+    const c1y = Math.min(zone.lignes - 1, Math.floor((cam.y + H) / CASE));
+    dessinerSol(c0x, c1x, c0y, c1y, '#14141e', 'rgba(255,255,255,0.11)');
 
     // --- sortie ---
-    const actif = etat.sortieTouchee;
-    const pulse = 1 + Math.sin(temps * 3) * 0.06;
+    const ouverte = priseCount >= zone.requis;
+    const pulse = 1 + Math.sin(temps * 3) * 0.07;
     ctx.save();
-    ctx.translate(sortie.x, sortie.y);
-    ctx.strokeStyle = actif ? '#ffe9a8' : 'rgba(255,233,168,0.32)';
-    ctx.lineWidth = actif ? 3.5 : 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, sortie.r * pulse, 0, TAU);
-    ctx.stroke();
-    ctx.fillStyle = actif ? 'rgba(255,233,168,0.5)' : 'rgba(255,233,168,0.09)';
-    ctx.beginPath();
-    ctx.arc(0, 0, sortie.r * 0.52, 0, TAU);
-    ctx.fill();
+    ctx.translate(zone.sortie.x - cam.x, zone.sortie.y - cam.y);
+    ctx.strokeStyle = ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.22)';
+    ctx.lineWidth = ouverte ? 3.5 : 2;
+    ctx.beginPath(); ctx.arc(0, 0, zone.sortie.r * pulse, 0, TAU); ctx.stroke();
+    ctx.fillStyle = ouverte ? 'rgba(255,233,168,0.34)' : 'rgba(255,233,168,0.06)';
+    ctx.beginPath(); ctx.arc(0, 0, zone.sortie.r * 0.5, 0, TAU); ctx.fill();
     ctx.restore();
 
-    const ordre = [...persos].sort((a, b) =>
-      (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
-    for (const p of ordre) dessinerPerso(p, D, temps);
+    // --- lueurs ---
+    for (const l of zone.lueurs) {
+      if (l.prise) continue;
+      const s = 1 + Math.sin(temps * 4 + l.phase) * 0.18;
+      ctx.fillStyle = 'rgba(255,240,200,0.9)';
+      ctx.beginPath();
+      ctx.arc(l.x - cam.x, l.y - cam.y, 4.5 * s, 0, TAU);
+      ctx.fill();
+    }
 
-    // --- calque d'obscurité : on perce, puis on pose ---
+    // --- bonhommes, coléreux au-dessus ---
+    const ordre = [...zone.persos].sort((a, b) =>
+      (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
+    for (const p of ordre) {
+      const couleur = p.calme ? '#a8f0c8' : COULEURS[p.emotion];
+      dessinerCorps(p, couleur, D.taille, p.eclaire || p.calme, 1);
+      dessinerSourcils(p, p.emotion, D.taille, p.eclaire || p.calme, 1, temps);
+    }
+
+    // --- le joueur ---
+    dessinerCorps(joueur, f.couleur, D.taille * 1.06, true, 1);
+    dessinerSourcils(joueur, joueur.niveau === 0 ? EMOTIONS.PEUR
+      : joueur.niveau === 1 ? EMOTIONS.CURIEUX : EMOTIONS.COLERE, D.taille * 1.06, true, 1, temps);
+
+    /* ---- calque d'obscurité ---- */
     lctx.setTransform(DPR * QLUM, 0, 0, DPR * QLUM, 0, 0);
     lctx.globalCompositeOperation = 'source-over';
-    lctx.fillStyle = 'rgba(10,10,16,0.94)';
+    lctx.fillStyle = 'rgba(8,8,14,0.965)';
     lctx.fillRect(0, 0, W, H);
-
     lctx.globalCompositeOperation = 'destination-out';
-    if (doigt.actif) {
-      const g = lctx.createRadialGradient(doigt.x, doigt.y, 0, doigt.x, doigt.y, D.lanterne);
-      g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(0.6, 'rgba(0,0,0,0.85)');
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      lctx.fillStyle = g;
-      lctx.beginPath();
-      lctx.arc(doigt.x, doigt.y, D.lanterne, 0, TAU);
-      lctx.fill();
-    }
+
+    const jx = joueur.x - cam.x, jy = joueur.y - cam.y;
+    const g = lctx.createRadialGradient(jx, jy, 0, jx, jy, r);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(0.62, 'rgba(0,0,0,0.88)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    lctx.fillStyle = g;
+    lctx.beginPath(); lctx.arc(jx, jy, r, 0, TAU); lctx.fill();
+
+    if (f.portee) percerCone(lctx, jx, jy, joueur.regard, f.portee * CASE, f.cone, 0.95);
     for (const p of eclaires) {
-      percerFaisceau(lctx, p.x, p.y, p.regard, D.portee, D.cone + 0.05, 0.95);
+      percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85);
+    }
+    // les regards rouges restent visibles même hors de ta lumière : la menace
+    // doit se voir venir, sinon se faire vider est arbitraire
+    for (const p of zone.persos) {
+      if (p.emotion !== EMOTIONS.COLERE) continue;
+      const d = Math.hypot(p.x - joueur.x, p.y - joueur.y);
+      if (d > CASE * 7) continue;
+      percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, CASE * 4.6, 0.42, 0.3);
     }
     lctx.globalCompositeOperation = 'source-over';
 
-    // on repasse en pixels device pour étirer le calque demi-résolution
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(lum, 0, 0, canvas.width, canvas.height);
     ctx.restore();
 
-    rappelAmbiant(etat, D, temps);
+    // --- rappel du terrain déjà vu, par-dessus le voile ---
+    // Sans ça on explore à l'aveugle et on tourne en rond : le plan déjà
+    // traversé reste faiblement dessiné.
+    ctx.save();
+    dessinerSol(c0x, c1x, c0y, c1y, 'rgba(255,255,255,0.022)', 'rgba(255,255,255,0.08)');
+    for (const l of zone.lueurs) {
+      if (l.prise) continue;
+      const cx = Math.floor(l.x / CASE), cy = Math.floor(l.y / CASE);
+      if (!vues[cy] || !vues[cy][cx]) continue;
+      ctx.fillStyle = 'rgba(255,240,200,0.4)';
+      ctx.beginPath();
+      ctx.arc(l.x - cam.x, l.y - cam.y, 3, 0, TAU);
+      ctx.fill();
+    }
+    if (vues[Math.floor(zone.sortie.y / CASE)] && vues[Math.floor(zone.sortie.y / CASE)][Math.floor(zone.sortie.x / CASE)]) {
+      ctx.strokeStyle = ouverte ? 'rgba(255,233,168,0.6)' : 'rgba(255,233,168,0.3)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(zone.sortie.x - cam.x, zone.sortie.y - cam.y, zone.sortie.r * pulse, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
 
-    // --- halo chaud par-dessus, pour que la lumière ait une couleur ---
+    // --- halo chaud par-dessus ---
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    if (doigt.actif) {
-      const g = ctx.createRadialGradient(doigt.x, doigt.y, 0, doigt.x, doigt.y, D.lanterne);
-      g.addColorStop(0, 'rgba(255,240,200,0.16)');
-      g.addColorStop(1, 'rgba(255,240,200,0)');
-      ctx.fillStyle = g;
+    const chaud = ctx.createRadialGradient(jx, jy, 0, jx, jy, r);
+    chaud.addColorStop(0, melange(f.couleur, 255, 0.3).replace('rgb', 'rgba').replace(')', ',0.15)'));
+    chaud.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = chaud;
+    ctx.beginPath(); ctx.arc(jx, jy, r, 0, TAU); ctx.fill();
+
+    if (f.portee) {
+      const portee = f.portee * CASE;
+      const gf = ctx.createRadialGradient(jx, jy, 0, jx, jy, portee);
+      gf.addColorStop(0, melange(f.couleur, 255, 0.2).replace('rgb', 'rgba').replace(')', ',0.13)'));
+      gf.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gf;
       ctx.beginPath();
-      ctx.arc(doigt.x, doigt.y, D.lanterne, 0, TAU);
+      ctx.moveTo(jx, jy);
+      ctx.arc(jx, jy, portee, joueur.regard - f.cone, joueur.regard + f.cone);
+      ctx.closePath();
       ctx.fill();
     }
     for (const p of eclaires) {
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, D.portee);
-      const c = COULEURS[p.emotion];
-      g.addColorStop(0, c + '30');
-      g.addColorStop(1, c + '00');
-      ctx.fillStyle = g;
+      const portee = D.portee * 5;
+      const gp = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, portee);
+      gp.addColorStop(0, COULEURS[p.emotion] + '2a');
+      gp.addColorStop(1, COULEURS[p.emotion] + '00');
+      ctx.fillStyle = gp;
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.arc(p.x, p.y, D.portee, p.regard - D.cone, p.regard + D.cone);
+      ctx.moveTo(p.x - cam.x, p.y - cam.y);
+      ctx.arc(p.x - cam.x, p.y - cam.y, portee, p.regard - D.cone, p.regard + D.cone);
       ctx.closePath();
       ctx.fill();
     }
     ctx.restore();
+
+    // on se fait fixer : le bord de l'écran rougit, et d'autant plus que le
+    // souffle baisse. C'est le seul retour d'information sur la santé.
+    const alerte = joueur.vu * (1 - joueur.souffle * 0.55);
+    if (alerte > 0.02) {
+      const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28, W / 2, H / 2, Math.max(W, H) * 0.72);
+      v.addColorStop(0, 'rgba(255,60,50,0)');
+      v.addColorStop(1, `rgba(255,60,50,${clamp(alerte * 0.5, 0, 0.5)})`);
+      ctx.fillStyle = v;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  /* ==================================================== interface ======== */
+
+  let toastT = 0;
+  function montrerToast(texte) {
+    elToast.textContent = texte;
+    elToast.classList.add('on');
+    toastT = 2.4;
+  }
+
+  let flashEnCours = false;
+  function montrerFlash(titre, texte, couleur) {
+    elFlashTitre.textContent = titre;
+    elFlashTitre.style.color = couleur;
+    elFlashTexte.textContent = texte;
+    elFlash.classList.add('on');
+    flashEnCours = true;
+    doigt.actif = false;
+  }
+  document.getElementById('flash-ok').addEventListener('click', () => {
+    elFlash.classList.remove('on');
+    flashEnCours = false;
+  });
+
+  function majInterface() {
+    const f = forme();
+    const suivant = FORMES[joueur.niveau + 1];
+    const bas = f.seuil;
+    const haut = suivant ? suivant.seuil : f.seuil + 40;
+    elForme.textContent = f.nom;
+    elForme.style.color = f.couleur;
+    elBarre.firstChild || null;
+    elBarre.style.width = `${clamp((joueur.eclat - bas) / (haut - bas), 0, 1) * 100}%`;
+    elBarre.style.background = f.couleur;
+    elZone.textContent = `ZONE ${zone.numero} · ${priseCount}/${zone.requis}`;
+  }
+
+  /* ==================================================== zones ============ */
+
+  function chargerZone(numero) {
+    const z = genererZone(grain, numero);
+    if (!z) return;
+    zone = z;
+    numeroZone = numero;
+    priseCount = 0;
+    vues = [];
+    for (let y = 0; y < zone.lignes; y++) vues.push(new Array(zone.cols).fill(0));
+    joueur.x = zone.depart.x;
+    joueur.y = zone.depart.y;
+    joueur.vx = joueur.vy = 0;
+    cadrer(true);
+    marquerVu();
+    majInterface();
+  }
+
+  function zoneSuivante() {
+    const n = numeroZone + 1;
+    montrerFlash(`Zone ${n}`, 'Plus grand, plus peuplé. Ta forme et ton éclat te suivent.', '#ffe9a8');
+    chargerZone(n);
+  }
+
+  function cadrer(immediat) {
+    const cx = clamp(joueur.x - W / 2, 0, Math.max(0, zone.largeur - W));
+    const cy = clamp(joueur.y - H / 2, 0, Math.max(0, zone.hauteur - H));
+    if (immediat) { cam.x = cx; cam.y = cy; return; }
+    cam.x += (cx - cam.x) * 0.14;
+    cam.y += (cy - cam.y) * 0.14;
   }
 
   /* ==================================================== boucle =========== */
-
-  const doigt = { x: 0, y: 0, actif: false };
-  let D = dims();
-  let dernier = performance.now();
-  let tempsGagne = 0;
-  let gagne = false;
-
-  // Garde-fou de cadence. Le jeu est limité par le remplissage : le coût suit
-  // directement le nombre de pixels du canvas (mesuré : 780x1688 -> 66 ms/frame,
-  // 390x844 -> 21 ms sur la même machine bridée). Impossible de vérifier les
-  // 60 fps sur un vrai téléphone depuis ici, donc on mesure la cadence pendant
-  // le jeu et on descend d'un palier de résolution si elle décroche. Cliquet à
-  // sens unique : jamais de va-et-vient entre deux résolutions.
-  const PALIERS = [2, 1.5, 1];
-  let palier = 0;
-  let fenetre = [];
 
   function surveillerCadence(dt) {
     if (palier >= PALIERS.length - 1) return;
@@ -1042,73 +1198,35 @@
     D = dims();
   }
 
+  let dernier = performance.now();
+
   function boucle(maintenant) {
     requestAnimationFrame(boucle);
     const dt = Math.min((maintenant - dernier) / 1000, 1 / 30);
     dernier = maintenant;
     const temps = maintenant / 1000;
-    if (!niveau) return;
+    if (!zone) return;
 
     if (doigt.actif) surveillerCadence(dt);
 
-    majPhysique(niveau, D, dt, doigt, temps);
-
-    const r = doigt.actif
-      ? propager(niveau, doigt.x, doigt.y, D, D.lanterne, false)
-      : { eclaires: new Set(), relais: 0, directe: false };
-
-    for (const p of niveau.persos) p.eclaire = r.eclaires.has(p);
-    niveau.sortieTouchee = r.relais > 0;
-
-    // il faut tenir la lumière un court instant : ça évite de gagner sur un
-    // alignement d'une seule frame
-    if (niveau.sortieTouchee && !gagne) {
-      tempsGagne += dt;
-      if (tempsGagne > 0.45) victoire(r.relais);
-    } else if (!niveau.sortieTouchee) {
-      tempsGagne = 0;
+    if (toastT > 0) {
+      toastT -= dt;
+      if (toastT <= 0) elToast.classList.remove('on');
     }
 
-    dessiner(niveau, D, doigt, temps, r.eclaires);
+    if (!flashEnCours) {
+      majJoueur(dt);
+      const eclaires = propager();
+      majPersos(dt, temps, eclaires);
+      majRegles(dt);
+      marquerVu();
+      cadrer(false);
+      majInterface();
+      dessiner(temps, eclaires);
+    } else {
+      dessiner(temps, new Set());
+    }
   }
-
-  /* ==================================================== parties ========== */
-
-  const elSeed = document.getElementById('seed');
-  const elWin = document.getElementById('win');
-  const elWinDetail = document.getElementById('win-detail');
-  const elHint = document.getElementById('hint');
-
-  function charger(grain) {
-    const n = genererNiveau(grain);
-    if (!n) return;
-    niveau = n;
-    gagne = false;
-    tempsGagne = 0;
-    elWin.classList.remove('on');
-    elSeed.textContent = grain;
-    elHint.style.opacity = '1';
-  }
-
-  function nouvelleSeed() {
-    numero++;
-    return 'LUX-' + String(1000 + numero * 7 + Math.floor(Math.random() * 900)).slice(0, 4);
-  }
-
-  function victoire(relais) {
-    gagne = true;
-    elWinDetail.textContent = `${relais} relais traversés · ${niveau.grain}`;
-    elWin.classList.add('on');
-  }
-
-  let grainCourant = 'LUX-1042';
-
-  document.getElementById('reset').addEventListener('click', () => charger(grainCourant));
-  const suivant = () => { grainCourant = nouvelleSeed(); charger(grainCourant); };
-  document.getElementById('next').addEventListener('click', suivant);
-  document.getElementById('win-next').addEventListener('click', suivant);
-  document.getElementById('win-rejouer').addEventListener('click', () => charger(grainCourant));
-  elWin.addEventListener('click', (e) => { if (e.target === elWin) elWin.classList.remove('on'); });
 
   /* ==================================================== entrées ========== */
 
@@ -1129,35 +1247,64 @@
   ['pointerup', 'pointercancel'].forEach((t) =>
     canvas.addEventListener(t, () => { doigt.actif = false; }));
 
+  elCharge.addEventListener('click', decharger);
+
   window.addEventListener('resize', () => {
     redimensionner();
-    charger(grainCourant);   // les positions sont en pixels : on régénère
+    if (zone) cadrer(true);
   });
 
   redimensionner();
-  charger(grainCourant);
+  chargerZone(1);
   requestAnimationFrame(boucle);
 
-  // Exposé pour les mesures automatisées : temps du solver, validité d'une
-  // graine, et état vivant pour vérifier qu'un niveau reste gagnable une fois
-  // la physique en marche (c'est comme ça qu'on a trouvé le peureux clignotant).
+  // Exposé pour les mesures automatisées : l'accessibilité du plan se vérifie
+  // exactement (parcours en largeur sur la grille), contrairement au solveur de
+  // lumière du mode puzzle qui n'en donnait qu'une approximation.
   window.__lux = {
-    info: () => niveau && {
-      grain: niveau.grain,
-      relais: niveau.verdict.relais,
-      solutions: niveau.verdict.solutions,
-      total: niveau.verdict.total,
-      msSolver: niveau.msSolver,
-      rejets: niveau.rejets,
-      persos: niveau.persos.length,
-      murs: niveau.murs.length,
+    info: () => zone && {
+      zone: zone.numero, grain: zone.grain,
+      cols: zone.cols, lignes: zone.lignes, salles: zone.salles.length,
+      lueurs: zone.lueurs.length, requis: zone.requis,
+      persos: zone.persos.length, longueur: zone.longueur,
+      niveau: joueur.niveau, eclat: Math.round(joueur.eclat), prises: priseCount,
     },
-    charger,
-    tester: (x, y) => propager(niveau, x, y, D, D.lanterne, true).relais,
-    etat: () => niveau,
-    prevu: (c, x, y) => { const q = posColere(c, x, y, D); return [q.x, q.y]; },
-    reel: (x, y) => propager(niveau, x, y, D, D.lanterne, false).relais,
-    doigt: () => ({ ...doigt }),
+    // vrai si la sortie et toutes les lueurs sont atteignables depuis le départ
+    accessible: () => {
+      const d = distances(zone, { cx: Math.floor(zone.depart.x / CASE), cy: Math.floor(zone.depart.y / CASE) });
+      const ok = (p) => {
+        const cx = Math.floor(p.x / CASE), cy = Math.floor(p.y / CASE);
+        return d[cy] && d[cy][cx] >= 0;
+      };
+      return { sortie: ok(zone.sortie), lueurs: zone.lueurs.every(ok), persos: zone.persos.every(ok) };
+    },
+    charger: chargerZone,
+    graine: (g) => { grain = g; chargerZone(1); },
+    joueur: () => ({ ...joueur }),
+    toast: () => elToast.classList.contains('on'),
+    // vise un point du monde comme le ferait un doigt posé à l'écran
+    viser: (wx, wy) => { doigt.x = wx - cam.x; doigt.y = wy - cam.y; doigt.actif = true; },
+    lacher: () => { doigt.actif = false; },
+    // chemin sur la grille, pour qu'un pilote automatique puisse jouer la zone
+    chemin: (wx, wy) => {
+      const dep = { cx: Math.floor(joueur.x / CASE), cy: Math.floor(joueur.y / CASE) };
+      const d = distances(zone, dep);
+      let cx = Math.floor(wx / CASE), cy = Math.floor(wy / CASE);
+      if (!d[cy] || d[cy][cx] < 0) return null;
+      const route = [];
+      while (d[cy][cx] > 0) {
+        route.push([(cx + 0.5) * CASE, (cy + 0.5) * CASE]);
+        const n = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]
+          .filter(([x, y]) => d[y] !== undefined && d[y][x] >= 0);
+        const suivant = n.reduce((a, [x, y]) => (d[y][x] < d[a[1]][a[0]] ? [x, y] : a), n[0]);
+        cx = suivant[0]; cy = suivant[1];
+      }
+      return route.reverse();
+    },
+    poser: (x, y) => { joueur.x = x; joueur.y = y; joueur.vx = joueur.vy = 0; cadrer(true); marquerVu(); },
+    monter: (n) => { joueur.sommet = joueur.eclat = n; joueur.niveau = 0; evoluer(); evoluer();
+                     elFlash.classList.remove('on'); flashEnCours = false; },
+    etat: () => zone,
   };
 })();
 </script>

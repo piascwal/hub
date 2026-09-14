@@ -793,6 +793,20 @@
     majJelly(joueur, dt);
   }
 
+  // Un calmé n'est pas une statue : il flâne autour de son poste et son regard
+  // dérive doucement. Sa lumière reste allumée — c'est ça qui compte — mais il
+  // continue de vivre.
+  function flaner(p, dt) {
+    p.flane = (p.flane === undefined ? Math.random() * TAU : p.flane) + 0.32 * dt;
+    const cx = p.baseX + Math.cos(p.flane) * CASE * 0.85;
+    const cy = p.baseY + Math.sin(p.flane * 0.7) * CASE * 0.85;
+    p.vx += (cx - p.x) * 2.4 * dt;
+    p.vy += (cy - p.y) * 2.4 * dt;
+    p.phase += 0.3 * dt;
+    p.regard = p.regardRepos + Math.sin(p.phase) * 0.42;
+    p.humeur = 1;
+  }
+
   function majPersos(dt, temps, eclaires) {
     const demi = D.taille * 0.5;
     for (const p of zone.persos) {
@@ -814,9 +828,7 @@
 
       if (p.emotion === EMOTIONS.CURIEUX) {
         if (p.calme) {
-          p.phase += 0.5 * dt;
-          p.regard = p.regardRepos + Math.sin(p.phase) * 0.1;
-          p.humeur = 1;
+          flaner(p, dt);
         } else {
           p.phase += p.balayage * (p.eclaire ? 0.18 : 1) * dt;
           p.regard = p.regardRepos + Math.sin(p.phase) * p.amplitude;
@@ -824,12 +836,7 @@
         }
 
       } else if (p.emotion === EMOTIONS.PEUR) {
-        if (p.calme) {
-          // il tient sa direction : un phare qui bouge n'est pas un repère
-          p.phase += 0.5 * dt;
-          p.regard = p.regardRepos + Math.sin(p.phase) * 0.1;
-          p.humeur = 1;
-        } else if (voit && d < CASE * 2.6) {
+        if (p.calme) { flaner(p, dt); } else if (voit && d < CASE * 2.6) {
           p.vx -= (dx / d) * 300 * dt;
           p.vy -= (dy / d) * 300 * dt;
           p.regard = Math.atan2(-dy, -dx);
@@ -1396,7 +1403,8 @@
       (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
     for (const p of ordre) {
       const couleur = p.calme ? '#a8f0c8' : COULEURS[p.emotion];
-      dessinerTete(p, couleur, D.taille, p.eclaire || p.calme, 1, p.emotion, p.humeur, temps);
+      const repere = p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04);
+      dessinerTete(p, couleur, D.taille, p.eclaire || p.calme || repere, 1, p.emotion, p.humeur, temps);
     }
 
     // --- le joueur : son humeur dit son état, c'est le retour de santé ---
@@ -1435,6 +1443,16 @@
     if (portee) percerCone(lctx, jx, jy, joueur.regard, portee, cone, 0.95);
     for (const p of eclaires) percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85);
     for (const b of zone.braises) percerDisque(lctx, b.x - cam.x, b.y - cam.y, b.r, 0.92);
+    // Un calmé n'est pas qu'un faisceau : son corps et un petit halo restent
+    // éclairés, sinon on ne voit qu'un cône sortir du néant.
+    for (const p of zone.persos) {
+      if (p.calme) percerDisque(lctx, p.x - cam.x, p.y - cam.y, D.taille * 2.1, 0.95);
+      // Une sentinelle qui t'a repéré se montre en entier : c'est le signal le
+      // plus important du jeu, il ne doit pas rester caché dans le noir.
+      else if (p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04)) {
+        percerDisque(lctx, p.x - cam.x, p.y - cam.y, D.taille * 1.7, 0.95);
+      }
+    }
     for (const t of zone.torches) {
       if (t.reste <= 0) continue;
       const k = clamp(t.reste / (t.duree * 0.35), 0, 1);       // elle faiblit en mourant
@@ -1503,29 +1521,42 @@
       ctx.stroke();
     }
 
-    // LES YEUX DANS LE NOIR. La seule chose qu'on distingue d'un inconnu : deux
-    // points pâles, sans couleur, sans expression. On sait qu'il y a quelqu'un,
-    // on ne sait pas encore ce qu'il est — il faut l'éclairer pour l'apprendre.
+    // LES YEUX DANS LE NOIR. La seule chose qu'on distingue d'un inconnu. On
+    // garde EXACTEMENT la géométrie des yeux éclairés — blanc de l'œil et
+    // pupille décalée par le regard — pour que ce soit le même personnage, juste
+    // sans son corps.
+    // Mesuré : 57 % des PNJ à l'écran étaient masqués par un mur, ce qui vidait
+    // l'effet. À travers une paroi ils restent perceptibles, mais bien plus
+    // faibles et de moins loin : on sent une présence, on ne cartographie pas.
     for (const p of zone.persos) {
       const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
-      if (dj > CASE * 9 || p.eclaire || estEclaire(p.x, p.y)) continue;
+      if (p.eclaire || estEclaire(p.x, p.y)) continue;
       if (p.cligne > 0 || p.aveugle > 0) continue;
-      if (!vueLibre(p.x, p.y, joueur.x, joueur.y)) continue;
+      const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
+      const portee = cache ? CASE * 5 : CASE * 9;
+      if (dj > portee) continue;
+
       const demi = D.taille * 0.5;
       const ecart = demi * 0.36;
       const oeilY = -demi * 0.14;
-      const rp = Math.max(1.6, demi * 0.11);
-      const a = clamp(1 - dj / (CASE * 9), 0, 1) * 0.55 + 0.18;
-      const px = Math.cos(p.regard) * rp * 1.1, py = Math.sin(p.regard) * rp * 1.1;
+      const rOeil = demi * 0.22;
+      const px = Math.cos(p.regard) * rOeil * 0.42;
+      const py = Math.sin(p.regard) * rOeil * 0.42;
+      const a = (clamp(1 - dj / portee, 0, 1) * 0.5 + 0.35) * (cache ? 0.34 : 1);
+
       for (const dx of [-ecart, ecart]) {
-        const gx = p.x - cam.x + dx + px, gy = p.y - cam.y + oeilY + py;
-        const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, rp * 3.4);
-        g.addColorStop(0, `rgba(226,232,246,${a})`);
+        const ox = p.x - cam.x + dx, oy = p.y - cam.y + oeilY;
+        // la lueur autour de l'œil, qui le fait exister dans le noir
+        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, rOeil * 3.2);
+        g.addColorStop(0, `rgba(226,232,246,${a * 0.55})`);
         g.addColorStop(1, 'rgba(226,232,246,0)');
         ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(gx, gy, rp * 3.4, 0, TAU); ctx.fill();
-        ctx.fillStyle = `rgba(240,244,255,${Math.min(1, a + 0.3)})`;
-        ctx.beginPath(); ctx.arc(gx, gy, rp, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(ox, oy, rOeil * 3.2, 0, TAU); ctx.fill();
+        // blanc de l'œil + pupille : la même forme que de jour
+        ctx.fillStyle = `rgba(255,255,255,${a})`;
+        ctx.beginPath(); ctx.arc(ox, oy, rOeil, 0, TAU); ctx.fill();
+        ctx.fillStyle = `rgba(10,10,16,${a})`;
+        ctx.beginPath(); ctx.arc(ox + px, oy + py, rOeil * 0.5, 0, TAU); ctx.fill();
       }
     }
 
@@ -1588,6 +1619,15 @@
       gb.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gb;
       ctx.beginPath(); ctx.arc(b.x - cam.x, b.y - cam.y, b.r, 0, TAU); ctx.fill();
+    }
+    for (const p of zone.persos) {
+      if (!p.calme) continue;
+      const rc = D.taille * 2.1;
+      const gc = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, rc);
+      gc.addColorStop(0, 'rgba(168,240,200,0.2)');
+      gc.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gc;
+      ctx.beginPath(); ctx.arc(p.x - cam.x, p.y - cam.y, rc, 0, TAU); ctx.fill();
     }
     for (const t of zone.torches) {
       if (t.reste <= 0) continue;
@@ -1890,6 +1930,19 @@
     poserBraise, decharger, lancerEclat,
     fil: () => fil,
     estEclaire,
+    // pour chaque PNJ à portée d'écran : ses yeux sont-ils dessinés, et sinon pourquoi
+    diagYeux: () => zone.persos.map((p) => {
+      const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
+      const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
+      const portee = cache ? CASE * 5 : CASE * 9;
+      return {
+        emotion: p.emotion, cases: +(dj / CASE).toFixed(1), cache,
+        horsPortee: dj > portee,
+        dejaEclaire: p.eclaire || estEclaire(p.x, p.y),
+        cligne: p.cligne > 0, aveugle: p.aveugle > 0,
+        aEcran: Math.abs(p.x - joueur.x) < W / 2 + 40 && Math.abs(p.y - joueur.y) < H / 2 + 40,
+      };
+    }),
     soigner: () => { joueur.souffle = 1; joueur.repit = 0; },
     poser: (x, y) => { joueur.x = x; joueur.y = y; joueur.vx = joueur.vy = 0; cadrer(true); },
     // ce que la boucle de drain calcule réellement, pour un perso donné

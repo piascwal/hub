@@ -67,6 +67,29 @@
 
   .btn:active { background: rgba(255, 255, 255, 0.14); }
 
+  /* Les âmes livrées, en pastilles : « il m'en manque une » se lit d'un coup
+     d'œil, alors qu'un « 1/3 » se compte. La même idée que l'anneau du portail,
+     pour l'avoir sous les yeux même quand le portail est hors champ. */
+  .ames {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    margin-left: 0.55rem;
+  }
+
+  .ames i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 233, 168, 0.5);
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .ames i.pleine {
+    background: #ffe9a8;
+    box-shadow: 0 0 7px rgba(255, 233, 168, 0.8);
+  }
+
   .jauge {
     margin-left: auto;
     display: flex;
@@ -97,6 +120,16 @@
     border-radius: 999px;
     transition: width 0.18s linear, background 0.4s ease;
   }
+
+  /* la barre encaisse le gain : sans ça on ne fait pas le lien entre la lueur
+     ramassée en bas de l'écran et la jauge en haut */
+  @keyframes jaugePulse {
+    0%   { transform: scale(1);            filter: brightness(1); }
+    30%  { transform: scale(1.14, 1.5);    filter: brightness(1.9); }
+    100% { transform: scale(1);            filter: brightness(1); }
+  }
+
+  .barre.pulse { animation: jaugePulse 0.45s ease-out; }
 
   /* bonus temporaire en cours */
   .bonus {
@@ -177,6 +210,23 @@
      se garde le geste entier. */
   #caillou { border-color: rgba(178, 186, 204, 0.55); color: #b2bacc; touch-action: none; }
 
+  /* Le caillou vient d'apprendre quelque chose. Une modale coupait le jeu pour
+     le dire ; le bouton le dit tout seul, en prenant la couleur de la forme et
+     en pulsant deux fois. On ne lit pas, on voit. */
+  @keyframes caillouEvolue {
+    0%   { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
+    18%  { transform: scale(1.22); box-shadow: 0 0 26px 8px currentColor; }
+    45%  { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
+    63%  { transform: scale(1.14); box-shadow: 0 0 20px 5px currentColor; }
+    100% { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
+  }
+
+  #caillou.evolue { animation: caillouEvolue 1.5s ease-out; }
+
+  /* un halo permanent, d'autant plus marqué que la forme est haute : le bouton
+     porte la progression, elle n'a pas besoin d'être annoncée */
+  #caillou { box-shadow: 0 0 var(--aura, 0px) rgba(255, 255, 255, 0.18); }
+
   .rond:active:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
 
   .hint {
@@ -246,6 +296,7 @@
 <div class="hud">
   <a class="back" href="../index.html" aria-label="Retour au hub">←</a>
   <span class="zone" id="zone">ZONE 1</span>
+  <span class="ames" id="ames" aria-label="âmes livrées"></span>
   <span class="jauge">
     <span class="forme" id="forme">Peureux</span>
     <span class="barre"><i id="barre"></i></span>
@@ -399,12 +450,15 @@
   const BONUS = {
     eclat:   { couleur: '#ffe9a8', forme: 0, duree: 0,  nom: 'Lueur',
                phrase: '' },
-    galet:   { couleur: '#b2bacc', forme: 0, duree: 0,  nom: 'Galet',
-               phrase: 'Poche pleine — tous tes cailloux sont revenus' },
+    // Les trois bonus parlent tous d'ESCORTE, sinon on les ramasse sans rien
+    // sentir. Voilé cache le convoi entier, Hâte presse le convoi entier, et
+    // Galet rend la poche intarissable le temps de dégager une route.
+    galet:   { couleur: '#b2bacc', forme: 0, duree: 6,  nom: 'Poche',
+               phrase: 'Poche intarissable — lance sans compter' },
     souffle: { couleur: '#8fd0ff', forme: 1, duree: 7,  nom: 'Voilé',
-               phrase: 'Voilé — les sentinelles ne te voient plus' },
+               phrase: 'Voilé — ton convoi entier devient invisible' },
     hate:    { couleur: '#a8f0c8', forme: 2, duree: 8,  nom: 'Hâte',
-               phrase: 'Hâte — tu files bien plus vite' },
+               phrase: 'Hâte — tout le convoi file plus vite' },
   };
 
   /* ==================================================== le monde ========= */
@@ -760,6 +814,7 @@
   let ondes = [];                  // ondes de choc de la charge et de l'éclat
   let cailloux = [];               // les cailloux en vol
   let fil = [];                    // la trace du joueur : sa seule mémoire du terrain
+  let flottants = [];              // les « +4 » qui montent d'une lueur ramassée
   let menace = false;              // un rouge cherche, ou un faisceau nous tient
 
   const joueur = {
@@ -777,6 +832,10 @@
 
   // Joystick flottant : il naît sous le doigt, où qu'on le pose.
   const manche = { actif: false, ox: 0, oy: 0, dx: 0, dy: 0, force: 0, id: null };
+  // Au clavier, les flèches valent un joystick poussé à fond. Elles ne passent
+  // pas par `manche` : sinon le cercle du joystick s'afficherait au milieu de
+  // l'écran sans qu'aucun doigt ne le tienne.
+  const touches = { gauche: false, droite: false, haut: false, bas: false };
   const RAYON_MANCHE = 56;
 
   let numeroZone = 1;
@@ -785,6 +844,14 @@
 
   const el = (id) => document.getElementById(id);
   const elZone = el('zone'), elForme = el('forme'), elBarre = el('barre');
+  const elAmes = el('ames');
+  const elBarreBoite = document.querySelector('.barre');
+
+  function pulserJauge() {
+    elBarreBoite.classList.remove('pulse');
+    void elBarreBoite.offsetWidth;              // pour rejouer l'animation
+    elBarreBoite.classList.add('pulse');
+  }
   const elHint = el('hint'), elToast = el('toast'), elFlash = el('flash');
   const elCaillou = el('caillou'), elCaillouN = el('caillou-n');
   const elBonus = el('bonus'), elBonusNom = el('bonus-nom'), elBonusJauge = el('bonus-jauge');
@@ -844,8 +911,18 @@
         const haut = (my - demi) - p.y, bas = (my + CASE + demi) - p.y;
         const dx = Math.abs(gauche) < Math.abs(droite) ? gauche : droite;
         const dy = Math.abs(haut) < Math.abs(bas) ? haut : bas;
-        if (Math.abs(dx) < Math.abs(dy)) { p.x += dx; p.vx = 0; }
-        else { p.y += dy; p.vy = 0; }
+        // Le choc se voit sur la matière : on s'écrase sur l'axe de l'impact et
+        // on se gonfle sur l'autre. Sans ça `degager` annulait la vitesse, la
+        // cible du jelly revenait à 1 et le mur ne se sentait pas du tout.
+        if (Math.abs(dx) < Math.abs(dy)) {
+          const choc = Math.abs(p.vx);
+          p.x += dx; p.vx = 0;
+          if (choc > 45) { p.vsx -= choc * 0.006; p.vsy += choc * 0.006; }
+        } else {
+          const choc = Math.abs(p.vy);
+          p.y += dy; p.vy = 0;
+          if (choc > 45) { p.vsy -= choc * 0.006; p.vsx += choc * 0.006; }
+        }
       }
     }
   }
@@ -948,6 +1025,22 @@
     }
   }
 
+  // Un chiffre qui monte de la lueur vers le haut de l'écran. C'est le seul
+  // moyen de dire « cette petite chose jaune remplit ta jauge » sans une ligne
+  // de texte : on voit le gain partir de l'objet et rejoindre la barre.
+  function flotter(x, y, texte, couleur) {
+    flottants.push({ x, y, texte, couleur, vie: 1.1, max: 1.1 });
+  }
+
+  function majFlottants(dt) {
+    for (let i = flottants.length - 1; i >= 0; i--) {
+      const f = flottants[i];
+      f.vie -= dt;
+      f.y -= 34 * dt;
+      if (f.vie <= 0) flottants.splice(i, 1);
+    }
+  }
+
   function majParticules(dt) {
     for (let i = particules.length - 1; i >= 0; i--) {
       const q = particules[i];
@@ -981,7 +1074,14 @@
   function majJoueur(dt) {
     const demi = D.taille * 0.5;
 
-    if (manche.actif && manche.force > 0.06) {
+    // clavier d'abord : sur ordinateur c'est lui qui commande
+    const kx = (touches.droite ? 1 : 0) - (touches.gauche ? 1 : 0);
+    const ky = (touches.bas ? 1 : 0) - (touches.haut ? 1 : 0);
+    if (kx || ky) {
+      const kd = Math.hypot(kx, ky) || 1;
+      joueur.vx += (kx / kd) * 1700 * dt;
+      joueur.vy += (ky / kd) * 1700 * dt;
+    } else if (manche.actif && manche.force > 0.06) {
       const accel = 1700 * manche.force;
       joueur.vx += manche.dx * accel * dt;
       joueur.vy += manche.dy * accel * dt;
@@ -1024,8 +1124,12 @@
   function suivre(p, dt) {
     // Le portail aspire : sans ça un suiveur gardait son espacement derrière le
     // joueur et n'entrait jamais dans le rayon de livraison, même collé dessus.
+    // Le portail aspire quoi qu'il arrive, même une fois le quota atteint : une
+    // âme amenée jusque-là ne doit jamais rester plantée devant la porte sous
+    // prétexte que le compte est bon. Elle entre, et ce qu'on a sauvé de plus
+    // est sauvé quand même.
     const versPortail = Math.hypot(zone.sortie.x - p.x, zone.sortie.y - p.y);
-    if (zone.sortie.ames < zone.requis && versPortail < CASE * 2.6) {
+    if (versPortail < CASE * 2.6) {
       const ax = zone.sortie.x - p.x, ay = zone.sortie.y - p.y;
       const ad = versPortail || 1;
       p.vx += (ax / ad) * 2400 * dt;
@@ -1051,7 +1155,7 @@
     // immobile : à 320 le frottement la plafonnait à 50 px/s, six fois moins
     // que le joueur, donc le convoi décrochait systématiquement.
     if (d > ecart) {
-      const vitesse = (timide ? 2100 : 2700) * (auClair ? 1 : 0.3);
+      const vitesse = (timide ? 2100 : 2700) * (auClair ? 1 : 0.3) * (aBonus('hate') ? 1.55 : 1);
       p.vx += (dx / d) * vitesse * dt;
       p.vy += (dy / d) * vitesse * dt;
       if (!timide) p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 5 * dt;
@@ -1258,12 +1362,16 @@
     // insupportable au milieu d'une escorte — et comme la forme repart à zéro à
     // chaque zone, on le reverrait à chaque fois. Une seule explication par
     // forme et par session ; ensuite un simple bandeau passager.
-    if (dejaVues.has(suivant.nom)) {
-      montrerToast(`${suivant.nom} — ${suivant.verbe}`, suivant.couleur);
-    } else {
-      dejaVues.add(suivant.nom);
-      montrerFlash(suivant.nom, suivant.texte, suivant.couleur, suivant.verbe);
-    }
+    // Plus de bandeau modal : il coupait le jeu pour expliquer ce que le bouton
+    // peut montrer tout seul. Le caillou prend la couleur de la forme, pulse, et
+    // une ligne passagère nomme ce qu'il sait faire de plus.
+    elCaillou.classList.remove('evolue');
+    void elCaillou.offsetWidth;                 // pour rejouer l'animation
+    elCaillou.classList.add('evolue');
+    elCaillou.style.color = suivant.couleur;
+    elCaillou.style.borderColor = rgba(suivant.couleur, 0.75);
+    elCaillou.style.setProperty('--aura', `${6 + joueur.niveau * 5}px`);
+    montrerToast(`${suivant.nom} — ${suivant.verbe.toLowerCase()}`, suivant.couleur);
   }
 
   function majBoutons() {
@@ -1355,17 +1463,44 @@
       : 'Éteint — tu repars du seuil');
   }
 
+  // À quoi servent les petites choses jaunes ? On ne l'avait jamais dit. La
+  // première fois, une phrase le nomme ; ensuite, chaque ramassage fait monter
+  // un « +4 » vers la barre du haut et la fait tressaillir — le lien entre
+  // l'objet et la progression se voit, il n'a plus à être lu.
+  let premiereLueur = true;
+
   function ramasser(l) {
     l.prise = true;
     const b = BONUS[l.type];
     emettre(l.x, l.y, b.couleur, 10, 70);
-    if (l.type === 'eclat') { priseCount++; gagnerEclat(4); return; }
     priseCount++;
-    if (l.type === 'galet') { joueur.galets = rangCaillou().reserve; joueur.caillouDispo = 0; majBoutons(); montrerToast(b.phrase, b.couleur); return; }
+    if (l.type === 'eclat') {
+      flotter(l.x, l.y, '+4', b.couleur);
+      pulserJauge();
+      if (premiereLueur) {
+        premiereLueur = false;
+        montrerToast('Les lueurs te rendent confiance — ce sont elles qui ouvrent tes formes', b.couleur);
+      }
+      gagnerEclat(4);
+      return;
+    }
+    if (l.type === 'galet') {
+      joueur.galets = rangCaillou().reserve;
+      joueur.caillouDispo = 0;
+      // et la poche reste intarissable quelques secondes : un bonus qu'on ne
+      // sent pas n'est pas un bonus
+      joueur.bonus = l.type;
+      joueur.bonusT = b.duree;
+      majBoutons();
+      montrerToast(b.phrase, b.couleur);
+      return;
+    }
     if (l.type === 'souffle') joueur.souffle = 1;
     joueur.bonus = l.type;
     joueur.bonusT = b.duree;
     montrerToast(b.phrase, b.couleur);
+    flotter(l.x, l.y, '+2', b.couleur);
+    pulserJauge();
     gagnerEclat(2);
   }
 
@@ -1474,8 +1609,12 @@
         && dansLeCone(p.x, p.y, p.regard, q.x, q.y, PORTEE_VUE, 0.42)
         && vueLibre(p.x, p.y, q.x, q.y);
 
-      const joueurVu = !aBonus('souffle') && !abri && joueur.repit <= 0 && exposable(joueur);
-      const convoi = zone.persos.filter((q) => q.suit && !q.livre && exposable(q));
+      // Voilé couvre le convoi autant que le joueur : c'est ce qui en fait un
+      // bonus d'escorte, et c'est le seul moment du jeu où l'on peut traverser
+      // un faisceau à cinq sans rien perdre.
+      const voile = aBonus('souffle');
+      const joueurVu = !voile && !abri && joueur.repit <= 0 && exposable(joueur);
+      const convoi = voile ? [] : zone.persos.filter((q) => q.suit && !q.livre && exposable(q));
       const corps = (joueurVu ? 1 : 0) + convoi.length;
       p.corpsVus = corps;                       // exposé pour les mesures
 
@@ -1548,7 +1687,12 @@
         : `Âme livrée — ${zone.sortie.ames}/${zone.requis}`, '#ffe9a8');
     }
 
-    if (zone.sortie.ames >= zone.requis &&
+    // On attend que le convoi soit RENTRÉ avant de changer de zone : le joueur
+    // arrive au portail en même temps que ses suiveurs, et sans cette attente
+    // les âmes amenées en plus du quota restaient dehors et étaient perdues.
+    const enAspiration = zone.persos.some((q) => q.suit && !q.livre
+      && Math.hypot(zone.sortie.x - q.x, zone.sortie.y - q.y) < CASE * 2.6);
+    if (zone.sortie.ames >= zone.requis && !enAspiration &&
         Math.hypot(zone.sortie.x - joueur.x, zone.sortie.y - joueur.y) < zone.sortie.r) {
       zoneSuivante();
     }
@@ -1577,7 +1721,7 @@
 
   function lancerCaillou(angle, portion) {
     if (joueur.galets <= 0) return;
-    joueur.galets--;
+    if (!aBonus('galet')) joueur.galets--;      // poche intarissable
     majBoutons();
     const a = angle === undefined ? joueur.regard : angle;
     const portee = CASE * (1.6 + (portion === undefined ? 1 : portion) * 4.4);
@@ -2051,13 +2195,16 @@
       const angle = pt.ouverte * (Math.PI / 2) * 0.92 * (pt.sens || 1);
       ctx.translate(-demi, 0);
       ctx.rotate(angle);
+      // Le battant reste dans les gris du décor : une porte en bois clair
+      // attirait l'œil comme un objet à ramasser alors que c'est de
+      // l'architecture. Seule la poignée a le droit d'être jaune.
       const g = ctx.createLinearGradient(0, -demi * 0.2, 0, demi * 0.2);
-      g.addColorStop(0, '#6a5640');
-      g.addColorStop(1, '#3e3226');
+      g.addColorStop(0, '#31313d');
+      g.addColorStop(1, '#191922');
       ctx.fillStyle = g;
       carreArrondi(ctx, 0, -CASE * 0.11, CASE * 0.96, CASE * 0.22, CASE * 0.06);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(214,186,140,0.55)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
       // poignée : elle dit de quel côté ça s'ouvre
@@ -2153,14 +2300,39 @@
     }
 
     // --- sortie ---
+    // Un anneau qui se REMPLIT, plus une encoche par âme demandée : on doit
+    // pouvoir lire « il m'en manque une » d'un seul coup d'œil, sans compter.
+    // La phrase passagère d'une livraison ne suffisait pas, elle s'efface.
     const ouverte = zone.sortie.ames >= zone.requis;
+    const part = clamp(zone.sortie.ames / zone.requis, 0, 1);
     const pulse = 1 + Math.sin(temps * 3) * 0.07;
+    const R = zone.sortie.r * pulse;
     ctx.save();
     ctx.translate(zone.sortie.x - cam.x, zone.sortie.y - cam.y);
-    ctx.strokeStyle = ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.24)';
-    ctx.lineWidth = ouverte ? 3.5 : 2;
-    ctx.beginPath(); ctx.arc(0, 0, zone.sortie.r * pulse, 0, TAU); ctx.stroke();
-    ctx.fillStyle = ouverte ? 'rgba(255,233,168,0.34)' : 'rgba(255,233,168,0.06)';
+    // le cercle vide, puis la part déjà chargée, en partant du haut
+    ctx.strokeStyle = 'rgba(255,233,168,0.18)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.stroke();
+    if (part > 0) {
+      ctx.strokeStyle = ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.85)';
+      ctx.lineWidth = ouverte ? 4.5 : 3.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + TAU * part);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+    // les encoches : une par âme demandée, pour compter sans lire
+    ctx.strokeStyle = 'rgba(8,8,14,0.85)';
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < zone.requis; i++) {
+      const a = -Math.PI / 2 + (i / zone.requis) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * (R - 5), Math.sin(a) * (R - 5));
+      ctx.lineTo(Math.cos(a) * (R + 5), Math.sin(a) * (R + 5));
+      ctx.stroke();
+    }
+    ctx.fillStyle = ouverte ? 'rgba(255,233,168,0.34)' : `rgba(255,233,168,${0.05 + part * 0.16})`;
     ctx.beginPath(); ctx.arc(0, 0, zone.sortie.r * 0.5, 0, TAU); ctx.fill();
     ctx.restore();
 
@@ -2342,9 +2514,14 @@
       const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
       if (p.eclaire || estEclaire(p.x, p.y)) continue;
       if (p.cligne > 0 || p.aveugle > 0) continue;
+      // Tous les personnages existent dès la génération de la zone : aucun
+      // n'apparaît en cours de route. On montre donc TOUS les yeux présents à
+      // l'écran, sans limite de distance — c'est la carte des présences, et
+      // c'est ce qui rend le noir habité plutôt que vide.
+      const ex = p.x - cam.x, ey = p.y - cam.y;
+      if (ex < -CASE || ey < -CASE || ex > W + CASE || ey > H + CASE) continue;
       const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
-      const portee = cache ? CASE * 5 : CASE * 9;
-      if (dj > portee) continue;
+      const portee = Math.hypot(W, H);
 
       const demi = D.taille * 0.5;
       const ecart = demi * 0.36;
@@ -2368,6 +2545,19 @@
         ctx.fillStyle = `rgba(10,10,16,${a})`;
         ctx.beginPath(); ctx.arc(ox + px, oy + py, rOeil * 0.5, 0, TAU); ctx.fill();
       }
+    }
+
+    // --- les gains qui montent vers la jauge ---
+    for (const f of flottants) {
+      const a = clamp(f.vie / f.max, 0, 1);
+      ctx.save();
+      ctx.font = '700 15px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = rgba(f.couleur, a * 0.9);
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = rgba(f.couleur, a);
+      ctx.fillText(f.texte, f.x - cam.x, f.y - cam.y);
+      ctx.restore();
     }
 
     // La jauge de chaque sentinelle, dessinée DANS son cône : il se remplit
@@ -2559,7 +2749,17 @@
     elForme.style.color = f.couleur;
     elBarre.style.width = `${clamp((joueur.eclat - bas) / (haut - bas), 0, 1) * 100}%`;
     elBarre.style.background = f.couleur;
-    elZone.textContent = `ZONE ${zone.numero} · ${zone.sortie.ames}/${zone.requis} âmes`;
+    elZone.textContent = `ZONE ${zone.numero}`;
+    // on ne reconstruit les pastilles que si le compte a bougé
+    if (elAmes.dataset.etat !== `${zone.sortie.ames}/${zone.requis}`) {
+      elAmes.dataset.etat = `${zone.sortie.ames}/${zone.requis}`;
+      elAmes.innerHTML = '';
+      for (let i = 0; i < zone.requis; i++) {
+        const pastille = document.createElement('i');
+        if (i < zone.sortie.ames) pastille.className = 'pleine';
+        elAmes.appendChild(pastille);
+      }
+    }
 
     if (joueur.bonus && joueur.bonusT > 0) {
       const b = BONUS[joueur.bonus];
@@ -2586,6 +2786,7 @@
     particules = [];
     ondes = [];
     cailloux = [];
+    flottants = [];
     fil = [];
     // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
     joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
@@ -2660,6 +2861,7 @@
       majRegles(dt);
       majCailloux(dt);
       majParticules(dt);
+      majFlottants(dt);
       cadrer(false);
       majInterface();
       dessiner(temps, eclaires);
@@ -2740,6 +2942,29 @@
   });
   elCaillou.addEventListener('click', (e) => e.preventDefault());
 
+  // Clavier : les flèches pour marcher, l'espace pour lancer un caillou droit
+  // devant. On ne gêne pas le défilement de la page — il n'y en a pas — mais on
+  // empêche les flèches de faire défiler quoi que ce soit.
+  const CAP_TOUCHES = {
+    ArrowLeft: 'gauche', ArrowRight: 'droite', ArrowUp: 'haut', ArrowDown: 'bas',
+  };
+  window.addEventListener('keydown', (e) => {
+    const t = CAP_TOUCHES[e.key];
+    // la consigne ne s'effaçait qu'au premier toucher de l'écran : au clavier
+    // elle restait affichée par-dessus le personnage pour toujours
+    if (t || e.key === ' ') elHint.style.opacity = '0';
+    if (t) { touches[t] = true; e.preventDefault(); return; }
+    if (e.key === ' ' && !e.repeat) { lancerCaillou(joueur.regard, 0.55); e.preventDefault(); }
+  });
+  window.addEventListener('keyup', (e) => {
+    const t = CAP_TOUCHES[e.key];
+    if (t) { touches[t] = false; e.preventDefault(); }
+  });
+  // une fenêtre qui perd le focus garde les touches enfoncées : on relâche tout
+  window.addEventListener('blur', () => {
+    touches.gauche = touches.droite = touches.haut = touches.bas = false;
+  });
+
   window.addEventListener('resize', () => {
     redimensionner();
     if (zone) cadrer(true);
@@ -2805,6 +3030,7 @@
     solide: (x, y) => solide(Math.floor(x / CASE), Math.floor(y / CASE)),
     vueLibre,
     camera: () => ({ x: cam.x, y: cam.y }),
+    touches: () => ({ ...touches }),
     porteesRond: portéesRond,
     rayonHalo,
     // les seuils, lus depuis le jeu : un test qui les recopie devient faux au
@@ -2825,16 +3051,19 @@
     fil: () => fil,
     estEclaire,
     // pour chaque PNJ à portée d'écran : ses yeux sont-ils dessinés, et sinon pourquoi
+    // le même filtre que le rendu des yeux, pour pouvoir le mesurer
     diagYeux: () => zone.persos.map((p) => {
       const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
       const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
-      const portee = cache ? CASE * 5 : CASE * 9;
+      const ex = p.x - cam.x, ey = p.y - cam.y;
+      const aEcran = ex >= -CASE && ey >= -CASE && ex <= W + CASE && ey <= H + CASE;
+      const eclaire = p.eclaire || estEclaire(p.x, p.y);
+      const ferme = p.cligne > 0 || p.aveugle > 0;
       return {
-        emotion: p.emotion, cases: +(dj / CASE).toFixed(1), cache,
-        horsPortee: dj > portee,
-        dejaEclaire: p.eclaire || estEclaire(p.x, p.y),
-        cligne: p.cligne > 0, aveugle: p.aveugle > 0,
-        aEcran: Math.abs(p.x - joueur.x) < W / 2 + 40 && Math.abs(p.y - joueur.y) < H / 2 + 40,
+        emotion: p.emotion, cases: +(dj / CASE).toFixed(1), cache, aEcran,
+        dejaEclaire: eclaire, cligne: p.cligne > 0, aveugle: p.aveugle > 0,
+        dessine: aEcran && !eclaire && !ferme,
+        raison: !aEcran ? 'hors écran' : eclaire ? 'déjà éclairé' : ferme ? 'yeux fermés' : null,
       };
     }),
     soigner: () => { joueur.souffle = 1; joueur.repit = 0; },

@@ -171,6 +171,7 @@
     pointer-events: none;
   }
 
+  #caillou { border-color: rgba(178, 186, 204, 0.55); color: #b2bacc; }
   #braise { border-color: rgba(255, 196, 120, 0.55); color: #ffc478; }
   #charge { border-color: rgba(255, 154, 107, 0.55); color: #ff9a6b; }
   #eclair { border-color: rgba(255, 246, 214, 0.6); color: #fff6d6; }
@@ -253,6 +254,7 @@
 <div class="bonus" id="bonus"><b id="bonus-nom"></b><s id="bonus-jauge"></s></div>
 
 <div class="actions">
+  <button type="button" class="rond on" id="caillou">CAILLOU</button>
   <button type="button" class="rond" id="braise">BRAISE<br><span id="braise-n">0</span></button>
   <button type="button" class="rond" id="charge">CHARGE</button>
   <button type="button" class="rond" id="eclair">ÉCLAT</button>
@@ -321,8 +323,8 @@
   // comprend aucune.
   const FORMES = [
     { nom: 'Peureux', couleur: '#8fd0ff', seuil: 0, halo: 1.00, portee: 0, cone: 0,
-      verbe: 'Le fil',
-      texte: "Tu n'as qu'un halo minuscule. Mais ton chemin reste tracé derrière toi : tu ne peux pas te perdre, même sans voir les murs." },
+      verbe: 'Le caillou',
+      texte: "Tu n'as qu'un halo minuscule — mais tu peux lancer un caillou devant toi. Là où il tombe, les sentinelles vont voir. C'est toute ton arme : les détourner." },
     { nom: 'Curieux', couleur: '#ffd479', seuil: 22, halo: 1.28, portee: 5.2, cone: 0.34,
       verbe: 'Le faisceau',
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
@@ -365,6 +367,12 @@
   /* ==================================================== le monde ========= */
 
   const CASE = 74;                 // côté d'une case de la grille, en pixels monde
+
+  // Portée du regard d'une sentinelle. Ramenée de 4.6 à 3.6 cases : elle
+  // accrochait de trop loin. Mais l'essentiel est ailleurs — c'est la VITESSE
+  // de verrouillage qui décroît avec la distance (voir majRegles), comme dans
+  // un Metal Gear : au bord du cône elle te soupçonne, elle ne te tient pas.
+  const PORTEE_VUE = CASE * 3.6;
 
   // Une zone est un plan de salles reliées par des couloirs. C'est volontairement
   // une grille : la seule chose à garantir ici, c'est « peut-on aller d'ici à
@@ -491,6 +499,7 @@
             eclaire: false, calme: false, aveugle: 0, compteCalme: 0,
             tremble: rnd() * TAU, humeur: 0,
             alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
+            curiosite: null, curieuxT: 0,
             // Les sentinelles clignent des yeux : quelques dixièmes de seconde
             // où elles ne voient rien. C'est ce qui rend l'observation des yeux
             // dans le noir réellement utile, et donne une fenêtre pour passer.
@@ -572,6 +581,7 @@
   const cam = { x: 0, y: 0 };
   let particules = [];
   let ondes = [];                  // ondes de choc de la charge et de l'éclat
+  let cailloux = [];               // les cailloux en vol
   let fil = [];                    // la trace du joueur : sa seule mémoire du terrain
 
   const joueur = {
@@ -580,8 +590,11 @@
     regard: -Math.PI / 2,
     eclat: 0, sommet: 0, niveau: 0,
     souffle: 1, repit: 0, vu: 0,
+    tremble: 0,                    // sans lui, sin(temps + undefined) = NaN et
+                                   // la bouche du joueur ne se dessinait pas
     braises: 0,
     chargeDispo: 1, chargeT: 0,
+    caillouDispo: 1,
     eclairDispo: 1,
     bonus: null, bonusT: 0,
   };
@@ -597,6 +610,7 @@
   const el = (id) => document.getElementById(id);
   const elZone = el('zone'), elForme = el('forme'), elBarre = el('barre');
   const elHint = el('hint'), elToast = el('toast'), elFlash = el('flash');
+  const elCaillou = el('caillou');
   const elBraise = el('braise'), elBraiseN = el('braise-n');
   const elCharge = el('charge'), elEclair = el('eclair');
   const elBonus = el('bonus'), elBonusNom = el('bonus-nom'), elBonusJauge = el('bonus-jauge');
@@ -845,7 +859,7 @@
       // Un peureux ou un curieux te remarque de partout : ils ne te chassent pas.
       // Un coléreux, lui, est une SENTINELLE : il ne te voit que dans son cône.
       const voit = p.emotion === EMOTIONS.COLERE
-        ? dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, CASE * 4.6, 0.42)
+        ? dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, PORTEE_VUE, 0.42)
             && vueLibre(p.x, p.y, joueur.x, joueur.y)
         : d < CASE * 5 && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
@@ -889,7 +903,7 @@
           p.route = null;
           p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * (p.bouscule > 0 ? 14 : 5) * dt;
           if (p.bouscule > 0) p.bouscule -= dt;
-          if (d < CASE * 4.6) {
+          if (d < PORTEE_VUE * 1.3) {
             const vitesse = 210 + zone.numero * 12;
             p.vx += (dx / d) * vitesse * dt;
             p.vy += (dy / d) * vitesse * dt;
@@ -898,6 +912,24 @@
           if (Math.random() < dt * 4) emettre(p.x, p.y - D.taille * 0.75, '#ff7a6b', 1, 34, 'trait');
 
         } else {
+          // elle a entendu un caillou : elle va voir, sans être alertée
+          if (p.curiosite && p.curieuxT > 0) {
+            p.curieuxT -= dt;
+            const cd = Math.hypot(p.curiosite.x - p.x, p.curiosite.y - p.y);
+            if (cd < CASE * 0.8 || p.curieuxT <= 0) { p.curiosite = null; p.route = null; }
+            else {
+              if (!p.route || !p.route.length) p.route = routeVers(p.x, p.y, p.curiosite.x, p.curiosite.y);
+              if (p.route && p.route.length) {
+                const w = p.route[0];
+                const rx = w.x - p.x, ry = w.y - p.y, rd = Math.hypot(rx, ry) || 1;
+                if (rd < CASE * 0.45) p.route.shift();
+                else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
+              }
+              p.regard += ecartAngle(p.regard, Math.atan2(p.curiosite.y - p.y, p.curiosite.x - p.x)) * 4 * dt;
+              p.humeur = 0;
+              if (Math.random() < dt * 2) emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 1, 26);
+            }
+          }
           // ronde : elle va d'un point de passage au suivant, et le regard
           // balaye autour de sa direction de marche
           const b = zone.braises.find((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r);
@@ -906,6 +938,8 @@
             p.vx += (bx / bd) * 260 * dt;
             p.vy += (by / bd) * 260 * dt;
             p.humeur = 0;
+          } else if (p.curiosite) {
+            // on la laisse finir son détour avant de reprendre la ronde
           } else if (p.ronde && p.ronde.length) {
             const c = p.ronde[p.etape % p.ronde.length];
 
@@ -988,6 +1022,8 @@
   }
 
   function majBoutons() {
+    elCaillou.disabled = joueur.caillouDispo < 1;
+    elCaillou.style.setProperty('--recharge', joueur.caillouDispo.toFixed(2));
     elBraise.classList.toggle('on', joueur.niveau >= 2);
     elCharge.classList.toggle('on', joueur.niveau >= 3);
     elEclair.classList.toggle('on', joueur.niveau >= 4);
@@ -1082,14 +1118,18 @@
       if (p.emotion !== EMOTIONS.COLERE) continue;
       const vise = !aBonus('souffle') && !abri && joueur.repit <= 0
         && p.aveugle <= 0 && p.cligne <= 0
-        && Math.hypot(joueur.x - p.x, joueur.y - p.y) <= CASE * 4.6
-        && dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, CASE * 4.6, 0.42)
+        && Math.hypot(joueur.x - p.x, joueur.y - p.y) <= PORTEE_VUE
+        && dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, PORTEE_VUE, 0.42)
         && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
       if (vise) {
         traque = true;
-        const pres = Math.hypot(joueur.x - p.x, joueur.y - p.y) < CASE * 1.6;
-        p.charge = Math.min(1, p.charge + (pres ? 0.62 : 0.38) * dt);
+        // La montée dépend de la distance : collé à elle, deux secondes ; au
+        // bord de son cône, plus de sept. C'est ce qui manquait — on se sentait
+        // repéré à bout de champ aussi vite que sous son nez.
+        const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
+        const proche = clamp(1 - d / PORTEE_VUE, 0, 1);
+        p.charge = Math.min(1, p.charge + (0.13 + proche * proche * 0.42) * dt);
       } else {
         // hors du cône ça redescend ; derrière un mur, plus vite encore
         const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
@@ -1120,6 +1160,7 @@
       if (joueur.bonusT <= 0) { joueur.bonus = null; montrerToast('Le bonus s\'éteint', '#9aa1ac'); }
     }
 
+    if (joueur.caillouDispo < 1) { joueur.caillouDispo = Math.min(1, joueur.caillouDispo + dt / 2.6); majBoutons(); }
     if (joueur.chargeDispo < 1) { joueur.chargeDispo = Math.min(1, joueur.chargeDispo + dt / 3.4); majBoutons(); }
     if (joueur.eclairDispo < 1) { joueur.eclairDispo = Math.min(1, joueur.eclairDispo + dt / 9); majBoutons(); }
 
@@ -1140,6 +1181,53 @@
     return zone.persos.some((p) => p.calme
       && dansLeCone(p.x, p.y, p.regard, x, y, D.portee * 5, D.cone)
       && vueLibre(p.x, p.y, x, y));
+  }
+
+  // Un caillou part devant toi en arc de cercle et tombe quelques cases plus
+  // loin. Les sentinelles qui l'entendent vont VOIR ce que c'était — elles se
+  // déplacent vers le bruit sans être alertées. C'est le seul outil du Peureux,
+  // et il reste utile jusqu'au bout.
+  function lancerCaillou() {
+    if (joueur.caillouDispo < 1) return;
+    joueur.caillouDispo = 0;
+    majBoutons();
+    const a = joueur.regard;
+    const portee = CASE * 4.2;
+    // il s'arrête au premier mur : un caillou ne traverse pas la pierre
+    let d = CASE * 0.4;
+    while (d < portee && !solide(Math.floor((joueur.x + Math.cos(a) * d) / CASE),
+                                 Math.floor((joueur.y + Math.sin(a) * d) / CASE))) d += CASE * 0.2;
+    d = Math.max(CASE * 0.6, d - CASE * 0.25);
+    cailloux.push({
+      x0: joueur.x, y0: joueur.y,
+      x1: joueur.x + Math.cos(a) * d, y1: joueur.y + Math.sin(a) * d,
+      x: joueur.x, y: joueur.y, t: 0, duree: 0.34 + d / (CASE * 16),
+    });
+  }
+
+  function majCailloux(dt) {
+    for (let i = cailloux.length - 1; i >= 0; i--) {
+      const c = cailloux[i];
+      c.t += dt;
+      const k = Math.min(1, c.t / c.duree);
+      c.x = c.x0 + (c.x1 - c.x0) * k;
+      c.y = c.y0 + (c.y1 - c.y0) * k;
+      c.hauteur = Math.sin(k * Math.PI) * CASE * 0.55;     // l'arc de cercle
+      if (k < 1) continue;
+      // il touche le sol : le bruit attire les regards
+      cailloux.splice(i, 1);
+      ondes.push({ x: c.x1, y: c.y1, r: 0, max: CASE * 3.2, couleur: '#b2bacc' });
+      emettre(c.x1, c.y1, '#b2bacc', 7, 45);
+      for (const p of zone.persos) {
+        if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0) continue;
+        if (Math.hypot(p.x - c.x1, p.y - c.y1) > CASE * 5.5) continue;
+        if (p.alerte > 0) continue;                         // déjà sur toi : trop tard
+        p.curiosite = { x: c.x1, y: c.y1 };
+        p.curieuxT = 4.5;
+        p.route = null;
+        emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 3, 40);
+      }
+    }
   }
 
   function poserBraise() {
@@ -1295,8 +1383,18 @@
     ctx.beginPath();
     if (emotion === EMOTIONS.PEUR && humeur < 0) {
       // petite bouche ouverte qui tremble
-      const t = Math.sin(temps * 18 + p.tremble) * demi * 0.03;
+      const t = Math.sin(temps * 18 + (p.tremble || 0)) * demi * 0.03;
       ctx.ellipse(0, by + t, bl * 0.34, bl * 0.42, 0, 0, TAU);
+    } else if (emotion === EMOTIONS.PEUR) {
+      // Un peureux au repos ne sourit pas : une vaguelette inquiète. Il souriait
+      // tant qu'il n'était pas menacé, ce qui contredisait tout le personnage.
+      // large et franche : à 8 px de large pour 2 px d'amplitude, l'ondulation
+      // ne se voyait tout simplement pas sur le personnage
+      const t = Math.sin(temps * 2.5 + (p.tremble || 0)) * demi * 0.02;
+      const w = bl * 0.62, h2 = bl * 0.5;
+      ctx.moveTo(-w, by + t);
+      ctx.quadraticCurveTo(-w * 0.5, by - h2 + t, 0, by + t);
+      ctx.quadraticCurveTo(w * 0.5, by + h2 + t, w, by + t);
     } else if (humeur > 0) {
       ctx.arc(0, by - bl * 0.42, bl * 0.72, 0.68, Math.PI - 0.68);      // sourire
     } else if (humeur < 0) {
@@ -1308,16 +1406,52 @@
     ctx.restore();
   }
 
-  function percerCone(c, x, y, angle, portee, demiAngle, force) {
+  // Jusqu'où va le regard dans chaque direction du cône : on lance des rayons
+  // et on s'arrête au premier mur. Sans ça un cône traversait la pierre et on
+  // croyait se faire repérer à travers une cloison — la détection, elle, testait
+  // déjà la ligne de vue, mais l'affichage mentait.
+  // Un cône coupé par un mur n'est plus convexe, et une rastérisation logicielle
+  // paie cher chaque segment. 22 -> 12 rayons : la marche d'escalier reste
+  // lisible et le coût de dessin retombe.
+  const RAYONS = 12;
+  function portéesCone(wx, wy, angle, portee, demiAngle) {
+    const out = new Array(RAYONS + 1);
+    const pas = CASE * 0.22;
+    for (let i = 0; i <= RAYONS; i++) {
+      const a = angle - demiAngle + (2 * demiAngle * i) / RAYONS;
+      const cx = Math.cos(a), cy = Math.sin(a);
+      let d = 0;
+      while (d + pas < portee) {
+        if (solide(Math.floor((wx + cx * (d + pas)) / CASE), Math.floor((wy + cy * (d + pas)) / CASE))) break;
+        d += pas;
+      }
+      // on s'arrête AVANT la pierre, pas dessus : garder le pas où le mur a été
+      // trouvé faisait déborder chaque rayon d'un cran dans le mur
+      out[i] = Math.min(d, portee);
+    }
+    return out;
+  }
+
+  // trace le polygone du cône réellement éclairé, en coordonnées écran
+  function tracerCone(c, sx, sy, angle, demiAngle, portees) {
+    c.beginPath();
+    c.moveTo(sx, sy);
+    for (let i = 0; i <= RAYONS; i++) {
+      const a = angle - demiAngle + (2 * demiAngle * i) / RAYONS;
+      c.lineTo(sx + Math.cos(a) * portees[i], sy + Math.sin(a) * portees[i]);
+    }
+    c.closePath();
+  }
+
+  function percerCone(c, wx, wy, angle, portee, demiAngle, force, dejaCalculees) {
+    const portees = dejaCalculees || portéesCone(wx, wy, angle, portee, demiAngle);
+    const x = wx - cam.x, y = wy - cam.y;
     const g = c.createRadialGradient(x, y, 0, x, y, portee);
     g.addColorStop(0, `rgba(0,0,0,${force})`);
     g.addColorStop(0.6, `rgba(0,0,0,${force * 0.7})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g;
-    c.beginPath();
-    c.moveTo(x, y);
-    c.arc(x, y, portee, angle - demiAngle, angle + demiAngle);
-    c.closePath();
+    tracerCone(c, x, y, angle, demiAngle, portees);
     c.fill();
   }
 
@@ -1373,11 +1507,36 @@
     ctx.restore();
   }
 
+  // Les rayons d'un cône servaient au voile, à la lueur chaude ET à la jauge :
+  // trois lancers identiques par cône et par frame. Mesuré sous throttle ×4,
+  // ça coûtait 86 ms de frame contre 44 avant les cônes occultés. On les calcule
+  // une fois ici, tout le reste s'en sert. Une portée plus courte se déduit par
+  // un simple minimum, sans relancer quoi que ce soit.
+  const raccourcir = (portees, portee) => portees.map((d) => Math.min(d, portee));
+
+  function preparerRayons(eclaires, portee, cone) {
+    if (portee) joueur.rayons = portéesCone(joueur.x, joueur.y, joueur.regard, portee, cone);
+    for (const p of eclaires) {
+      p.rayonsRelais = portéesCone(p.x, p.y, p.regard, D.portee * 5, D.cone + 0.05);
+    }
+    for (const p of zone.persos) {
+      p.rayonsVue = null;
+      if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0 || p.cligne > 0) continue;
+      const traque = p.alerte > 0 || p.charge > 0.04;
+      if (Math.hypot(p.x - joueur.x, p.y - joueur.y) > CASE * (traque ? 8 : 4.2)) continue;
+      // hors écran : inutile de lancer les rayons ni de peindre quoi que ce soit
+      const ex = p.x - cam.x, ey = p.y - cam.y, marge = PORTEE_VUE;
+      if (ex < -marge || ey < -marge || ex > W + marge || ey > H + marge) continue;
+      p.rayonsVue = portéesCone(p.x, p.y, p.regard, PORTEE_VUE, 0.42);
+    }
+  }
+
   function dessiner(temps, eclaires) {
     const f = forme();
     const r = rayonHalo();
     const portee = porteeFaisceau();
     const cone = coneFaisceau();
+    preparerRayons(eclaires, portee, cone);
 
     ctx.fillStyle = '#08080e';
     ctx.fillRect(0, 0, W, H);
@@ -1457,13 +1616,24 @@
     }
 
     // --- le joueur : son humeur dit son état, c'est le retour de santé ---
-    const humeurJoueur = joueur.vu > 0.35 ? -1 : joueur.souffle > 0.85 ? 1 : 0;
-    const emotionJoueur = joueur.souffle < 0.4 ? EMOTIONS.PEUR : EMOTIONS.CURIEUX;
+    // À la première forme il est peureux, point : jamais de sourire, une
+    // vaguelette au repos et une bouche ouverte quand on le fixe.
+    const peureux = joueur.niveau === 0 || joueur.souffle < 0.4;
+    const humeurJoueur = joueur.vu > 0.35 ? -1 : (peureux ? 0 : joueur.souffle > 0.85 ? 1 : 0);
+    const emotionJoueur = peureux ? EMOTIONS.PEUR : EMOTIONS.CURIEUX;
     // un bonus actif teinte le corps et, pour « voilé », le rend translucide :
     // c'est ce qui fait comprendre l'effet sans lire un mot
     const teinte = joueur.bonus ? BONUS[joueur.bonus].couleur : f.couleur;
     const opac = aBonus('souffle') ? 0.5 : 1;
     dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, emotionJoueur, humeurJoueur, temps);
+
+    // --- cailloux en vol : une ombre au sol et le caillou en l'air ---
+    for (const c of cailloux) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(c.x - cam.x, c.y - cam.y, 4, 2, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#cdd3e0';
+      ctx.beginPath(); ctx.arc(c.x - cam.x, c.y - cam.y - c.hauteur, 3.4, 0, TAU); ctx.fill();
+    }
 
     // --- ondes de choc ---
     for (const o of ondes) {
@@ -1489,8 +1659,8 @@
 
     const jx = joueur.x - cam.x, jy = joueur.y - cam.y;
     percerDisque(lctx, jx, jy, r, 1);
-    if (portee) percerCone(lctx, jx, jy, joueur.regard, portee, cone, 0.95);
-    for (const p of eclaires) percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85);
+    if (portee) percerCone(lctx, joueur.x, joueur.y, joueur.regard, portee, cone, 0.95, joueur.rayons);
+    for (const p of eclaires) percerCone(lctx, p.x, p.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85, p.rayonsRelais);
     for (const b of zone.braises) percerDisque(lctx, b.x - cam.x, b.y - cam.y, b.r, 0.92);
     // Un calmé n'est pas qu'un faisceau : son corps et un petit halo restent
     // éclairés, sinon on ne voit qu'un cône sortir du néant.
@@ -1517,10 +1687,10 @@
       // Traquée, elle ne se cache plus : son faisceau devient franchement
       // visible et de plus loin. Discrète, elle ne fait que se deviner de près,
       // pour garder le suspense des yeux dans le noir.
-      if (dj > CASE * (traque ? 8 : 4.2)) continue;
+      if (!p.rayonsVue) continue;
       const proximite = clamp(1 - (dj - CASE * 2.6) / (CASE * 1.6), 0, 1);
       const force = traque ? 0.72 : 0.14 + proximite * 0.2;
-      percerCone(lctx, p.x - cam.x, p.y - cam.y, p.regard, CASE * 4.6, 0.42, force);
+      percerCone(lctx, p.x, p.y, p.regard, PORTEE_VUE, 0.42, force, p.rayonsVue);
     }
     lctx.globalCompositeOperation = 'source-over';
 
@@ -1618,21 +1788,24 @@
     // depuis la pointe tant qu'on est dedans, et se vide dès qu'on en sort.
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE || p.charge <= 0.01) continue;
-      const portee = CASE * 4.6 * p.charge;
+      const portee = PORTEE_VUE * p.charge;
       const g = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, portee);
       g.addColorStop(0, `rgba(255,60,50,${0.1 + p.charge * 0.3})`);
       g.addColorStop(1, `rgba(255,60,50,${0.03 + p.charge * 0.12})`);
+      const pj = p.rayonsVue ? raccourcir(p.rayonsVue, portee)
+                             : portéesCone(p.x, p.y, p.regard, portee, 0.42);
       ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.moveTo(p.x - cam.x, p.y - cam.y);
-      ctx.arc(p.x - cam.x, p.y - cam.y, portee, p.regard - 0.42, p.regard + 0.42);
-      ctx.closePath();
+      tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, pj);
       ctx.fill();
       // le front qui avance : c'est lui qu'on regarde
       ctx.strokeStyle = `rgba(255,90,70,${0.35 + p.charge * 0.5})`;
       ctx.lineWidth = 2 + p.charge * 2;
       ctx.beginPath();
-      ctx.arc(p.x - cam.x, p.y - cam.y, portee, p.regard - 0.42, p.regard + 0.42);
+      for (let i = 0; i <= RAYONS; i++) {
+        const a = p.regard - 0.42 + (0.84 * i) / RAYONS;
+        const fx = p.x - cam.x + Math.cos(a) * pj[i], fy = p.y - cam.y + Math.sin(a) * pj[i];
+        if (i === 0) ctx.moveTo(fx, fy); else ctx.lineTo(fx, fy);
+      }
       ctx.stroke();
     }
     if (zone.sortie.vue) {
@@ -1661,10 +1834,7 @@
       gf.addColorStop(0, rgba(couleurLumiere, 0.14));
       gf.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gf;
-      ctx.beginPath();
-      ctx.moveTo(jx, jy);
-      ctx.arc(jx, jy, portee, joueur.regard - cone, joueur.regard + cone);
-      ctx.closePath();
+      tracerCone(ctx, jx, jy, joueur.regard, cone, joueur.rayons);
       ctx.fill();
     }
     for (const b of zone.braises) {
@@ -1678,30 +1848,26 @@
     // dans l'obscurité, on ne le lisait pas comme un faisceau
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0 || p.cligne > 0) continue;
-      const dj = Math.hypot(p.x - joueur.x, p.y - joueur.y);
+      if (!p.rayonsVue) continue;
       const traque = p.alerte > 0 || p.charge > 0.04;
-      if (dj > CASE * (traque ? 8 : 4.2)) continue;
-      const pr = CASE * 4.6;
+      const pr = PORTEE_VUE;
       const gr = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, pr);
       gr.addColorStop(0, `rgba(255,90,74,${traque ? 0.2 : 0.07})`);
       gr.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = gr;
-      ctx.beginPath();
-      ctx.moveTo(p.x - cam.x, p.y - cam.y);
-      ctx.arc(p.x - cam.x, p.y - cam.y, pr, p.regard - 0.42, p.regard + 0.42);
-      ctx.closePath();
-      ctx.fill();
-      // les deux bords du cône, qui donnent sa direction d'un coup d'œil
+      const portees = p.rayonsVue;
+      // traquée, la jauge dessine déjà un cône coloré par-dessus : inutile d'en
+      // peindre un second, c'est un polygone dégradé plein écran de gagné
+      if (!traque) {
+        ctx.fillStyle = gr;
+        tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, portees);
+        ctx.fill();
+      }
+      // le contour du cône réellement vu : il épouse les murs
       if (traque) {
         ctx.strokeStyle = 'rgba(255,110,90,0.4)';
         ctx.lineWidth = 1.5;
-        for (const sgn of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(p.x - cam.x, p.y - cam.y);
-          ctx.lineTo(p.x - cam.x + Math.cos(p.regard + sgn * 0.42) * pr,
-                     p.y - cam.y + Math.sin(p.regard + sgn * 0.42) * pr);
-          ctx.stroke();
-        }
+        tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, portees);
+        ctx.stroke();
       }
     }
     for (const p of zone.persos) {
@@ -1731,10 +1897,7 @@
       gp.addColorStop(0, rgba(p.calme ? '#a8f0c8' : COULEURS[p.emotion], p.calme ? 0.2 : 0.16));
       gp.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gp;
-      ctx.beginPath();
-      ctx.moveTo(p.x - cam.x, p.y - cam.y);
-      ctx.arc(p.x - cam.x, p.y - cam.y, pp, p.regard - D.cone, p.regard + D.cone);
-      ctx.closePath();
+      tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, D.cone, p.rayonsRelais);
       ctx.fill();
     }
     ctx.restore();
@@ -1830,6 +1993,7 @@
     priseCount = 0;
     particules = [];
     ondes = [];
+    cailloux = [];
     fil = [];
     joueur.x = zone.depart.x;
     joueur.y = zone.depart.y;
@@ -1894,6 +2058,7 @@
       const eclaires = propager();
       majPersos(dt, temps, eclaires);
       majRegles(dt);
+      majCailloux(dt);
       majParticules(dt);
       cadrer(false);
       majInterface();
@@ -1954,6 +2119,7 @@
     });
     element.addEventListener('click', (e) => e.preventDefault());
   };
+  bouton(elCaillou, lancerCaillou);
   bouton(elBraise, poserBraise);
   bouton(elCharge, decharger);
   bouton(elEclair, lancerEclat);
@@ -2011,7 +2177,9 @@
       elFlash.classList.remove('on'); flashEnCours = false;
       majBoutons();
     },
-    poserBraise, decharger, lancerEclat,
+    poserBraise, decharger, lancerEclat, lancerCaillou,
+    cailloux: () => cailloux,
+    porteesCone: portéesCone,
     fil: () => fil,
     estEclaire,
     // pour chaque PNJ à portée d'écran : ses yeux sont-ils dessinés, et sinon pourquoi
@@ -2036,7 +2204,7 @@
       angleVersJoueur: +Math.atan2(joueur.y - q.y, joueur.x - q.x).toFixed(3),
       ecart: +Math.abs(ecartAngle(q.regard, Math.atan2(joueur.y - q.y, joueur.x - q.x))).toFixed(3),
       dist: Math.round(Math.hypot(joueur.x - q.x, joueur.y - q.y)),
-      dansCone: dansLeCone(q.x, q.y, q.regard, joueur.x, joueur.y, CASE * 4.6, 0.42),
+      dansCone: dansLeCone(q.x, q.y, q.regard, joueur.x, joueur.y, PORTEE_VUE, 0.42),
       vueLibre: vueLibre(q.x, q.y, joueur.x, joueur.y),
       abri: prochedUneBraise(joueur.x, joueur.y, 1),
     }),

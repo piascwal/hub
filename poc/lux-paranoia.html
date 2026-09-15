@@ -667,6 +667,7 @@
 
       return {
         ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
+        versionPortes: 0,
         braises: [],
         depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
         // Le portail ne compte plus des lueurs mais des ÂMES : il faut lui
@@ -1325,6 +1326,9 @@
       }
       const avant = pt.ouverte;
       pt.ouverte = clamp(pt.ouverte + (proche ? 3.2 : -1.3) * dt, 0, 1);
+      // franchir le seuil change ce qui est solide : les ombres portées des
+      // torches et des braises doivent être recalculées
+      if ((avant < 0.5) !== (pt.ouverte < 0.5)) zone.versionPortes++;
       if (avant < 0.5 && pt.ouverte >= 0.5) emettre(pt.x, pt.y, '#c8b088', 5, 40);
     }
   }
@@ -1825,6 +1829,70 @@
     c.fill();
   }
 
+  // Une source fixe éclaire en rond, mais la pierre l'arrête. Sans occultation,
+  // une torche collée à un mur illuminait la salle d'à côté, ce qui trahissait
+  // tout le plan sans bouger.
+  // Contrairement au cône de détection, on GARDE le pas où la pierre a été
+  // touchée : ici on veut voir la face du mur allumée. Un pas vaut un cinquième
+  // de case, la lumière mord donc la paroi sans jamais la traverser.
+  // 40 rayons laissaient voir les facettes du polygone dans les angles. Pour
+  // les sources fixes le calcul est mis en cache, donc la finesse est gratuite ;
+  // pour le halo du joueur, qui se recalcule à chaque image, 64 rayons sur un
+  // rayon d'une case et demie font environ 500 tests de case — le faisceau en
+  // fait déjà autant.
+  const RAYONS_ROND = 64;
+
+  function portéesRond(wx, wy, portee) {
+    const out = new Array(RAYONS_ROND);
+    const pas = CASE * 0.2;
+    for (let i = 0; i < RAYONS_ROND; i++) {
+      const a = (i / RAYONS_ROND) * TAU;
+      const cx = Math.cos(a), cy = Math.sin(a);
+      let d = 0;
+      while (d < portee) {
+        const suivant = Math.min(d + pas, portee);
+        d = suivant;
+        if (solide(Math.floor((wx + cx * d) / CASE), Math.floor((wy + cy * d) / CASE))) break;
+      }
+      out[i] = d;
+    }
+    return out;
+  }
+
+  // Les torches et les braises ne bougent pas : leur ombre portée ne change que
+  // lorsqu'une porte s'ouvre ou se ferme. On la calcule une fois et on la garde,
+  // sinon on relancerait quarante rayons par source à chaque image.
+  function rayonsSource(src, portee) {
+    if (!src.rayons || src.rayonsVersion !== zone.versionPortes) {
+      src.rayons = portéesRond(src.x, src.y, portee);
+      src.rayonsVersion = zone.versionPortes;
+    }
+    return src.rayons;
+  }
+
+  // le polygone de visibilité, tronqué au rayon courant : une torche qui
+  // faiblit rétrécit sans qu'on ait à relancer les rayons
+  function tracerRond(c, sx, sy, portees, portee) {
+    c.beginPath();
+    for (let i = 0; i < RAYONS_ROND; i++) {
+      const a = (i / RAYONS_ROND) * TAU;
+      const d = Math.min(portees[i], portee);
+      const x = sx + Math.cos(a) * d, y = sy + Math.sin(a) * d;
+      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    c.closePath();
+  }
+
+  function percerRond(c, x, y, r, force, portees) {
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(0,0,0,${force})`);
+    g.addColorStop(0.62, `rgba(0,0,0,${force * 0.88})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g;
+    tracerRond(c, x, y, portees, r);
+    c.fill();
+  }
+
   function percerDisque(c, x, y, r, force) {
     const g = c.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, `rgba(0,0,0,${force})`);
@@ -2057,10 +2125,15 @@
     lctx.globalCompositeOperation = 'destination-out';
 
     const jx = joueur.x - cam.x, jy = joueur.y - cam.y;
-    percerDisque(lctx, jx, jy, r, 1);
+    // Le halo du joueur traversait la pierre comme les torches : on voyait le
+    // couloir d'à côté à travers un mur. Il se recalcule à chaque image, lui,
+    // puisqu'il se déplace.
+    joueur.rayonsHalo = portéesRond(joueur.x, joueur.y, r);
+    percerRond(lctx, jx, jy, r, 1, joueur.rayonsHalo);
     if (portee) percerCone(lctx, joueur.x, joueur.y, joueur.regard, portee, cone, 0.95, joueur.rayons);
     for (const p of eclaires) percerCone(lctx, p.x, p.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85, p.rayonsRelais);
-    for (const b of zone.braises) percerDisque(lctx, b.x - cam.x, b.y - cam.y, b.r, 0.92);
+    for (const b of zone.braises)
+      percerRond(lctx, b.x - cam.x, b.y - cam.y, b.r, 0.92, rayonsSource(b, b.r));
     // Un calmé n'est pas qu'un faisceau : son corps et un petit halo restent
     // éclairés, sinon on ne voit qu'un cône sortir du néant.
     for (const p of zone.persos) {
@@ -2074,7 +2147,8 @@
     for (const t of zone.torches) {
       if (t.reste <= 0) continue;
       const k = clamp(t.reste / (t.duree * 0.35), 0, 1);       // elle faiblit en mourant
-      percerDisque(lctx, t.x - cam.x, t.y - cam.y, t.r * (0.55 + k * 0.45), 0.9);
+      percerRond(lctx, t.x - cam.x, t.y - cam.y, t.r * (0.55 + k * 0.45), 0.9,
+                 rayonsSource(t, t.r));
     }
     // Le cône d'une sentinelle n'apparaît que DE PRÈS. De loin on ne voit que
     // ses yeux, et on ignore encore si c'est un ami ou une sentinelle : c'est
@@ -2220,7 +2294,8 @@
     chaud.addColorStop(0, rgba(couleurLumiere, 0.16));
     chaud.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = chaud;
-    ctx.beginPath(); ctx.arc(jx, jy, r, 0, TAU); ctx.fill();
+    tracerRond(ctx, jx, jy, joueur.rayonsHalo, r);
+    ctx.fill();
 
     if (portee) {
       const gf = ctx.createRadialGradient(jx, jy, 0, jx, jy, portee);
@@ -2235,7 +2310,10 @@
       gb.addColorStop(0, 'rgba(255,190,110,0.17)');
       gb.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gb;
-      ctx.beginPath(); ctx.arc(b.x - cam.x, b.y - cam.y, b.r, 0, TAU); ctx.fill();
+      // même polygone que le trou d'obscurité : les deux passes doivent
+      // s'arrêter au même mur, sinon la chaleur bave toute seule au travers
+      tracerRond(ctx, b.x - cam.x, b.y - cam.y, rayonsSource(b, b.r), b.r);
+      ctx.fill();
     }
     // le balayage rouge, en lumière additive : sans ça ce n'était qu'un trou
     // dans l'obscurité, on ne le lisait pas comme un faisceau
@@ -2283,7 +2361,8 @@
       gt.addColorStop(0, 'rgba(255,180,92,0.19)');
       gt.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gt;
-      ctx.beginPath(); ctx.arc(t.x - cam.x, t.y - cam.y, rt, 0, TAU); ctx.fill();
+      tracerRond(ctx, t.x - cam.x, t.y - cam.y, rayonsSource(t, t.r), rt);
+      ctx.fill();
     }
     for (const p of eclaires) {
       const pp = D.portee * 5;
@@ -2612,6 +2691,12 @@
     menace: () => menace,
     solide: (x, y) => solide(Math.floor(x / CASE), Math.floor(y / CASE)),
     vueLibre,
+    camera: () => ({ x: cam.x, y: cam.y }),
+    porteesRond: portéesRond,
+    // les seuils, lus depuis le jeu : un test qui les recopie devient faux au
+    // premier rééquilibrage, et c'est arrivé
+    seuils: () => FORMES.map((f) => f.seuil),
+    RAYONS_ROND: () => RAYONS_ROND,
     lancerCaillou,
     // fait retomber un caillou à un endroit précis : c'est le vrai code
     // d'impact, pas une imitation

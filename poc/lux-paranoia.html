@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Lux &amp; Paranoia</title>
-<meta name="description" content="Aventure procédurale dans le noir : un petit peureux qui grandit en lumière, gagne un faisceau, des braises et des formes nouvelles.">
+<meta name="description" content="Aventure procédurale dans le noir : un petit peureux n'a qu'un caillou, et escorte des âmes jusqu'au portail sans croiser les regards rouges.">
 <meta name="theme-color" content="#08080e">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -128,7 +128,7 @@
     opacity: 0.55;
   }
 
-  /* boutons d'action : ils n'apparaissent qu'une fois la forme débloquée */
+  /* le bouton d'action : il n'y en a qu'un, et il ne change jamais */
   .actions {
     position: fixed;
     right: max(0.9rem, env(safe-area-inset-right));
@@ -176,9 +176,6 @@
      visée mourait avant qu'on ait pu orienter quoi que ce soit. Ce bouton-ci
      se garde le geste entier. */
   #caillou { border-color: rgba(178, 186, 204, 0.55); color: #b2bacc; touch-action: none; }
-  #braise { border-color: rgba(255, 196, 120, 0.55); color: #ffc478; }
-  #charge { border-color: rgba(255, 154, 107, 0.55); color: #ff9a6b; }
-  #eclair { border-color: rgba(255, 246, 214, 0.6); color: #fff6d6; }
 
   .rond:active:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
 
@@ -258,15 +255,13 @@
 <div class="bonus" id="bonus"><b id="bonus-nom"></b><s id="bonus-jauge"></s></div>
 
 <div class="actions">
-  <button type="button" class="rond on" id="caillou">CAILLOU</button>
-  <button type="button" class="rond" id="braise">BRAISE<br><span id="braise-n">0</span></button>
-  <button type="button" class="rond" id="charge">CHARGE</button>
-  <button type="button" class="rond" id="eclair">ÉCLAT</button>
+  <button type="button" class="rond on" id="caillou">CAILLOU<br><span id="caillou-n">1</span></button>
 </div>
 
 <p class="hint" id="hint">
   Pose le doigt n'importe où : un joystick apparaît sous lui.<br>
-  Ramasse les lueurs. Fuis les regards rouges.
+  Glisse depuis CAILLOU pour viser, lâche pour lancer.<br>
+  Éclaire les bleus pour les calmer, amène-les au portail.
 </p>
 
 <div class="toast" id="toast"></div>
@@ -336,15 +331,28 @@
       verbe: 'Le faisceau',
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
     { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 30, halo: 1.45, portee: 6.0, cone: 0.32,
-      verbe: 'Les braises',
-      texte: "Tu peux poser des braises. Elles éclairent pour toujours, et les rouges ne supportent pas leur lumière : une braise, c'est un abri." },
+      verbe: 'Le caillou couve',
+      texte: "Ton caillou ne retombe plus éteint : là où il tombe, il se met à brûler pour toujours. Les rouges ne supportent pas cette lumière — tu poses tes abris à distance." },
     { nom: 'Ardent', couleur: '#ff9a6b', seuil: 54, halo: 1.62, portee: 7.0, cone: 0.30,
-      verbe: 'La charge',
-      texte: "La charge est ta sortie de secours : une ruée où AUCUN regard ne peut te vider, et qui étourdit ce qu'elle bouscule. C'est comme ça qu'on traverse le cône d'une sentinelle." },
+      verbe: 'Le caillou frappe',
+      texte: "Vise un rouge, touche-le : il est étourdi et perd ta trace. Ce n'est plus seulement un leurre, c'est de quoi ouvrir un passage à ton convoi." },
     { nom: 'Solaire', couleur: '#fff2c4', seuil: 84, halo: 1.9, portee: 8.2, cone: 0.30,
-      verbe: "L'éclat",
-      texte: "Un éclat circulaire qui aveugle tous les rouges autour de toi : quelques secondes où plus aucun regard ne te vide." },
+      verbe: 'Le caillou éclate',
+      texte: "À l'impact, le caillou se brise en un éclat qui aveugle tous les rouges autour du point de chute. Un seul lancer, et toute une salle cesse de te chercher." },
   ];
+
+  // Tout le jeu tient sur UN bouton. Chaque forme ne donne pas un nouveau verbe
+  // à apprendre : elle enrichit le seul geste qu'on connaît déjà. La réserve
+  // grossit et le délai fond à chaque palier — c'est la progression qu'on sent
+  // en jouant, avant même de lire ce que le caillou fait de plus.
+  const CAILLOU = [
+    { reserve: 1, delai: 2.6 },
+    { reserve: 2, delai: 1.9 },
+    { reserve: 2, delai: 1.5, couve: true },
+    { reserve: 3, delai: 1.2, couve: true, frappe: true },
+    { reserve: 3, delai: 0.9, couve: true, frappe: true, eclate: true },
+  ];
+  const rangCaillou = () => CAILLOU[joueur.niveau];
 
   const EMOTIONS = { PEUR: 'peur', COLERE: 'colere', CURIEUX: 'curieux' };
   const COULEURS = {
@@ -361,14 +369,12 @@
   const BONUS = {
     eclat:   { couleur: '#ffe9a8', forme: 0, duree: 0,  nom: 'Lueur',
                phrase: '' },
+    galet:   { couleur: '#b2bacc', forme: 0, duree: 0,  nom: 'Galet',
+               phrase: 'Poche pleine — tous tes cailloux sont revenus' },
     souffle: { couleur: '#8fd0ff', forme: 1, duree: 7,  nom: 'Voilé',
                phrase: 'Voilé — les sentinelles ne te voient plus' },
-    braise:  { couleur: '#ffc478', forme: 2, duree: 0,  nom: 'Braise',
-               phrase: '+1 braise à poser' },
-    hate:    { couleur: '#a8f0c8', forme: 3, duree: 8,  nom: 'Hâte',
+    hate:    { couleur: '#a8f0c8', forme: 2, duree: 8,  nom: 'Hâte',
                phrase: 'Hâte — tu files bien plus vite' },
-    prisme:  { couleur: '#d7b4ff', forme: 4, duree: 10, nom: 'Prisme',
-               phrase: 'Prisme — ton faisceau s\'élargit et porte plus loin' },
   };
 
   /* ==================================================== le monde ========= */
@@ -625,10 +631,8 @@
     souffle: 1, repit: 0, vu: 0,
     tremble: 0,                    // sans lui, sin(temps + undefined) = NaN et
                                    // la bouche du joueur ne se dessinait pas
-    braises: 0,
-    chargeDispo: 1, chargeT: 0,
-    caillouDispo: 1,
-    eclairDispo: 1,
+    galets: 1,                     // cailloux en poche
+    caillouDispo: 1,               // fraction de recharge du prochain galet
     bonus: null, bonusT: 0,
   };
 
@@ -643,9 +647,7 @@
   const el = (id) => document.getElementById(id);
   const elZone = el('zone'), elForme = el('forme'), elBarre = el('barre');
   const elHint = el('hint'), elToast = el('toast'), elFlash = el('flash');
-  const elCaillou = el('caillou');
-  const elBraise = el('braise'), elBraiseN = el('braise-n');
-  const elCharge = el('charge'), elEclair = el('eclair');
+  const elCaillou = el('caillou'), elCaillouN = el('caillou-n');
   const elBonus = el('bonus'), elBonusNom = el('bonus-nom'), elBonusJauge = el('bonus-jauge');
 
   const forme = () => FORMES[joueur.niveau];
@@ -669,8 +671,8 @@
   // assez pour s'enfuir. Mesuré à 0.5, le halo tombait sous une case pile au
   // moment où il fallait courir.
   const rayonHalo = () => D.halo * forme().halo * (0.68 + joueur.souffle * 0.32);
-  const porteeFaisceau = () => forme().portee * CASE * (aBonus('prisme') ? 1.5 : 1);
-  const coneFaisceau = () => forme().cone * (aBonus('prisme') ? 1.6 : 1);
+  const porteeFaisceau = () => forme().portee * CASE;
+  const coneFaisceau = () => forme().cone;
 
   /* ==================================================== collisions ======= */
 
@@ -831,19 +833,12 @@
       joueur.vy += manche.dy * accel * dt;
     }
 
-    if (joueur.chargeT > 0) {
-      joueur.chargeT -= dt;
-      joueur.vx += Math.cos(joueur.regard) * 2600 * dt;
-      joueur.vy += Math.sin(joueur.regard) * 2600 * dt;
-    }
-
     const frottement = Math.pow(0.0009, dt);
     joueur.vx *= frottement;
     joueur.vy *= frottement;
 
     let vmax = 300 + joueur.niveau * 26;
     if (aBonus('hate')) vmax *= 1.55;
-    if (joueur.chargeT > 0) vmax += 420;
     const v = Math.hypot(joueur.vx, joueur.vy);
     if (v > vmax) { joueur.vx = (joueur.vx / v) * vmax; joueur.vy = (joueur.vy / v) * vmax; }
 
@@ -1100,7 +1095,9 @@
     const suivant = FORMES[joueur.niveau + 1];
     if (!suivant || joueur.sommet < suivant.seuil) return;
     joueur.niveau++;
-    if (joueur.niveau === 2) joueur.braises = Math.max(joueur.braises, 3);
+    // le palier élargit la poche : on la remplit tout de suite, sinon la
+    // récompense ne se sent qu'au bout d'une recharge complète
+    joueur.galets = rangCaillou().reserve;
     majBoutons();
     emettre(joueur.x, joueur.y - D.taille * 0.7, suivant.couleur, 16, 90);
     // Le bandeau modal met le jeu en pause. Acceptable pour découvrir un verbe,
@@ -1116,17 +1113,11 @@
   }
 
   function majBoutons() {
-    elCaillou.disabled = joueur.caillouDispo < 1;
-    elCaillou.style.setProperty('--recharge', joueur.caillouDispo.toFixed(2));
-    elBraise.classList.toggle('on', joueur.niveau >= 2);
-    elCharge.classList.toggle('on', joueur.niveau >= 3);
-    elEclair.classList.toggle('on', joueur.niveau >= 4);
-    elBraiseN.textContent = joueur.braises;
-    elBraise.disabled = joueur.braises <= 0;
-    elCharge.disabled = joueur.chargeDispo < 1;
-    elEclair.disabled = joueur.eclairDispo < 1;
-    elCharge.style.setProperty('--recharge', joueur.chargeDispo.toFixed(2));
-    elEclair.style.setProperty('--recharge', joueur.eclairDispo.toFixed(2));
+    elCaillou.disabled = joueur.galets <= 0;
+    elCaillouN.textContent = joueur.galets;
+    // l'anneau montre le galet en cours de retour ; poche pleine, il est plein
+    const plein = joueur.galets >= rangCaillou().reserve;
+    elCaillou.style.setProperty('--recharge', plein ? '1' : joueur.caillouDispo.toFixed(2));
   }
 
   function gagnerEclat(n) {
@@ -1172,7 +1163,7 @@
     emettre(l.x, l.y, b.couleur, 10, 70);
     if (l.type === 'eclat') { priseCount++; gagnerEclat(4); return; }
     priseCount++;
-    if (l.type === 'braise') { joueur.braises++; majBoutons(); montrerToast(b.phrase, b.couleur); return; }
+    if (l.type === 'galet') { joueur.galets = rangCaillou().reserve; joueur.caillouDispo = 0; majBoutons(); montrerToast(b.phrase, b.couleur); return; }
     if (l.type === 'souffle') joueur.souffle = 1;
     joueur.bonus = l.type;
     joueur.bonusT = b.duree;
@@ -1291,9 +1282,13 @@
       if (joueur.bonusT <= 0) { joueur.bonus = null; montrerToast('Le bonus s\'éteint', '#9aa1ac'); }
     }
 
-    if (joueur.caillouDispo < 1) { joueur.caillouDispo = Math.min(1, joueur.caillouDispo + dt / 2.6); majBoutons(); }
-    if (joueur.chargeDispo < 1) { joueur.chargeDispo = Math.min(1, joueur.chargeDispo + dt / 3.4); majBoutons(); }
-    if (joueur.eclairDispo < 1) { joueur.eclairDispo = Math.min(1, joueur.eclairDispo + dt / 9); majBoutons(); }
+    // Les galets reviennent un par un, au rythme du palier atteint.
+    const rang = rangCaillou();
+    if (joueur.galets < rang.reserve) {
+      joueur.caillouDispo += dt / rang.delai;
+      if (joueur.caillouDispo >= 1) { joueur.galets++; joueur.caillouDispo = 0; }
+      majBoutons();
+    } else joueur.caillouDispo = 0;
 
     // Livraison : tout membre du convoi qui touche le portail y entre.
     for (const q of zone.persos) {
@@ -1337,8 +1332,8 @@
   const visee = { actif: false, ox: 0, oy: 0, dx: 0, dy: 0, force: 0, id: null };
 
   function lancerCaillou(angle, portion) {
-    if (joueur.caillouDispo < 1) return;
-    joueur.caillouDispo = 0;
+    if (joueur.galets <= 0) return;
+    joueur.galets--;
     majBoutons();
     const a = angle === undefined ? joueur.regard : angle;
     const portee = CASE * (1.6 + (portion === undefined ? 1 : portion) * 4.4);
@@ -1351,6 +1346,7 @@
       x0: joueur.x, y0: joueur.y,
       x1: joueur.x + Math.cos(a) * d, y1: joueur.y + Math.sin(a) * d,
       x: joueur.x, y: joueur.y, t: 0, duree: 0.34 + d / (CASE * 16),
+      rang: rangCaillou(),
     });
   }
 
@@ -1394,61 +1390,36 @@
       c.y = c.y0 + (c.y1 - c.y0) * k;
       c.hauteur = Math.sin(k * Math.PI) * CASE * 0.55;     // l'arc de cercle
       if (k < 1) continue;
-      // il touche le sol : le bruit attire les regards
       cailloux.splice(i, 1);
-      ondes.push({ x: c.x1, y: c.y1, r: 0, max: CASE * 3.2, couleur: '#b2bacc' });
-      emettre(c.x1, c.y1, '#b2bacc', 7, 45);
-      for (const p of zone.persos) {
-        if (p.emotion !== EMOTIONS.COLERE || p.aveugle > 0) continue;
-        if (Math.hypot(p.x - c.x1, p.y - c.y1) > CASE * 5.5) continue;
-        if (p.alerte > 0) continue;                         // déjà sur toi : trop tard
-        p.curiosite = { x: c.x1, y: c.y1 };
-        p.curieuxT = 4.5;
-        p.route = null;
-        emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 3, 40);
-      }
+      toucherLeSol(c);
     }
   }
 
-  function poserBraise() {
-    if (joueur.niveau < 2 || joueur.braises <= 0) return;
-    joueur.braises--;
-    zone.braises.push({ x: joueur.x, y: joueur.y, r: CASE * 2.3, phase: Math.random() * TAU });
-    emettre(joueur.x, joueur.y, '#ffc478', 10, 60);
-    majBoutons();
-  }
+  // Le caillou retombe. Ce qu'il déclenche dépend du palier atteint, mais le
+  // geste, lui, n'a jamais changé depuis la première seconde de jeu.
+  function toucherLeSol(c) {
+    const r = c.rang;
+    const teinte = r.eclate ? '#fff2c4' : r.couve ? '#ffc478' : '#b2bacc';
+    ondes.push({ x: c.x1, y: c.y1, r: 0, max: CASE * (r.eclate ? 6 : 3.2), couleur: teinte });
+    emettre(c.x1, c.y1, teinte, r.eclate ? 26 : 7, r.eclate ? 200 : 45);
 
-  function decharger() {
-    if (joueur.niveau < 3 || joueur.chargeDispo < 1) return;
-    joueur.chargeDispo = 0;
-    joueur.chargeT = 0.22;
-    // Le vrai rôle de la charge : traverser. Pendant la ruée et juste après,
-    // aucun regard ne peut vider — sans ça on ne comprend pas à quoi elle sert.
-    joueur.repit = Math.max(joueur.repit, 0.75);
-    majBoutons();
-    ondes.push({ x: joueur.x, y: joueur.y, r: 0, max: CASE * 2.4, couleur: '#ff9a6b' });
+    // il se met à brûler : c'est l'abri du Veilleur, posé à distance
+    if (r.couve) zone.braises.push({ x: c.x1, y: c.y1, r: CASE * 2.3, phase: Math.random() * TAU });
+
     for (const p of zone.persos) {
-      const dx = p.x - joueur.x, dy = p.y - joueur.y;
-      const d = Math.hypot(dx, dy) || 1;
-      if (d > CASE * 2.2) continue;
-      p.vx += (dx / d) * 620;
-      p.vy += (dy / d) * 620;
-      if (p.emotion === EMOTIONS.COLERE) { p.aveugle = Math.max(p.aveugle, 1.8); p.alerte = 0; }
+      if (p.emotion !== EMOTIONS.COLERE) continue;
+      const d = Math.hypot(p.x - c.x1, p.y - c.y1);
+      // l'éclat aveugle toute la salle, le coup au but n'étourdit que sa cible
+      if (r.eclate && d <= CASE * 6) { p.aveugle = 5; p.alerte = 0; p.route = null; continue; }
+      if (r.frappe && d <= CASE * 0.85) { p.aveugle = Math.max(p.aveugle, 2.6); p.alerte = 0; p.route = null; continue; }
+      if (p.aveugle > 0 || p.alerte > 0) continue;          // déjà sur toi : trop tard
+      if (d > CASE * 5.5) continue;
+      p.curiosite = { x: c.x1, y: c.y1 };
+      p.curieuxT = 4.5;
+      p.route = null;
+      emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 3, 40);
     }
-    emettre(joueur.x, joueur.y, '#ff9a6b', 12, 120);
-  }
-
-  function lancerEclat() {
-    if (joueur.niveau < 4 || joueur.eclairDispo < 1) return;
-    joueur.eclairDispo = 0;
-    majBoutons();
-    ondes.push({ x: joueur.x, y: joueur.y, r: 0, max: CASE * 6, couleur: '#fff2c4' });
-    for (const p of zone.persos) {
-      if (Math.hypot(p.x - joueur.x, p.y - joueur.y) > CASE * 6) continue;
-      if (p.emotion === EMOTIONS.COLERE) { p.aveugle = 5; p.alerte = 0; }
-    }
-    emettre(joueur.x, joueur.y, '#fff2c4', 26, 200);
-    montrerToast('Éclat — les rouges sont aveuglés');
+    if (r.eclate) montrerToast('Éclat — les rouges sont aveuglés');
   }
 
   /* ==================================================== rendu ============ */
@@ -2178,9 +2149,9 @@
     fil = [];
     // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
     joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
-    joueur.braises = 0; joueur.bonus = null; joueur.bonusT = 0;
+    joueur.bonus = null; joueur.bonusT = 0;
     joueur.souffle = 1; joueur.repit = 0;
-    joueur.chargeDispo = 1; joueur.eclairDispo = 1; joueur.caillouDispo = 1;
+    joueur.galets = CAILLOU[0].reserve; joueur.caillouDispo = 0;
     joueur.x = zone.depart.x;
     joueur.y = zone.depart.y;
     joueur.vx = joueur.vy = 0;
@@ -2296,18 +2267,9 @@
       manche.id = null;
     }));
 
-  // pointerdown, pas click : mesuré, un `click` n'agissait qu'au RELÂCHEMENT du
-  // doigt, alors qu'on appuie sur ces boutons dans l'urgence. L'action part
-  // maintenant à l'instant où on touche.
-  const bouton = (element, action) => {
-    element.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!element.disabled) action();
-    });
-    element.addEventListener('click', (e) => e.preventDefault());
-  };
-  // Le caillou ne passe pas par `bouton()` : on garde le doigt dessus pour viser.
+  // Un seul bouton, et il garde le doigt : on appuie, on glisse pour viser, on
+  // relâche pour lancer. Mesuré, un `click` n'agirait qu'au relâchement — ici
+  // c'est voulu, puisque c'est le relâchement qui valide la direction.
   elCaillou.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation();
     if (elCaillou.disabled || visee.id !== null) return;
@@ -2336,9 +2298,6 @@
     visee.id = null; visee.actif = false;
   });
   elCaillou.addEventListener('click', (e) => e.preventDefault());
-  bouton(elBraise, poserBraise);
-  bouton(elCharge, decharger);
-  bouton(elEclair, lancerEclat);
 
   window.addEventListener('resize', () => {
     redimensionner();
@@ -2362,7 +2321,7 @@
       speciales: zone.lueurs.filter((l) => l.type !== 'eclat').length,
       persos: zone.persos.length, longueur: zone.longueur,
       niveau: joueur.niveau, eclat: Math.round(joueur.eclat), prises: priseCount,
-      braises: joueur.braises, posees: zone.braises.length,
+      galets: joueur.galets, posees: zone.braises.length,
       souffle: +joueur.souffle.toFixed(2),
     },
     accessible: () => {
@@ -2395,9 +2354,12 @@
       elFlash.classList.remove('on'); flashEnCours = false;
       majBoutons();
     },
-    poserBraise, decharger, lancerEclat, lancerCaillou,
+    lancerCaillou,
+    // fait retomber un caillou à un endroit précis : c'est le vrai code
+    // d'impact, pas une imitation
+    bruit: (x, y) => toucherLeSol({ x1: x, y1: y, rang: rangCaillou() }),
     visee: () => ({ ...visee }),
-    recharger: () => { joueur.caillouDispo = 1; majBoutons(); },
+    recharger: () => { joueur.galets = rangCaillou().reserve; joueur.caillouDispo = 0; majBoutons(); },
     cailloux: () => cailloux,
     porteesCone: portéesCone,
     CASE: () => CASE,

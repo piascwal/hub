@@ -467,8 +467,13 @@
 
   // Parcours en largeur sur les cases libres. Exact, et c'est tout l'intérêt :
   // ce que la génération promet, on le vérifie vraiment.
-  function distances(z, depart) {
+  // `sansPortes` sert aux sentinelles : elles ne franchissent AUCUNE porte,
+  // ouverte ou fermée, donc leur monde s'arrête à ces cases-là. Sans cette
+  // option elles calculeraient des rondes qui traversent une porte et iraient
+  // pousser contre le battant jusqu'à la fin des temps.
+  function distances(z, depart, sansPortes) {
     const { mur, cols, lignes } = z;
+    const portes = sansPortes ? z.porteDe : null;
     const d = [];
     for (let y = 0; y < lignes; y++) d.push(new Array(cols).fill(-1));
     if (mur[depart.cy][depart.cx]) return d;
@@ -478,6 +483,7 @@
       const x = file[i], y = file[i + 1];
       for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
         if (nx < 0 || ny < 0 || nx >= cols || ny >= lignes) continue;
+        if (portes && portes[ny][nx]) continue;
         if (mur[ny][nx] || d[ny][nx] !== -1) continue;
         d[ny][nx] = d[y][x] + 1;
         file.push(nx, ny);
@@ -520,71 +526,6 @@
         }
       }
       if (lueurs.length < 14) continue;
-
-      const persos = [];
-      const palette = numero === 1
-        ? [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE]
-        : [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE, EMOTIONS.COLERE];
-      for (const s of z.salles) {
-        if (s === depart) continue;
-        const combien = 1 + Math.floor(rnd() * 2);
-        for (let i = 0; i < combien; i++) {
-          const cx = s.x + Math.floor(rnd() * s.w);
-          const cy = s.y + Math.floor(rnd() * s.h);
-          if (d[cy][cx] < 0) continue;
-          const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
-          const regard = rnd() * TAU;
-          persos.push({
-            x, y, baseX: x, baseY: y, vx: 0, vy: 0,
-            sx: 1, sy: 1, vsx: 0, vsy: 0,
-            regard, regardRepos: regard,
-            balayage: (rnd() < 0.5 ? 1 : -1) * (0.35 + rnd() * 0.5),
-            amplitude: 0.5 + rnd() * 0.9,
-            phase: rnd() * TAU,
-            emotion: palette[Math.floor(rnd() * palette.length)],
-            eclaire: false, calme: false, suit: false, livre: false, rang: 0,
-            prime: false,                  // a-t-elle déjà payé son calmage ?
-            aveugle: 0, compteCalme: 0,
-            tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
-            alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
-            curiosite: null, curieuxT: 0,
-            // Les sentinelles clignent des yeux : quelques dixièmes de seconde
-            // où elles ne voient rien. C'est ce qui rend l'observation des yeux
-            // dans le noir réellement utile, et donne une fenêtre pour passer.
-            cligne: 0, prochainCligne: 1.5 + rnd() * 3.5,
-            // points de passage de la ronde, pris dans les cases libres autour
-            // Points de ronde. Ils doivent être NETTEMENT écartés du poste et
-            // les uns des autres : tirés sans distance minimale, ils pouvaient
-            // tomber tous les trois dans la case de la sentinelle. Elle
-            // « arrivait » alors à chaque frame, passait au point suivant, et
-            // ne bougeait jamais — une sentinelle sur 29 restait ainsi plantée.
-            ronde: (() => {
-              const pts = [];
-              const loinDeTout = (ox, oy) => {
-                if (Math.hypot(ox - cx, oy - cy) < 1.8) return false;
-                return pts.every((q) => Math.hypot(ox - q.cx, oy - q.cy) >= 1.8);
-              };
-              for (let k = 0; k < 40 && pts.length < 3; k++) {
-                const ox = cx + Math.floor(rnd() * 11) - 5;
-                const oy = cy + Math.floor(rnd() * 11) - 5;
-                if (ox < 0 || oy < 0 || ox >= z.cols || oy >= z.lignes) continue;
-                if (z.mur[oy][ox] || d[oy][ox] < 0) continue;
-                if (!loinDeTout(ox, oy)) continue;
-                pts.push({ cx: ox, cy: oy, x: (ox + 0.5) * CASE, y: (oy + 0.5) * CASE });
-              }
-              // moins de deux points utilisables : elle tient son poste et
-              // balaye, ce qui est un garde statique parfaitement lisible
-              return pts.length >= 2 ? pts : [];
-            })(),
-          });
-        }
-      }
-
-      const joignable = (p) => {
-        const cx = Math.floor(p.x / CASE), cy = Math.floor(p.y / CASE);
-        return d[cy] && d[cy][cx] >= 0;
-      };
-      if (!lueurs.every(joignable)) continue;
 
       // PORTES. On ne les met que dans les couloirs, à la bouche d'une salle :
       // une case libre hors salle, avec exactement deux voisines libres et
@@ -636,6 +577,97 @@
         });
       }
 
+      // table de consultation : `solide` est appelé des milliers de fois par
+      // image, il ne peut pas parcourir une liste à chaque fois. Elle est posée
+      // sur `z` AVANT les personnages : c'est elle qui dit aux rondes des
+      // sentinelles où elles n'ont pas le droit d'aller.
+      const porteDe = [];
+      for (let y = 0; y < z.lignes; y++) porteDe.push(new Array(z.cols).fill(null));
+      for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
+      z.porteDe = porteDe;
+
+      const persos = [];
+      const palette = numero === 1
+        ? [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE]
+        : [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE, EMOTIONS.COLERE];
+      for (const s of z.salles) {
+        if (s === depart) continue;
+        const combien = 1 + Math.floor(rnd() * 2);
+        for (let i = 0; i < combien; i++) {
+          const cx = s.x + Math.floor(rnd() * s.w);
+          const cy = s.y + Math.floor(rnd() * s.h);
+          if (d[cy][cx] < 0) continue;
+          const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
+          const regard = rnd() * TAU;
+          // sortie du littéral : la ronde a besoin de savoir si c'est une
+          // sentinelle, et une propriété d'objet n'est pas une variable
+          const emotion = palette[Math.floor(rnd() * palette.length)];
+          persos.push({
+            x, y, baseX: x, baseY: y, vx: 0, vy: 0,
+            sx: 1, sy: 1, vsx: 0, vsy: 0,
+            regard, regardRepos: regard,
+            balayage: (rnd() < 0.5 ? 1 : -1) * (0.35 + rnd() * 0.5),
+            amplitude: 0.5 + rnd() * 0.9,
+            phase: rnd() * TAU,
+            emotion,
+            eclaire: false, calme: false, suit: false, livre: false, rang: 0,
+            prime: false,                  // a-t-elle déjà payé son calmage ?
+            aveugle: 0, compteCalme: 0,
+            tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
+            alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
+            curiosite: null, curieuxT: 0,
+            // Les sentinelles clignent des yeux : quelques dixièmes de seconde
+            // où elles ne voient rien. C'est ce qui rend l'observation des yeux
+            // dans le noir réellement utile, et donne une fenêtre pour passer.
+            cligne: 0, prochainCligne: 1.5 + rnd() * 3.5,
+            // points de passage de la ronde, pris dans les cases libres autour
+            // Points de ronde. Ils doivent être NETTEMENT écartés du poste et
+            // les uns des autres : tirés sans distance minimale, ils pouvaient
+            // tomber tous les trois dans la case de la sentinelle. Elle
+            // « arrivait » alors à chaque frame, passait au point suivant, et
+            // ne bougeait jamais — une sentinelle sur 29 restait ainsi plantée.
+            ronde: (() => {
+              const pts = [];
+              // Son monde s'arrête aux portes : un point de ronde de l'autre
+              // côté d'un battant la ferait pousser contre le bois sans fin.
+              // Le parcours part de SON poste, pas du seuil de la zone, puisque
+              // les portes découpent le plan en quartiers.
+              const sien = emotion === EMOTIONS.COLERE
+                ? distances(z, { cx, cy }, true) : d;
+              const loinDeTout = (ox, oy) => {
+                if (Math.hypot(ox - cx, oy - cy) < 1.8) return false;
+                return pts.every((q) => Math.hypot(ox - q.cx, oy - q.cy) >= 1.8);
+              };
+              for (let k = 0; k < 40 && pts.length < 3; k++) {
+                const ox = cx + Math.floor(rnd() * 11) - 5;
+                const oy = cy + Math.floor(rnd() * 11) - 5;
+                if (ox < 0 || oy < 0 || ox >= z.cols || oy >= z.lignes) continue;
+                if (z.mur[oy][ox] || sien[oy][ox] < 0) continue;
+                if (!loinDeTout(ox, oy)) continue;
+                pts.push({ cx: ox, cy: oy, x: (ox + 0.5) * CASE, y: (oy + 0.5) * CASE });
+              }
+              // moins de deux points utilisables : elle tient son poste et
+              // balaye, ce qui est un garde statique parfaitement lisible
+              return pts.length >= 2 ? pts : [];
+            })(),
+          });
+        }
+      }
+
+      const joignable = (p) => {
+        const cx = Math.floor(p.x / CASE), cy = Math.floor(p.y / CASE);
+        return d[cy] && d[cy][cx] >= 0;
+      };
+      if (!lueurs.every(joignable)) continue;
+
+      // Il faut assez d'âmes à calmer pour remplir le portail, sinon la zone
+      // est infinissable. Le plancher de deux âmes demandées pouvait dépasser
+      // ce que la variante contenait : mesuré, 2 zones sur 120 réclamaient plus
+      // d'âmes qu'il n'en existait. Quatre au minimum, donc — une de plus que
+      // le maximum jamais demandé.
+      const calmables = persos.filter((q) => q.emotion !== EMOTIONS.COLERE).length;
+      if (calmables < 4) continue;
+
       // Torches fixées aux murs : gratuites mais temporaires, contrairement aux
       // braises qu'on porte. En passant devant, on les allume pour un moment.
       const torches = [];
@@ -660,12 +692,6 @@
         }
       }
 
-      // table de consultation : `solide` est appelé des milliers de fois par
-      // image, il ne peut pas parcourir une liste à chaque fois
-      const porteDe = [];
-      for (let y = 0; y < z.lignes; y++) porteDe.push(new Array(z.cols).fill(null));
-      for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
-
       return {
         ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
         versionPortes: 0,
@@ -676,13 +702,10 @@
         // auraient toujours dû être — du carburant, pas un objectif.
         sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.55,
                   vue: false, ames: 0 },
-        // Il faut en ramasser nettement plus qu'avant : c'est ce qui laisse le
-        // temps de remonter les formes depuis peureux. Deux lueurs de marge pour
-        // ne jamais forcer à toutes les prendre.
-        // nombre d'âmes à livrer : il en faut toujours au moins deux de reste
-        // pour ne jamais coincer le joueur si un PNJ panique
-        requis: Math.max(2, Math.min(persos.filter((q) => q.emotion !== EMOTIONS.COLERE).length - 2,
-                                     2 + Math.floor(numero / 2))),
+        // Nombre d'âmes à livrer. Il en reste toujours au moins une de rab :
+        // une âme rattrapée par un rouge panique et redevient à calmer, et on
+        // ne doit jamais se retrouver coincé pour autant.
+        requis: Math.max(2, Math.min(calmables - 1, 2 + Math.floor(numero / 2))),
         largeur: z.cols * CASE, hauteur: z.lignes * CASE, longueur: loin,
       };
     }
@@ -776,12 +799,19 @@
     return !!pt && pt.ouverte < 0.5;
   };
 
-  function degager(p, demi) {
+  // `muréParLesPortes` : pour une sentinelle, une case de porte est un mur même
+  // battant grand ouvert. C'est ce qui fait d'une porte un abri sur lequel on
+  // peut compter — un rouge ne la franchit jamais, quoi qu'on ait laissé
+  // ouvert derrière soi.
+  function degager(p, demi, mureParLesPortes) {
     const c0x = Math.floor((p.x - demi) / CASE), c1x = Math.floor((p.x + demi) / CASE);
     const c0y = Math.floor((p.y - demi) / CASE), c1y = Math.floor((p.y + demi) / CASE);
     for (let cy = c0y; cy <= c1y; cy++) {
       for (let cx = c0x; cx <= c1x; cx++) {
-        if (!solide(cx, cy)) continue;
+        const barre = mureParLesPortes
+          && cx >= 0 && cy >= 0 && cx < zone.cols && cy < zone.lignes
+          && zone.porteDe[cy][cx];
+        if (!barre && !solide(cx, cy)) continue;
         const mx = cx * CASE, my = cy * CASE;
         const gauche = (mx - demi) - p.x, droite = (mx + CASE + demi) - p.x;
         const haut = (my - demi) - p.y, bas = (my + CASE + demi) - p.y;
@@ -851,10 +881,10 @@
   // du parcours en largeur. Les sentinelles allaient tout droit vers leur point
   // de ronde : mesuré, elles visaient un point derrière un mur 46 % du temps et
   // 5 sur 23 restaient plantées contre la paroi plus de 60 % du temps.
-  function routeVers(x0, y0, x1, y1) {
+  function routeVers(x0, y0, x1, y1, sansPortes) {
     const dep = { cx: Math.floor(x0 / CASE), cy: Math.floor(y0 / CASE) };
     if (solide(dep.cx, dep.cy)) return null;
-    const d = distances(zone, dep);
+    const d = distances(zone, dep, sansPortes);
     let cx = Math.floor(x1 / CASE), cy = Math.floor(y1 / CASE);
     if (!d[cy] || d[cy][cx] < 0) return null;
     const route = [];
@@ -1087,7 +1117,7 @@
             const cd = Math.hypot(p.curiosite.x - p.x, p.curiosite.y - p.y);
             if (cd < CASE * 0.8 || p.curieuxT <= 0) { p.curiosite = null; p.route = null; }
             else {
-              if (!p.route || !p.route.length) p.route = routeVers(p.x, p.y, p.curiosite.x, p.curiosite.y);
+              if (!p.route || !p.route.length) p.route = routeVers(p.x, p.y, p.curiosite.x, p.curiosite.y, true);
               if (p.route && p.route.length) {
                 const w = p.route[0];
                 const rx = w.x - p.x, ry = w.y - p.y, rd = Math.hypot(rx, ry) || 1;
@@ -1125,7 +1155,7 @@
               p.etape++; p.route = null; p.immobile = 0;
             } else {
               if (!p.route || !p.route.length || p.immobile > 1.1) {
-                p.route = routeVers(p.x, p.y, c.x, c.y);
+                p.route = routeVers(p.x, p.y, c.x, c.y, true);
                 p.immobile = 0;
               }
               // Un chemin vide alors qu'on n'est PAS arrivé veut dire que la
@@ -1160,7 +1190,7 @@
       p.y += p.vy * dt;
       p.x = clamp(p.x, demi, zone.largeur - demi);
       p.y = clamp(p.y, demi, zone.hauteur - demi);
-      degager(p, demi);
+      degager(p, demi, p.emotion === EMOTIONS.COLERE);
 
       // séparation d'avec le joueur : un rouge logé dedans est illisible
       const sx = p.x - joueur.x, sy = p.y - joueur.y;
@@ -1326,7 +1356,9 @@
         if (d < plusPres) { plusPres = d; ouvreur = q; }
       };
       tester(joueur);
-      for (const q of zone.persos) if (!q.livre) tester(q);
+      // Un rouge ne pousse aucune porte : ni pour la franchir, ni même pour
+      // l'entrouvrir et voir au travers.
+      for (const q of zone.persos) if (!q.livre && q.emotion !== EMOTIONS.COLERE) tester(q);
 
       // Le sens est figé au moment où la porte s'entrouvre, et gardé jusqu'à ce
       // qu'elle soit refermée : sans ça le battant claquerait d'un côté à

@@ -321,20 +321,23 @@
   // Une forme = une couleur, un halo, et EXACTEMENT UN verbe de plus. C'est la
   // règle : on ne découvre jamais deux mécaniques à la fois, sinon on n'en
   // comprend aucune.
+  // Les seuils tiennent dans UNE zone, puisqu'on repart peureux à chaque fois.
+  // Mesuré avant recalage : une zone rapporte 72 à 149 d'éclat selon sa taille,
+  // alors que la dernière forme en demandait 170 — elle était inatteignable.
   const FORMES = [
     { nom: 'Peureux', couleur: '#8fd0ff', seuil: 0, halo: 1.00, portee: 0, cone: 0,
       verbe: 'Le caillou',
       texte: "Tu n'as qu'un halo minuscule — mais tu peux lancer un caillou devant toi. Là où il tombe, les sentinelles vont voir. C'est toute ton arme : les détourner." },
-    { nom: 'Curieux', couleur: '#ffd479', seuil: 22, halo: 1.28, portee: 5.2, cone: 0.34,
+    { nom: 'Curieux', couleur: '#ffd479', seuil: 12, halo: 1.28, portee: 5.2, cone: 0.34,
       verbe: 'Le faisceau',
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
-    { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 58, halo: 1.45, portee: 6.0, cone: 0.32,
+    { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 30, halo: 1.45, portee: 6.0, cone: 0.32,
       verbe: 'Les braises',
       texte: "Tu peux poser des braises. Elles éclairent pour toujours, et les rouges ne supportent pas leur lumière : une braise, c'est un abri." },
-    { nom: 'Ardent', couleur: '#ff9a6b', seuil: 108, halo: 1.62, portee: 7.0, cone: 0.30,
+    { nom: 'Ardent', couleur: '#ff9a6b', seuil: 54, halo: 1.62, portee: 7.0, cone: 0.30,
       verbe: 'La charge',
       texte: "La charge est ta sortie de secours : une ruée où AUCUN regard ne peut te vider, et qui étourdit ce qu'elle bouscule. C'est comme ça qu'on traverse le cône d'une sentinelle." },
-    { nom: 'Solaire', couleur: '#fff2c4', seuil: 170, halo: 1.9, portee: 8.2, cone: 0.30,
+    { nom: 'Solaire', couleur: '#fff2c4', seuil: 84, halo: 1.9, portee: 8.2, cone: 0.30,
       verbe: "L'éclat",
       texte: "Un éclat circulaire qui aveugle tous les rouges autour de toi : quelques secondes où plus aucun regard ne te vide." },
   ];
@@ -366,7 +369,10 @@
 
   /* ==================================================== le monde ========= */
 
-  const CASE = 74;                 // côté d'une case de la grille, en pixels monde
+  // Côté d'une case, en pixels monde. Le baisser revient à filmer de plus haut :
+  // tout le jeu est exprimé en CASE, donc les proportions et les distances de
+  // détection ne bougent pas d'un pouce — seul le cadrage s'élargit.
+  const CASE = 62;                 // côté d'une case de la grille, en pixels monde
 
   // Portée du regard d'une sentinelle. Ramenée de 4.6 à 3.6 cases : elle
   // accrochait de trop loin. Mais l'essentiel est ailleurs — c'est la VITESSE
@@ -473,7 +479,7 @@
           lueurs.push({ x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE, type, prise: false, vue: false, phase: rnd() * TAU });
         }
       }
-      if (lueurs.length < 8) continue;
+      if (lueurs.length < 14) continue;
 
       const persos = [];
       const palette = numero === 1
@@ -505,16 +511,28 @@
             // dans le noir réellement utile, et donne une fenêtre pour passer.
             cligne: 0, prochainCligne: 1.5 + rnd() * 3.5,
             // points de passage de la ronde, pris dans les cases libres autour
+            // Points de ronde. Ils doivent être NETTEMENT écartés du poste et
+            // les uns des autres : tirés sans distance minimale, ils pouvaient
+            // tomber tous les trois dans la case de la sentinelle. Elle
+            // « arrivait » alors à chaque frame, passait au point suivant, et
+            // ne bougeait jamais — une sentinelle sur 29 restait ainsi plantée.
             ronde: (() => {
               const pts = [];
-              for (let k = 0; k < 24 && pts.length < 3; k++) {
-                const ox = cx + Math.floor(rnd() * 9) - 4;
-                const oy = cy + Math.floor(rnd() * 9) - 4;
+              const loinDeTout = (ox, oy) => {
+                if (Math.hypot(ox - cx, oy - cy) < 1.8) return false;
+                return pts.every((q) => Math.hypot(ox - q.cx, oy - q.cy) >= 1.8);
+              };
+              for (let k = 0; k < 40 && pts.length < 3; k++) {
+                const ox = cx + Math.floor(rnd() * 11) - 5;
+                const oy = cy + Math.floor(rnd() * 11) - 5;
                 if (ox < 0 || oy < 0 || ox >= z.cols || oy >= z.lignes) continue;
                 if (z.mur[oy][ox] || d[oy][ox] < 0) continue;
-                pts.push({ x: (ox + 0.5) * CASE, y: (oy + 0.5) * CASE });
+                if (!loinDeTout(ox, oy)) continue;
+                pts.push({ cx: ox, cy: oy, x: (ox + 0.5) * CASE, y: (oy + 0.5) * CASE });
               }
-              return pts;
+              // moins de deux points utilisables : elle tient son poste et
+              // balaye, ce qui est un garde statique parfaitement lisible
+              return pts.length >= 2 ? pts : [];
             })(),
           });
         }
@@ -555,7 +573,10 @@
         braises: [],
         depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
         sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.42, vue: false },
-        requis: Math.min(lueurs.length, 4 + numero * 2),
+        // Il faut en ramasser nettement plus qu'avant : c'est ce qui laisse le
+        // temps de remonter les formes depuis peureux. Deux lueurs de marge pour
+        // ne jamais forcer à toutes les prendre.
+        requis: Math.max(4, Math.min(lueurs.length - 2, 8 + numero * 2)),
         largeur: z.cols * CASE, hauteur: z.lignes * CASE, longueur: loin,
       };
     }
@@ -619,7 +640,9 @@
   const aBonus = (k) => joueur.bonus === k && joueur.bonusT > 0;
 
   function dims() {
-    const t = clamp(Math.min(W, H) * 0.095, 30, 54);
+    // la taille d'un bonhomme suit la case, sinon reculer la caméra ne
+    // l'aurait pas rapetissé et il aurait paru énorme à l'écran
+    const t = CASE * 0.5;
     // Le halo se mesure en CASES, pas en pixels d'écran : à 0.17 du petit côté
     // il valait 66 px pour des cases de 74, donc on ne voyait même pas les murs
     // de son propre couloir. Il faut au minimum une case et demie pour que
@@ -948,27 +971,32 @@
           } else if (p.ronde && p.ronde.length) {
             const c = p.ronde[p.etape % p.ronde.length];
 
-            // détecteur de blocage : si elle n'avance plus, elle abandonne
-            // l'étape et recalcule, plutôt que de pousser contre la pierre
+            // détecteur de blocage : si elle n'avance plus, elle recalcule
+            // plutôt que de pousser contre la pierre
             p.immobile = Math.hypot(p.x - (p.dernierX || 0), p.y - (p.dernierY || 0)) < 0.4
               ? (p.immobile || 0) + dt : 0;
             p.dernierX = p.x; p.dernierY = p.y;
 
-            if (!p.route || !p.route.length || p.immobile > 1.1) {
-              p.route = routeVers(p.x, p.y, c.x, c.y);
-              p.immobile = 0;
-              if (!p.route || !p.route.length) { p.etape++; p.route = null; }
-            }
-
-            if (p.route && p.route.length) {
-              const w = p.route[0];
+            if (Math.hypot(c.x - p.x, c.y - p.y) < CASE * 0.6) {
+              // arrivée : on passe au point suivant, une seule fois
+              p.etape++; p.route = null; p.immobile = 0;
+            } else {
+              if (!p.route || !p.route.length || p.immobile > 1.1) {
+                p.route = routeVers(p.x, p.y, c.x, c.y);
+                p.immobile = 0;
+              }
+              // Un chemin vide alors qu'on n'est PAS arrivé veut dire que la
+              // cible est dans notre propre case : le parcours en largeur n'a
+              // rien à renvoyer. On y va alors en ligne droite — c'est sans
+              // risque à cette distance. Sans ce cas, la sentinelle sautait au
+              // point suivant à chaque frame et ne partait jamais nulle part.
+              const w = (p.route && p.route.length) ? p.route[0] : c;
               const rx = w.x - p.x, ry = w.y - p.y;
               const rd = Math.hypot(rx, ry) || 1;
-              if (rd < CASE * 0.45) p.route.shift();
+              if (p.route && p.route.length && rd < CASE * 0.45) p.route.shift();
               else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
               p.cap = Math.atan2(ry, rx);
             }
-            if (Math.hypot(c.x - p.x, c.y - p.y) < CASE * 0.6) { p.etape++; p.route = null; }
             p.humeur = p.aveugle > 0 ? 0 : -1;
           }
           p.phase += p.balayage * 0.8 * dt;
@@ -2027,7 +2055,10 @@
   /* ==================================================== zones ============ */
 
   function chargerZone(numero) {
-    const z = genererZone(grain, numero, joueur.niveau);
+    // Les lueurs spéciales ne dépendent plus de la forme courante — elle repart
+    // à zéro à chaque zone — mais du NUMÉRO de zone : la variété s'ouvre au fil
+    // de l'aventure, la puissance se regagne à chaque fois.
+    const z = genererZone(grain, numero, Math.min(FORMES.length - 1, numero));
     if (!z) return;
     zone = z;
     numeroZone = numero;
@@ -2036,6 +2067,11 @@
     ondes = [];
     cailloux = [];
     fil = [];
+    // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
+    joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
+    joueur.braises = 0; joueur.bonus = null; joueur.bonusT = 0;
+    joueur.souffle = 1; joueur.repit = 0;
+    joueur.chargeDispo = 1; joueur.eclairDispo = 1; joueur.caillouDispo = 1;
     joueur.x = zone.depart.x;
     joueur.y = zone.depart.y;
     joueur.vx = joueur.vy = 0;
@@ -2048,7 +2084,9 @@
   function zoneSuivante() {
     const n = numeroZone + 1;
     chargerZone(n);
-    montrerFlash(`Zone ${n}`, 'Plus grand, plus peuplé. Ta forme, ton éclat et tes braises te suivent.', '#ffe9a8', 'Nouveau territoire');
+    montrerFlash(`Zone ${n}`,
+      "Plus grand, plus peuplé — et tu y entres peureux. Tout se regagne ici : ramasse, calme, remonte.",
+      '#ffe9a8', 'Nouveau territoire');
   }
 
   function cadrer(immediat) {
@@ -2245,6 +2283,8 @@
     recharger: () => { joueur.caillouDispo = 1; majBoutons(); },
     cailloux: () => cailloux,
     porteesCone: portéesCone,
+    CASE: () => CASE,
+    cheminInterne: (x0, y0, x1, y1) => routeVers(x0, y0, x1, y1),
     fil: () => fil,
     estEclaire,
     // pour chaque PNJ à portée d'écran : ses yeux sont-ils dessinés, et sinon pourquoi

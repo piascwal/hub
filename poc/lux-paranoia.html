@@ -586,10 +586,12 @@
       for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
       z.porteDe = porteDe;
 
-      const persos = [];
-      const palette = numero === 1
-        ? [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE]
-        : [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE, EMOTIONS.COLERE];
+      // On pose d'abord les PLACES, on décide la composition ensuite. Tirer
+      // l'émotion place par place ne garantissait rien : une zone pouvait naître
+      // avec une seule âme à calmer — le portail en réclamait alors plus qu'il
+      // n'en existait — ou, après qu'on eut écarté ces variantes-là, sans la
+      // moindre sentinelle, c'est-à-dire sans le moindre danger.
+      const places = [];
       for (const s of z.salles) {
         if (s === depart) continue;
         const combien = 1 + Math.floor(rnd() * 2);
@@ -597,11 +599,37 @@
           const cx = s.x + Math.floor(rnd() * s.w);
           const cy = s.y + Math.floor(rnd() * s.h);
           if (d[cy][cx] < 0) continue;
+          places.push({ cx, cy });
+        }
+      }
+      // Il faut de quoi tenir les deux quotas à la fois. Sous ce seuil la zone
+      // est trop peu peuplée pour être intéressante : variante suivante.
+      const MINI_AMES = 4, MINI_ROUGES = 2;
+      if (places.length < MINI_AMES + MINI_ROUGES) continue;
+
+      // mélange déterministe, puis quotas garantis avant de compléter au hasard
+      for (let k = places.length - 1; k > 0; k--) {
+        const j = Math.floor(rnd() * (k + 1));
+        [places[k], places[j]] = [places[j], places[k]];
+      }
+      const douces = [EMOTIONS.PEUR, EMOTIONS.CURIEUX];
+      const reste = numero === 1
+        ? [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE]
+        : [EMOTIONS.PEUR, EMOTIONS.CURIEUX, EMOTIONS.COLERE, EMOTIONS.COLERE];
+      const emotions = places.map((_, i) =>
+        i < MINI_AMES ? douces[Math.floor(rnd() * douces.length)]
+        : i < MINI_AMES + MINI_ROUGES ? EMOTIONS.COLERE
+        : reste[Math.floor(rnd() * reste.length)]);
+
+      const persos = [];
+      {
+        for (let iPlace = 0; iPlace < places.length; iPlace++) {
+          const { cx, cy } = places[iPlace];
           const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
           const regard = rnd() * TAU;
-          // sortie du littéral : la ronde a besoin de savoir si c'est une
-          // sentinelle, et une propriété d'objet n'est pas une variable
-          const emotion = palette[Math.floor(rnd() * palette.length)];
+          // la ronde a besoin de savoir si c'est une sentinelle, et une
+          // propriété d'objet n'est pas une variable
+          const emotion = emotions[iPlace];
           persos.push({
             x, y, baseX: x, baseY: y, vx: 0, vy: 0,
             sx: 1, sy: 1, vsx: 0, vsy: 0,
@@ -660,13 +688,12 @@
       };
       if (!lueurs.every(joignable)) continue;
 
-      // Il faut assez d'âmes à calmer pour remplir le portail, sinon la zone
-      // est infinissable. Le plancher de deux âmes demandées pouvait dépasser
-      // ce que la variante contenait : mesuré, 2 zones sur 120 réclamaient plus
-      // d'âmes qu'il n'en existait. Quatre au minimum, donc — une de plus que
-      // le maximum jamais demandé.
+      // Filet de sécurité : les quotas sont déjà garantis plus haut, mais une
+      // place peut être perdue en chemin. Une zone sans assez d'âmes est
+      // infinissable, une zone sans sentinelle est sans danger.
       const calmables = persos.filter((q) => q.emotion !== EMOTIONS.COLERE).length;
-      if (calmables < 4) continue;
+      if (calmables < MINI_AMES) continue;
+      if (persos.length - calmables < MINI_ROUGES) continue;
 
       // Torches fixées aux murs : gratuites mais temporaires, contrairement aux
       // braises qu'on porte. En passant devant, on les allume pour un moment.

@@ -894,24 +894,27 @@
         // reste : sans elle, un seul rouge suivait le joueur à travers toute la
         // zone et le revidait à chaque réapparition.
         const loin = Math.hypot(p.x - p.baseX, p.y - p.baseY) > CASE * 5.5;
-        const gene = p.aveugle > 0 || prochedUneBraise(p.x, p.y, 1);
-        if (voit && !loin && !gene) p.alerte = 2.6;      // elle t'a vu : elle poursuit
-        else if (p.alerte > 0) p.alerte -= dt;
-        if (gene) p.alerte = 0;
+        if (p.alerte > 0) p.alerte -= dt;         // l'alerte est posée par majRegles
+        if (p.gene) p.alerte = 0;
 
         if (p.alerte > 0) {
+          // EN ALERTE, ELLE N'A PAS VU LE HÉROS. Elle se doute de quelque chose
+          // et fouille sa zone : elle balaye largement et avance dans la
+          // direction qu'elle regarde. Elle ne fonce surtout pas sur le joueur —
+          // c'est le front rouge de son cône qui menace, pas elle.
           p.route = null;
-          p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * (p.bouscule > 0 ? 14 : 5) * dt;
-          if (p.bouscule > 0) p.bouscule -= dt;
-          if (d < PORTEE_VUE * 1.3) {
-            const vitesse = 210 + zone.numero * 12;
-            p.vx += (dx / d) * vitesse * dt;
-            p.vy += (dy / d) * vitesse * dt;
+          if (!p.enAlerte) { p.enAlerte = true; p.capAlerte = p.regard; p.phase = 0; }
+          p.phase += 1.5 * dt;
+          p.regard = p.capAlerte + Math.sin(p.phase) * 0.9;
+          if (!loin) {
+            p.vx += Math.cos(p.regard) * 130 * dt;
+            p.vy += Math.sin(p.regard) * 130 * dt;
           }
           p.humeur = -1;
           if (Math.random() < dt * 4) emettre(p.x, p.y - D.taille * 0.75, '#ff7a6b', 1, 34, 'trait');
 
         } else {
+          p.enAlerte = false;
           // elle a entendu un caillou : elle va voir, sans être alertée
           if (p.curiosite && p.curieuxT > 0) {
             p.curieuxT -= dt;
@@ -932,11 +935,13 @@
           }
           // ronde : elle va d'un point de passage au suivant, et le regard
           // balaye autour de sa direction de marche
-          const b = zone.braises.find((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r);
+          // elle recule jusqu'à être NETTEMENT hors de la braise : s'arrêter à
+          // sa frontière la faisait osciller entre gênée et pas gênée
+          const b = zone.braises.find((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r * 1.3);
           if (b) {
             const bx = p.x - b.x, by = p.y - b.y, bd = Math.hypot(bx, by) || 1;
-            p.vx += (bx / bd) * 260 * dt;
-            p.vy += (by / bd) * 260 * dt;
+            p.vx += (bx / bd) * 300 * dt;
+            p.vy += (by / bd) * 300 * dt;
             p.humeur = 0;
           } else if (p.curiosite) {
             // on la laisse finir son détour avant de reprendre la ronde
@@ -995,13 +1000,11 @@
         p.x += (sx / sd) * k; p.y += (sy / sd) * k;
         joueur.x -= (sx / sd) * k; joueur.y -= (sy / sd) * k;
         degager(joueur, demi);
-        // On l'a touchée : elle se retourne. Se cogner dans une sentinelle sans
-        // qu'elle réagisse parce qu'on n'était pas dans son cône n'avait aucun sens.
-        if (p.emotion === EMOTIONS.COLERE && p.aveugle <= 0) {
-          p.alerte = 2.6;
-          p.bouscule = 0.5;              // le regard pivote vite pendant ce temps
+        // Toucher une sentinelle est fatal (voir majRegles) ; ici on se contente
+        // de la réveiller, pour le cas où elle serait aveuglée.
+        if (p.emotion === EMOTIONS.COLERE) {
+          p.alerte = 2.8;
           p.route = null;
-          if (Math.random() < 0.3) emettre(p.x, p.y - D.taille * 0.8, '#ff7a6b', 2, 44, 'trait');
         }
       }
 
@@ -1106,37 +1109,42 @@
       }
     }
 
-    // Chaque sentinelle a sa propre jauge, qui se remplit tant que tu es dans
-    // son cône et se vide dès que tu en sors. Pleine, elle t'élimine. Avant, la
-    // perte était une valeur invisible : rien ne disait combien de temps il
-    // restait. Maintenant le cône lui-même se remplit sous tes yeux.
+    // LA RÈGLE. Entrer dans le faisceau ne te fait pas repérer : ça met la
+    // sentinelle en alerte, et une zone rouge se met à grandir depuis elle le
+    // long de son cône. Tant que ce front ne t'a pas rattrapé, tu peux encore
+    // sortir. S'il t'atteint — ou si tu la touches — c'est fini. La distance
+    // fait donc le délai toute seule, sans aucune formule.
     if (joueur.repit > 0) joueur.repit -= dt;
     const abri = prochedUneBraise(joueur.x, joueur.y, 1) || procheDuneTorche(joueur.x, joueur.y);
     let pire = 0, traque = false;
 
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE) continue;
-      const vise = !aBonus('souffle') && !abri && joueur.repit <= 0
-        && p.aveugle <= 0 && p.cligne <= 0
-        && Math.hypot(joueur.x - p.x, joueur.y - p.y) <= PORTEE_VUE
+
+      // Hystérésis sur l'abri : une sentinelle arrêtée pile au bord d'une braise
+      // basculait alerte / pas alerte plusieurs fois par seconde. Elle entre
+      // dans l'état « gênée » plus loin qu'elle n'en sort.
+      p.gene = p.aveugle > 0 || prochedUneBraise(p.x, p.y, p.gene ? 1.12 : 0.95);
+
+      const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
+      if (d < D.taille && joueur.repit <= 0 && p.aveugle <= 0) { eteindre(); return; }
+
+      const dansFaisceau = !aBonus('souffle') && !abri && joueur.repit <= 0
+        && !p.gene && p.cligne <= 0
+        && d <= PORTEE_VUE
         && dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, PORTEE_VUE, 0.42)
         && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
-      if (vise) {
+      if (dansFaisceau) {
         traque = true;
-        // La montée dépend de la distance : collé à elle, deux secondes ; au
-        // bord de son cône, plus de sept. C'est ce qui manquait — on se sentait
-        // repéré à bout de champ aussi vite que sous son nez.
-        const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
-        const proche = clamp(1 - d / PORTEE_VUE, 0, 1);
-        p.charge = Math.min(1, p.charge + (0.13 + proche * proche * 0.42) * dt);
+        p.alerte = 2.8;                         // elle se doute, elle n'a pas vu
+        p.charge = Math.min(1, p.charge + 0.34 * dt);
+        if (p.charge * PORTEE_VUE >= d) { eteindre(); return; }   // le front t'a rattrapé
       } else {
-        // hors du cône ça redescend ; derrière un mur, plus vite encore
         const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
-        p.charge = Math.max(0, p.charge - (cache ? 0.55 : 0.32) * dt);
+        p.charge = Math.max(0, p.charge - (cache ? 0.7 : 0.45) * dt);
       }
       pire = Math.max(pire, p.charge);
-      if (p.charge >= 1) { eteindre(); return; }
     }
 
     // Le halo suit la jauge la plus pleine : la lumière rétrécit à mesure qu'une
@@ -1187,12 +1195,16 @@
   // loin. Les sentinelles qui l'entendent vont VOIR ce que c'était — elles se
   // déplacent vers le bruit sans être alertées. C'est le seul outil du Peureux,
   // et il reste utile jusqu'au bout.
-  function lancerCaillou() {
+  // visée du caillou : on glisse le doigt depuis le bouton pour choisir la
+  // direction et la distance
+  const visee = { actif: false, ox: 0, oy: 0, dx: 0, dy: 0, force: 0, id: null };
+
+  function lancerCaillou(angle, portion) {
     if (joueur.caillouDispo < 1) return;
     joueur.caillouDispo = 0;
     majBoutons();
-    const a = joueur.regard;
-    const portee = CASE * 4.2;
+    const a = angle === undefined ? joueur.regard : angle;
+    const portee = CASE * (1.6 + (portion === undefined ? 1 : portion) * 4.4);
     // il s'arrête au premier mur : un caillou ne traverse pas la pierre
     let d = CASE * 0.4;
     while (d < portee && !solide(Math.floor((joueur.x + Math.cos(a) * d) / CASE),
@@ -1203,6 +1215,37 @@
       x1: joueur.x + Math.cos(a) * d, y1: joueur.y + Math.sin(a) * d,
       x: joueur.x, y: joueur.y, t: 0, duree: 0.34 + d / (CASE * 16),
     });
+  }
+
+  // trajectoire prévue, dessinée pendant la visée
+  function dessinerVisee() {
+    if (!visee.actif) return;
+    const a = Math.atan2(visee.dy, visee.dx);
+    const portee = CASE * (1.6 + visee.force * 4.4);
+    let d = CASE * 0.4;
+    while (d < portee && !solide(Math.floor((joueur.x + Math.cos(a) * d) / CASE),
+                                 Math.floor((joueur.y + Math.sin(a) * d) / CASE))) d += CASE * 0.2;
+    d = Math.max(CASE * 0.6, d - CASE * 0.25);
+    const jx = joueur.x - cam.x, jy = joueur.y - cam.y;
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = 'rgba(178,186,204,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i <= 16; i++) {
+      const k = i / 16;
+      const x = jx + Math.cos(a) * d * k;
+      const y = jy + Math.sin(a) * d * k - Math.sin(k * Math.PI) * CASE * 0.55;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const cx = jx + Math.cos(a) * d, cy = jy + Math.sin(a) * d;
+    ctx.strokeStyle = 'rgba(178,186,204,0.75)';
+    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, TAU); ctx.stroke();
+    ctx.fillStyle = 'rgba(178,186,204,0.25)';
+    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, TAU); ctx.fill();
+    ctx.restore();
   }
 
   function majCailloux(dt) {
@@ -1790,23 +1833,17 @@
       if (p.emotion !== EMOTIONS.COLERE || p.charge <= 0.01) continue;
       const portee = PORTEE_VUE * p.charge;
       const g = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, portee);
-      g.addColorStop(0, `rgba(255,60,50,${0.1 + p.charge * 0.3})`);
-      g.addColorStop(1, `rgba(255,60,50,${0.03 + p.charge * 0.12})`);
+      g.addColorStop(0, `rgba(255,60,50,${0.06 + p.charge * 0.14})`);
+      g.addColorStop(0.72, `rgba(255,66,52,${0.12 + p.charge * 0.3})`);
+      g.addColorStop(1, `rgba(255,86,66,${0.2 + p.charge * 0.45})`);
       const pj = p.rayonsVue ? raccourcir(p.rayonsVue, portee)
                              : portéesCone(p.x, p.y, p.regard, portee, 0.42);
+      // Le front n'est plus un trait : le dégradé s'assombrit vers l'extérieur,
+      // donc la limite se lit comme une zone dense qui avance vers toi. Tout
+      // reste du faisceau, rien n'est un contour.
       ctx.fillStyle = g;
       tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, pj);
       ctx.fill();
-      // le front qui avance : c'est lui qu'on regarde
-      ctx.strokeStyle = `rgba(255,90,70,${0.35 + p.charge * 0.5})`;
-      ctx.lineWidth = 2 + p.charge * 2;
-      ctx.beginPath();
-      for (let i = 0; i <= RAYONS; i++) {
-        const a = p.regard - 0.42 + (0.84 * i) / RAYONS;
-        const fx = p.x - cam.x + Math.cos(a) * pj[i], fy = p.y - cam.y + Math.sin(a) * pj[i];
-        if (i === 0) ctx.moveTo(fx, fy); else ctx.lineTo(fx, fy);
-      }
-      ctx.stroke();
     }
     if (zone.sortie.vue) {
       ctx.strokeStyle = ouverte ? 'rgba(255,233,168,0.65)' : 'rgba(255,233,168,0.3)';
@@ -1862,12 +1899,15 @@
         tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, portees);
         ctx.fill();
       }
-      // le contour du cône réellement vu : il épouse les murs
+      // Pas de contour : tout doit rester du faisceau. Traquée, le cône est
+      // simplement plus dense — la jauge par-dessus fait le reste.
       if (traque) {
-        ctx.strokeStyle = 'rgba(255,110,90,0.4)';
-        ctx.lineWidth = 1.5;
+        const g2 = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, pr);
+        g2.addColorStop(0, 'rgba(255,96,78,0.17)');
+        g2.addColorStop(1, 'rgba(255,96,78,0)');
+        ctx.fillStyle = g2;
         tracerCone(ctx, p.x - cam.x, p.y - cam.y, p.regard, 0.42, portees);
-        ctx.stroke();
+        ctx.fill();
       }
     }
     for (const p of zone.persos) {
@@ -1914,6 +1954,7 @@
     }
 
     dessinerManche();
+    dessinerVisee();
   }
 
   function flecheVers(wx, wy, couleur, temps) {
@@ -2119,7 +2160,29 @@
     });
     element.addEventListener('click', (e) => e.preventDefault());
   };
-  bouton(elCaillou, lancerCaillou);
+  // Le caillou ne passe pas par `bouton()` : on garde le doigt dessus pour viser.
+  elCaillou.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (elCaillou.disabled || visee.id !== null) return;
+    elCaillou.setPointerCapture(e.pointerId);
+    visee.id = e.pointerId; visee.actif = true;
+    visee.ox = e.clientX; visee.oy = e.clientY;
+    visee.dx = Math.cos(joueur.regard); visee.dy = Math.sin(joueur.regard);
+    visee.force = 0.55;
+  });
+  elCaillou.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== visee.id) return;
+    const dx = e.clientX - visee.ox, dy = e.clientY - visee.oy;
+    const d = Math.hypot(dx, dy);
+    if (d > 8) { visee.dx = dx / d; visee.dy = dy / d; visee.force = clamp(d / 110, 0.15, 1); }
+  });
+  ['pointerup', 'pointercancel'].forEach((t) =>
+    elCaillou.addEventListener(t, (e) => {
+      if (e.pointerId !== visee.id) return;
+      visee.id = null; visee.actif = false;
+      lancerCaillou(Math.atan2(visee.dy, visee.dx), visee.force);
+    }));
+  elCaillou.addEventListener('click', (e) => e.preventDefault());
   bouton(elBraise, poserBraise);
   bouton(elCharge, decharger);
   bouton(elEclair, lancerEclat);
@@ -2178,6 +2241,8 @@
       majBoutons();
     },
     poserBraise, decharger, lancerEclat, lancerCaillou,
+    visee: () => ({ ...visee }),
+    recharger: () => { joueur.caillouDispo = 1; majBoutons(); },
     cailloux: () => cailloux,
     porteesCone: portéesCone,
     fil: () => fil,

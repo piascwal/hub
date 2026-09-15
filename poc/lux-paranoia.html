@@ -321,22 +321,28 @@
   // règle : on ne découvre jamais deux mécaniques à la fois, sinon on n'en
   // comprend aucune.
   // Les seuils tiennent dans UNE zone, puisqu'on repart peureux à chaque fois.
-  // Mesuré avant recalage : une zone rapporte 72 à 149 d'éclat selon sa taille,
-  // alors que la dernière forme en demandait 170 — elle était inatteignable.
+  // Ils sont calés sur le PLAFOND réellement mesuré d'une zone — tout ramasser,
+  // tout calmer, tout livrer : 108 en zone 1, 122 en zone 3, 177 en zone 6.
+  // On montait quatre formes en une poignée de secondes ; chaque palier demande
+  // maintenant un vrai bout de zone (25 %, 50 %, 80 % du plafond de la zone 1).
+  // Solaire est au-delà du plafond des deux premières zones : c'est une
+  // récompense de fin d'aventure, pas un passage obligé. Premier calage tenté à
+  // 30/70/120/180 : Ardent passait au-dessus du plafond de la zone 1 et Solaire
+  // au-dessus de celui de la zone 6 — deux formes purement décoratives.
   const FORMES = [
     { nom: 'Peureux', couleur: '#8fd0ff', seuil: 0, halo: 1.00, portee: 0, cone: 0,
       verbe: 'Le caillou',
       texte: "Tu n'as qu'un halo minuscule — mais tu peux lancer un caillou devant toi. Là où il tombe, les sentinelles vont voir. C'est toute ton arme : les détourner." },
-    { nom: 'Curieux', couleur: '#ffd479', seuil: 12, halo: 1.28, portee: 5.2, cone: 0.34,
+    { nom: 'Curieux', couleur: '#ffd479', seuil: 26, halo: 1.28, portee: 5.2, cone: 0.34,
       verbe: 'Le faisceau',
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
-    { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 30, halo: 1.45, portee: 6.0, cone: 0.32,
+    { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 55, halo: 1.45, portee: 6.0, cone: 0.32,
       verbe: 'Le caillou couve',
       texte: "Ton caillou ne retombe plus éteint : là où il tombe, il se met à brûler pour toujours. Les rouges ne supportent pas cette lumière — tu poses tes abris à distance." },
-    { nom: 'Ardent', couleur: '#ff9a6b', seuil: 54, halo: 1.62, portee: 7.0, cone: 0.30,
+    { nom: 'Ardent', couleur: '#ff9a6b', seuil: 88, halo: 1.62, portee: 7.0, cone: 0.30,
       verbe: 'Le caillou frappe',
       texte: "Vise un rouge, touche-le : il est étourdi et perd ta trace. Ce n'est plus seulement un leurre, c'est de quoi ouvrir un passage à ton convoi." },
-    { nom: 'Solaire', couleur: '#fff2c4', seuil: 84, halo: 1.9, portee: 8.2, cone: 0.30,
+    { nom: 'Solaire', couleur: '#fff2c4', seuil: 128, halo: 1.9, portee: 8.2, cone: 0.30,
       verbe: 'Le caillou éclate',
       texte: "À l'impact, le caillou se brise en un éclat qui aveugle tous les rouges autour du point de chute. Un seul lancer, et toute une salle cesse de te chercher." },
   ];
@@ -360,15 +366,25 @@
   // même règle pour le joueur et pour les âmes qu'il escorte : on court, on
   // marche, ou quelque chose nous a repérés. Avant, le peureux portait des
   // sourcils d'intrigué en permanence et on ne lisait plus rien sur lui.
-  const HUMEURS = { PEUR: 'peur', INTRIGUE: 'intrigue', ACHARNE: 'acharne' };
+  // INQUIET est la peur au repos : mêmes sourcils relevés, mêmes grands yeux,
+  // mais la bouche reste sage. La bouche ouverte qui tremble est réservée au
+  // vrai danger — sans cette nuance, un peureux tranquille hurlait en
+  // permanence et on ne voyait plus arriver le moment qui compte.
+  const HUMEURS = { PEUR: 'peur', INQUIET: 'inquiet', INTRIGUE: 'intrigue',
+                    ACHARNE: 'acharne', VISEE: 'visee' };
   // moitié de la vitesse de pointe du joueur : au-delà, on court vraiment
   const SEUIL_COURSE = 150;
-  const humeurSelon = (p, menace) => menace ? HUMEURS.PEUR
-    : (Math.hypot(p.vx, p.vy) > SEUIL_COURSE ? HUMEURS.ACHARNE : HUMEURS.INTRIGUE);
-  // Le joueur a peur des mêmes choses que ses âmes, plus une : sentir sa
-  // propre lumière se faire manger.
-  const humeurDuJoueur = () =>
-    humeurSelon(joueur, menace || joueur.vu > 0.15 || joueur.souffle < 0.45);
+  // `calme` distingue le repos serein du repos inquiet : une âme qu'on n'a pas
+  // encore apprivoisée reste sur ses gardes.
+  const humeurSelon = (p, menace, calme) => menace ? HUMEURS.PEUR
+    : Math.hypot(p.vx, p.vy) > SEUIL_COURSE ? HUMEURS.ACHARNE
+    : calme ? HUMEURS.INTRIGUE : HUMEURS.INQUIET;
+  // Le joueur a peur des mêmes choses que ses âmes, plus une : sentir sa propre
+  // lumière se faire manger. Et viser au caillou passe avant tout le reste :
+  // c'est un geste volontaire, il mérite son visage à lui.
+  const humeurDuJoueur = () => visee.actif ? HUMEURS.VISEE
+    : humeurSelon(joueur, menace || joueur.vu > 0.15 || joueur.souffle < 0.45,
+                  joueur.niveau > 0);
   const COULEURS = {
     [EMOTIONS.PEUR]: '#8fd0ff',
     [EMOTIONS.COLERE]: '#ff7a6b',
@@ -569,6 +585,56 @@
       };
       if (!lueurs.every(joignable)) continue;
 
+      // PORTES. On ne les met que dans les couloirs, à la bouche d'une salle :
+      // une case libre hors salle, avec exactement deux voisines libres et
+      // opposées (donc un vrai couloir, pas un carrefour), dont l'une est dans
+      // la salle. Fermée, elle coupe le regard d'une sentinelle qui balaye le
+      // couloir — c'est là tout son intérêt : un abri qui existe sans lumière.
+      const dansUneSalle = (cx, cy) => z.salles.some((s) =>
+        cx >= s.x && cx < s.x + s.w && cy >= s.y && cy < s.y + s.h);
+      const libreEn = (cx, cy) =>
+        cx >= 0 && cy >= 0 && cx < z.cols && cy < z.lignes && !z.mur[cy][cx];
+      const portes = [];
+      const candidates = [];
+      for (let cy = 1; cy < z.lignes - 1; cy++) {
+        for (let cx = 1; cx < z.cols - 1; cx++) {
+          if (z.mur[cy][cx] || d[cy][cx] < 0 || dansUneSalle(cx, cy)) continue;
+          const h = [libreEn(cx - 1, cy), libreEn(cx + 1, cy)];
+          const v = [libreEn(cx, cy - 1), libreEn(cx, cy + 1)];
+          const nb = h.filter(Boolean).length + v.filter(Boolean).length;
+          if (nb !== 2) continue;                       // carrefour ou cul-de-sac
+          const couloirH = h[0] && h[1], couloirV = v[0] && v[1];
+          if (!couloirH && !couloirV) continue;         // coude : le battant n'a pas d'axe
+          const touche = couloirH
+            ? dansUneSalle(cx - 1, cy) || dansUneSalle(cx + 1, cy)
+            : dansUneSalle(cx, cy - 1) || dansUneSalle(cx, cy + 1);
+          if (!touche) continue;                        // pas à la bouche d'une salle
+          candidates.push({ cx, cy, couloirH });
+        }
+      }
+      // Écartées les unes des autres, et jamais sur le seuil ni sur le portail :
+      // une porte collée au départ enferme, une porte sur la sortie bloque la fin.
+      const interdit = (cx, cy) =>
+        (Math.abs(cx - depart.cx) <= 1 && Math.abs(cy - depart.cy) <= 1)
+        || (Math.abs(cx - sortie.cx) <= 1 && Math.abs(cy - sortie.cy) <= 1);
+      for (let k = candidates.length - 1; k > 0; k--) {   // mélange déterministe
+        const j = Math.floor(rnd() * (k + 1));
+        [candidates[k], candidates[j]] = [candidates[j], candidates[k]];
+      }
+      const maxPortes = 3 + Math.min(5, numero);
+      for (const c of candidates) {
+        if (portes.length >= maxPortes) break;
+        if (interdit(c.cx, c.cy)) continue;
+        if (portes.some((q) => Math.abs(q.cx - c.cx) + Math.abs(q.cy - c.cy) < 3)) continue;
+        portes.push({
+          cx: c.cx, cy: c.cy,
+          x: (c.cx + 0.5) * CASE, y: (c.cy + 0.5) * CASE,
+          // le couloir est horizontal -> le battant barre verticalement
+          verticale: c.couloirH,
+          ouverte: 0, phase: rnd() * TAU,
+        });
+      }
+
       // Torches fixées aux murs : gratuites mais temporaires, contrairement aux
       // braises qu'on porte. En passant devant, on les allume pour un moment.
       const torches = [];
@@ -593,8 +659,14 @@
         }
       }
 
+      // table de consultation : `solide` est appelé des milliers de fois par
+      // image, il ne peut pas parcourir une liste à chaque fois
+      const porteDe = [];
+      for (let y = 0; y < z.lignes; y++) porteDe.push(new Array(z.cols).fill(null));
+      for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
+
       return {
-        ...z, numero, grain: grainTexte, lueurs, persos, torches,
+        ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
         braises: [],
         depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
         // Le portail ne compte plus des lueurs mais des ÂMES : il faut lui
@@ -691,8 +763,16 @@
 
   /* ==================================================== collisions ======= */
 
-  const solide = (cx, cy) =>
-    cx < 0 || cy < 0 || cx >= zone.cols || cy >= zone.lignes || zone.mur[cy][cx] === 1;
+  // Une porte fermée est un mur : collision, ligne de vue, propagation de la
+  // lumière et découpe des cônes passent TOUTES par ici, donc il suffit de le
+  // dire une fois. Le parcours en largeur, lui, ne lit que `mur` — une porte
+  // s'ouvre, donc elle ne rend jamais rien inatteignable.
+  const solide = (cx, cy) => {
+    if (cx < 0 || cy < 0 || cx >= zone.cols || cy >= zone.lignes) return true;
+    if (zone.mur[cy][cx] === 1) return true;
+    const pt = zone.porteDe[cy] && zone.porteDe[cy][cx];
+    return !!pt && pt.ouverte < 0.5;
+  };
 
   function degager(p, demi) {
     const c0x = Math.floor((p.x - demi) / CASE), c1x = Math.floor((p.x + demi) / CASE);
@@ -947,7 +1027,7 @@
       // Une âme ne porte pas une humeur de naissance : elle porte celle de la
       // situation, exactement comme le joueur. Calculée avant son déplacement,
       // donc sur la vitesse de l'image précédente — un retard invisible.
-      if (p.emotion !== EMOTIONS.COLERE) p.humeur = humeurSelon(p, menace || p.fuit > 0);
+      if (p.emotion !== EMOTIONS.COLERE) p.humeur = humeurSelon(p, menace || p.fuit > 0, p.calme);
 
       if (p.emotion === EMOTIONS.CURIEUX) {
         if (p.calme) {
@@ -1183,24 +1263,24 @@
     joueur.souffle = 1;
     for (const p of zone.persos) p.charge = 0;
 
-    // En revanche on perd TOUTES les âmes — celles du convoi comme celles déjà
-    // livrées — et elles restent là où on est tombé. C'est ce qui donne son
-    // poids à la mort maintenant que le niveau est une escorte : le portail se
-    // vide, et il faut retourner les chercher à l'endroit exact de l'échec.
+    // On perd le CONVOI, jamais la banque. Ce qui est entré dans le portail y
+    // reste : le travail déjà fait ne se défait pas, sinon une mort tardive
+    // renvoie à la case départ et l'escorte devient décourageante. Ce qu'on
+    // portait sur le dos, en revanche, se disperse là où on est tombé, et il
+    // faut retourner le chercher à l'endroit exact de l'échec.
     const mx = joueur.x, my = joueur.y;
     const prises = [];
     let perdues = 0;
     for (const p of zone.persos) {
-      if (p.emotion === EMOTIONS.COLERE || (!p.suit && !p.livre)) continue;
+      if (p.emotion === EMOTIONS.COLERE || !p.suit || p.livre) continue;
       const pos = solLibrePres(mx, my, ++perdues, prises);
       prises.push(pos);
       p.x = p.baseX = pos.x; p.y = p.baseY = pos.y;
       p.vx = p.vy = 0;
-      p.suit = false; p.livre = false; p.calme = false;
+      p.suit = false; p.calme = false;
       p.compteCalme = 0; p.rang = 0; p.fuit = 0.8;
       emettre(p.x, p.y - D.taille * 0.8, '#8fd0ff', 8, 60);
     }
-    zone.sortie.ames = 0;        // les livrées sont déjà comptées : une par perso
 
     joueur.x = zone.depart.x; joueur.y = zone.depart.y;
     joueur.vx = joueur.vy = 0;
@@ -1228,6 +1308,25 @@
     joueur.bonusT = b.duree;
     montrerToast(b.phrase, b.couleur);
     gagnerEclat(2);
+  }
+
+  // Une porte s'ouvre pour QUI QUE CE SOIT — joueur comme sentinelle — et se
+  // referme seule. C'est ce qui en fait un objet de tension et pas un verrou :
+  // s'en approcher ouvre le couloir au regard d'en face, exactement au moment
+  // où on voudrait rester caché.
+  function majPortes(dt) {
+    for (const pt of zone.portes) {
+      let proche = Math.hypot(joueur.x - pt.x, joueur.y - pt.y) < CASE * 0.95;
+      if (!proche) {
+        for (const q of zone.persos) {
+          if (q.livre) continue;
+          if (Math.hypot(q.x - pt.x, q.y - pt.y) < CASE * 0.95) { proche = true; break; }
+        }
+      }
+      const avant = pt.ouverte;
+      pt.ouverte = clamp(pt.ouverte + (proche ? 3.2 : -1.3) * dt, 0, 1);
+      if (avant < 0.5 && pt.ouverte >= 0.5) emettre(pt.x, pt.y, '#c8b088', 5, 40);
+    }
   }
 
   function majRegles(dt) {
@@ -1505,7 +1604,11 @@
   // Tant que le peureux portait des sourcils d'intrigué, aucune bouche ne
   // pouvait rattraper ça — il avait l'air plus inquiet sans bouche du tout.
   function dessinerTete(p, couleur, taille, allume, opacite, humeur, temps) {
-    const peur = humeur === HUMEURS.PEUR, acharne = humeur === HUMEURS.ACHARNE;
+    const affole = humeur === HUMEURS.PEUR;          // le vrai danger
+    const inquiet = humeur === HUMEURS.INQUIET;      // la peur au repos
+    const peur = affole || inquiet;                  // mêmes yeux, mêmes sourcils
+    const acharne = humeur === HUMEURS.ACHARNE;
+    const visee = humeur === HUMEURS.VISEE;
     const w = taille * p.sx, h = taille * p.sy;
     const arrondi = Math.min(w, h) * 0.32;
     const demi = taille * 0.5;
@@ -1542,6 +1645,8 @@
     const oeilY = -demi * 0.14 * p.sy;
     // l'œil s'ouvre grand quand on a peur, se plisse quand on s'acharne
     const rOeil = demi * 0.22 * (peur ? 1.22 : acharne ? 0.94 : 1);
+    // en visée on ferme un œil : c'est le geste universel de qui ajuste
+    const clinDoeil = visee ? 1 : 0;
     const px = Math.cos(p.regard) * rOeil * 0.42;
     const py = Math.sin(p.regard) * rOeil * 0.42;
     const encre = allume ? '#0a0a10' : couleur;
@@ -1561,8 +1666,17 @@
       // grand ouvert qui fait l'œil affolé, bien plus que sa taille.
       const rPupille = rOeil * (peur ? 0.36 : acharne ? 0.58 : 0.5);
       const hOeil = acharne ? rOeil * 0.62 : rOeil;   // paupière basse
-      const frisson = peur ? Math.sin(temps * 17 + (p.tremble || 0)) * rOeil * 0.07 : 0;
+      const frisson = affole ? Math.sin(temps * 17 + (p.tremble || 0)) * rOeil * 0.07 : 0;
       for (const dx of [-ecart, ecart]) {
+        if (clinDoeil && dx > 0) {                    // l'œil droit se ferme
+          ctx.strokeStyle = encre;
+          ctx.lineWidth = Math.max(2, demi * 0.12);
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(dx, oeilY - rOeil * 0.35, rOeil, 0.5, Math.PI - 0.5);
+          ctx.stroke();
+          continue;
+        }
         ctx.save();
         ctx.beginPath(); ctx.ellipse(dx, oeilY, rOeil, hOeil, 0, 0, TAU);
         ctx.fillStyle = '#ffffff'; ctx.fill();
@@ -1580,7 +1694,17 @@
     ctx.lineWidth = Math.max(2, demi * 0.12);
     ctx.lineCap = 'round';
     const lg = rOeil * 1.15;
-    if (peur) {
+    if (visee) {
+      // un sourcil remonté, l'autre baissé sur l'œil fermé : la concentration
+      ctx.beginPath();
+      ctx.moveTo(-ecart - lg * 0.5, oeilY - rOeil * 2.1);
+      ctx.lineTo(-ecart + lg * 0.5, oeilY - rOeil * 2.35);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ecart - lg * 0.5, oeilY - rOeil * 1.5);
+      ctx.lineTo(ecart + lg * 0.5, oeilY - rOeil * 1.25);
+      ctx.stroke();
+    } else if (peur) {
       // Pointes INTÉRIEURES relevées, extérieures qui tombent, et le tout
       // remonté loin au-dessus de l'œil : c'est le sourcil inquiet.
       const sy = oeilY - rOeil * 1.95;
@@ -1624,10 +1748,19 @@
     ctx.lineWidth = Math.max(1.8, demi * 0.1);
     ctx.strokeStyle = encre;
     ctx.beginPath();
-    if (peur) {
+    if (visee) {
+      // bouche poussée sur le côté, comme on mord sa joue en ajustant
+      ctx.moveTo(-bl * 0.1, by + bl * 0.06);
+      ctx.quadraticCurveTo(bl * 0.22, by + bl * 0.02, bl * 0.46, by - bl * 0.12);
+    } else if (affole) {
       // petite bouche ouverte qui tremble
       const t = Math.sin(temps * 18 + (p.tremble || 0)) * demi * 0.03;
       ctx.ellipse(0, by + t, bl * 0.3, bl * 0.4, 0, 0, TAU);
+    } else if (inquiet) {
+      // sage, à peine tombante : le visage dit l'inquiétude par les sourcils,
+      // la bouche ne fait que ne pas la contredire
+      ctx.moveTo(-bl * 0.34, by - bl * 0.04);
+      ctx.quadraticCurveTo(0, by + bl * 0.1, bl * 0.34, by - bl * 0.04);
     } else if (acharne) {
       ctx.moveTo(-bl * 0.4, by + bl * 0.1);      // trait serré, un rien tombant
       ctx.quadraticCurveTo(0, by - bl * 0.12, bl * 0.4, by + bl * 0.1);
@@ -1723,6 +1856,36 @@
       }
     }
     ctx.stroke();
+
+    // --- les battants ---
+    for (const pt of zone.portes) {
+      if (pt.cx < c0x - 1 || pt.cx > c1x + 1 || pt.cy < c0y - 1 || pt.cy > c1y + 1) continue;
+      const x = pt.x - cam.x, y = pt.y - cam.y;
+      const demi = CASE * 0.5;
+      ctx.save();
+      ctx.translate(x, y);
+      if (pt.verticale) ctx.rotate(Math.PI / 2);
+      // le battant pivote sur son gond : fermé il barre le couloir, ouvert il
+      // se range le long de la paroi
+      const angle = pt.ouverte * (Math.PI / 2) * 0.92;
+      ctx.translate(-demi, 0);
+      ctx.rotate(angle);
+      const g = ctx.createLinearGradient(0, -demi * 0.2, 0, demi * 0.2);
+      g.addColorStop(0, '#6a5640');
+      g.addColorStop(1, '#3e3226');
+      ctx.fillStyle = g;
+      carreArrondi(ctx, 0, -CASE * 0.11, CASE * 0.96, CASE * 0.22, CASE * 0.06);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(214,186,140,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // poignée : elle dit de quel côté ça s'ouvre
+      ctx.fillStyle = '#d6ba8c';
+      ctx.beginPath();
+      ctx.arc(CASE * 0.78, 0, CASE * 0.055, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   function dessinerManche() {
@@ -2298,6 +2461,7 @@
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) elToast.classList.remove('on'); }
 
     if (!flashEnCours) {
+      majPortes(dt);              // avant tout le reste : `solide` doit être stable
       majJoueur(dt);
       const eclaires = propager();
       majPersos(dt, temps, eclaires);
@@ -2447,6 +2611,7 @@
                    couleur, taille, true, 1, humeur, 0.3),
     menace: () => menace,
     solide: (x, y) => solide(Math.floor(x / CASE), Math.floor(y / CASE)),
+    vueLibre,
     lancerCaillou,
     // fait retomber un caillou à un endroit précis : c'est le vrai code
     // d'impact, pas une imitation

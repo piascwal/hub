@@ -171,7 +171,11 @@
     pointer-events: none;
   }
 
-  #caillou { border-color: rgba(178, 186, 204, 0.55); color: #b2bacc; }
+  /* `manipulation` laisse le navigateur revendiquer un glissement comme un
+     défilement : il envoyait un pointercancel dès le premier mouvement, et la
+     visée mourait avant qu'on ait pu orienter quoi que ce soit. Ce bouton-ci
+     se garde le geste entier. */
+  #caillou { border-color: rgba(178, 186, 204, 0.55); color: #b2bacc; touch-action: none; }
   #braise { border-color: rgba(255, 196, 120, 0.55); color: #ffc478; }
   #charge { border-color: rgba(255, 154, 107, 0.55); color: #ff9a6b; }
   #eclair { border-color: rgba(255, 246, 214, 0.6); color: #fff6d6; }
@@ -2214,12 +2218,18 @@
     const d = Math.hypot(dx, dy);
     if (d > 8) { visee.dx = dx / d; visee.dy = dy / d; visee.force = clamp(d / 110, 0.15, 1); }
   });
-  ['pointerup', 'pointercancel'].forEach((t) =>
-    elCaillou.addEventListener(t, (e) => {
-      if (e.pointerId !== visee.id) return;
-      visee.id = null; visee.actif = false;
-      lancerCaillou(Math.atan2(visee.dy, visee.dx), visee.force);
-    }));
+  // Le lancer part au RELÂCHEMENT, jamais à l'appui : c'est ce qui laisse
+  // ajuster la direction tant que le doigt est posé.
+  elCaillou.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== visee.id) return;
+    visee.id = null; visee.actif = false;
+    lancerCaillou(Math.atan2(visee.dy, visee.dx), visee.force);
+  });
+  // Une annulation n'est pas un lâcher : on abandonne la visée sans rien lancer.
+  elCaillou.addEventListener('pointercancel', (e) => {
+    if (e.pointerId !== visee.id) return;
+    visee.id = null; visee.actif = false;
+  });
   elCaillou.addEventListener('click', (e) => e.preventDefault());
   bouton(elBraise, poserBraise);
   bouton(elCharge, decharger);

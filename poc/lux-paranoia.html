@@ -355,6 +355,20 @@
   const rangCaillou = () => CAILLOU[joueur.niveau];
 
   const EMOTIONS = { PEUR: 'peur', COLERE: 'colere', CURIEUX: 'curieux' };
+
+  // Un visage ne dit pas QUI on est, il dit CE QUI SE PASSE. Trois humeurs, la
+  // même règle pour le joueur et pour les âmes qu'il escorte : on court, on
+  // marche, ou quelque chose nous a repérés. Avant, le peureux portait des
+  // sourcils d'intrigué en permanence et on ne lisait plus rien sur lui.
+  const HUMEURS = { PEUR: 'peur', INTRIGUE: 'intrigue', ACHARNE: 'acharne' };
+  // moitié de la vitesse de pointe du joueur : au-delà, on court vraiment
+  const SEUIL_COURSE = 150;
+  const humeurSelon = (p, menace) => menace ? HUMEURS.PEUR
+    : (Math.hypot(p.vx, p.vy) > SEUIL_COURSE ? HUMEURS.ACHARNE : HUMEURS.INTRIGUE);
+  // Le joueur a peur des mêmes choses que ses âmes, plus une : sentir sa
+  // propre lumière se faire manger.
+  const humeurDuJoueur = () =>
+    humeurSelon(joueur, menace || joueur.vu > 0.15 || joueur.souffle < 0.45);
   const COULEURS = {
     [EMOTIONS.PEUR]: '#8fd0ff',
     [EMOTIONS.COLERE]: '#ff7a6b',
@@ -514,7 +528,7 @@
             emotion: palette[Math.floor(rnd() * palette.length)],
             eclaire: false, calme: false, suit: false, livre: false, rang: 0,
             aveugle: 0, compteCalme: 0,
-            tremble: rnd() * TAU, humeur: 0,
+            tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
             alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
             curiosite: null, curieuxT: 0,
             // Les sentinelles clignent des yeux : quelques dixièmes de seconde
@@ -622,6 +636,7 @@
   let ondes = [];                  // ondes de choc de la charge et de l'éclat
   let cailloux = [];               // les cailloux en vol
   let fil = [];                    // la trace du joueur : sa seule mémoire du terrain
+  let menace = false;              // un rouge cherche, ou un faisceau nous tient
 
   const joueur = {
     x: 0, y: 0, vx: 0, vy: 0,
@@ -877,7 +892,6 @@
       p.vx += (ax / ad) * 2400 * dt;
       p.vy += (ay / ad) * 2400 * dt;
       p.regard += ecartAngle(p.regard, Math.atan2(ay, ax)) * 5 * dt;
-      p.humeur = 1;
       return;
     }
 
@@ -905,10 +919,7 @@
     }
     if (timide) {
       p.regard += ecartAngle(p.regard, Math.atan2(joueur.y - p.y, joueur.x - p.x)) * 3 * dt;
-      p.humeur = auClair ? 0 : -1;
       if (!auClair && Math.random() < dt * 3) emettre(p.x, p.y - D.taille * 0.7, '#8fd0ff', 1, 24);
-    } else {
-      p.humeur = 1;
     }
   }
 
@@ -923,6 +934,7 @@
         p.prochainCligne -= dt;
         if (p.prochainCligne <= 0) { p.cligne = 0.42; p.prochainCligne = 2.2 + Math.random() * 3.6; }
       }
+      if (p.fuit > 0) p.fuit -= dt;
       const dx = joueur.x - p.x, dy = joueur.y - p.y;
       const d = Math.hypot(dx, dy) || 1;
       // Un peureux ou un curieux te remarque de partout : ils ne te chassent pas.
@@ -932,13 +944,17 @@
             && vueLibre(p.x, p.y, joueur.x, joueur.y)
         : d < CASE * 5 && vueLibre(p.x, p.y, joueur.x, joueur.y);
 
+      // Une âme ne porte pas une humeur de naissance : elle porte celle de la
+      // situation, exactement comme le joueur. Calculée avant son déplacement,
+      // donc sur la vitesse de l'image précédente — un retard invisible.
+      if (p.emotion !== EMOTIONS.COLERE) p.humeur = humeurSelon(p, menace || p.fuit > 0);
+
       if (p.emotion === EMOTIONS.CURIEUX) {
         if (p.calme) {
           suivre(p, dt);
         } else {
           p.phase += p.balayage * (p.eclaire ? 0.18 : 1) * dt;
           p.regard = p.regardRepos + Math.sin(p.phase) * p.amplitude;
-          p.humeur = p.eclaire ? 1 : 0;
         }
 
       } else if (p.emotion === EMOTIONS.PEUR) {
@@ -946,14 +962,13 @@
           p.vx -= (dx / d) * 300 * dt;
           p.vy -= (dy / d) * 300 * dt;
           p.regard = Math.atan2(-dy, -dx);
-          p.humeur = -1;
+          p.fuit = 0.6;                          // il a peur de TOI, pas des rouges
           if (Math.random() < dt * 3) emettre(p.x, p.y - D.taille * 0.7, '#8fd0ff', 1, 26);
         } else {
           p.vx += (p.baseX - p.x) * 1.6 * dt;
           p.vy += (p.baseY - p.y) * 1.6 * dt;
           p.phase += p.balayage * 0.5 * dt;
           p.regard = p.regardRepos + Math.sin(p.phase) * 0.5;
-          p.humeur = 0;
         }
 
       } else {
@@ -979,7 +994,7 @@
             p.vx += Math.cos(p.regard) * 130 * dt;
             p.vy += Math.sin(p.regard) * 130 * dt;
           }
-          p.humeur = -1;
+          p.humeur = HUMEURS.ACHARNE;          // elle cherche, et ça se voit
           if (Math.random() < dt * 4) emettre(p.x, p.y - D.taille * 0.75, '#ff7a6b', 1, 34, 'trait');
 
         } else {
@@ -998,7 +1013,7 @@
                 else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
               }
               p.regard += ecartAngle(p.regard, Math.atan2(p.curiosite.y - p.y, p.curiosite.x - p.x)) * 4 * dt;
-              p.humeur = 0;
+              p.humeur = HUMEURS.INTRIGUE;     // un bruit, pas une certitude
               if (Math.random() < dt * 2) emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 1, 26);
             }
           }
@@ -1011,7 +1026,7 @@
             const bx = p.x - b.x, by = p.y - b.y, bd = Math.hypot(bx, by) || 1;
             p.vx += (bx / bd) * 300 * dt;
             p.vy += (by / bd) * 300 * dt;
-            p.humeur = 0;
+            p.humeur = HUMEURS.INTRIGUE;
           } else if (p.curiosite) {
             // on la laisse finir son détour avant de reprendre la ronde
           } else if (p.ronde && p.ronde.length) {
@@ -1043,7 +1058,7 @@
               else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
               p.cap = Math.atan2(ry, rx);
             }
-            p.humeur = p.aveugle > 0 ? 0 : -1;
+            p.humeur = p.aveugle > 0 ? HUMEURS.INTRIGUE : HUMEURS.ACHARNE;
           }
           p.phase += p.balayage * 0.8 * dt;
           const cap = p.cap === undefined ? p.regardRepos : p.cap;
@@ -1130,7 +1145,7 @@
   // récupérable : il faut retourner le calmer, ce qui coûte du temps.
   function paniquer(q) {
     q.suit = false; q.calme = false; q.compteCalme = 0;
-    q.humeur = -1;
+    q.fuit = 1.2;
     const a = Math.atan2(q.y - joueur.y, q.x - joueur.x);
     q.vx += Math.cos(a) * 420; q.vy += Math.sin(a) * 420;
     q.baseX = q.x; q.baseY = q.y;
@@ -1139,12 +1154,54 @@
     for (const r of zone.persos) if (r.suit && r.rang > q.rang) r.rang--;
   }
 
+  // Un point de sol libre au plus près d'une position : les âmes lâchées ne
+  // doivent pas se retrouver dans la pierre.
+  // Elles se répandent autour du point de chute plutôt que de s'y empiler :
+  // cinq âmes sur un même pixel, on n'en voit qu'une et on croit en avoir perdu
+  // quatre pour de bon. On balaye en spirale et on refuse une place déjà prise —
+  // un cap figé par âme ne suffisait pas, celle dont le cap pointait dans la
+  // pierre restait plantée au centre avec les autres.
+  function solLibrePres(x, y, rang, prises) {
+    const ecart = CASE * 0.45;
+    for (let anneau = 1; anneau <= 4; anneau++) {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * TAU + rang * 0.52;      // chacune commence ailleurs
+        const cx = x + Math.cos(a) * CASE * 0.55 * anneau;
+        const cy = y + Math.sin(a) * CASE * 0.55 * anneau;
+        if (solide(Math.floor(cx / CASE), Math.floor(cy / CASE))) continue;
+        if (prises.some((q) => Math.hypot(q.x - cx, q.y - cy) < ecart)) continue;
+        return { x: cx, y: cy };
+      }
+    }
+    return { x, y };                    // cul-de-sac d'une case : tant pis
+  }
+
   function eteindre() {
     // L'éclat n'est JAMAIS repris : la progression ne se perd pas, sinon la
     // mort punit deux fois. Et c'est un bandeau qui s'efface, pas une fenêtre à
     // valider : ça casserait le rythme.
     joueur.souffle = 1;
     for (const p of zone.persos) p.charge = 0;
+
+    // En revanche on perd TOUTES les âmes — celles du convoi comme celles déjà
+    // livrées — et elles restent là où on est tombé. C'est ce qui donne son
+    // poids à la mort maintenant que le niveau est une escorte : le portail se
+    // vide, et il faut retourner les chercher à l'endroit exact de l'échec.
+    const mx = joueur.x, my = joueur.y;
+    const prises = [];
+    let perdues = 0;
+    for (const p of zone.persos) {
+      if (p.emotion === EMOTIONS.COLERE || (!p.suit && !p.livre)) continue;
+      const pos = solLibrePres(mx, my, ++perdues, prises);
+      prises.push(pos);
+      p.x = p.baseX = pos.x; p.y = p.baseY = pos.y;
+      p.vx = p.vy = 0;
+      p.suit = false; p.livre = false; p.calme = false;
+      p.compteCalme = 0; p.rang = 0; p.fuit = 0.8;
+      emettre(p.x, p.y - D.taille * 0.8, '#8fd0ff', 8, 60);
+    }
+    zone.sortie.ames = 0;        // les livrées sont déjà comptées : une par perso
+
     joueur.x = zone.depart.x; joueur.y = zone.depart.y;
     joueur.vx = joueur.vy = 0;
     joueur.repit = 1.6;
@@ -1154,7 +1211,9 @@
       if (p.emotion !== EMOTIONS.COLERE) continue;
       p.x = p.baseX; p.y = p.baseY; p.vx = p.vy = 0;
     }
-    montrerToast('Éteint — tu repars du seuil');
+    montrerToast(perdues
+      ? `Éteint — ${perdues} âme${perdues > 1 ? 's' : ''} lâchée${perdues > 1 ? 's' : ''} là où tu es tombé`
+      : 'Éteint — tu repars du seuil');
   }
 
   function ramasser(l) {
@@ -1266,6 +1325,11 @@
     // idée, deux lectures.
     joueur.souffle = 1 - pire;
     joueur.vu += ((traque ? 1 : 0) - joueur.vu) * Math.min(1, 6 * dt);
+    // Ce que TOUT LE MONDE ressent : être dans un faisceau, ou simplement
+    // savoir qu'un rouge cherche. C'est ce drapeau qui met la peur sur les
+    // visages, celui du joueur comme ceux du convoi.
+    menace = traque || zone.persos.some((p) =>
+      p.emotion === EMOTIONS.COLERE && !p.livre && p.aveugle <= 0 && p.alerte > 0);
     if (traque && Math.random() < dt * 6) {
       emettre(joueur.x, joueur.y - D.taille * 0.75, '#ff7a6b', 1, 40, 'trait');
     }
@@ -1434,9 +1498,14 @@
     c.closePath();
   }
 
-  // Un visage = deux yeux, deux sourcils, une bouche. La bouche fait presque
-  // tout le travail d'expression pour trois traits de plus.
-  function dessinerTete(p, couleur, taille, allume, opacite, emotion, humeur, temps) {
+  // Un visage = deux yeux, deux sourcils, une bouche, et une seule humeur les
+  // accorde tous les trois. Ce sont les SOURCILS qui portent l'expression : la
+  // peur, c'est les pointes intérieures relevées et l'œil grand ouvert ;
+  // l'acharnement, l'inverse exact, pointes intérieures baissées et œil plissé.
+  // Tant que le peureux portait des sourcils d'intrigué, aucune bouche ne
+  // pouvait rattraper ça — il avait l'air plus inquiet sans bouche du tout.
+  function dessinerTete(p, couleur, taille, allume, opacite, humeur, temps) {
+    const peur = humeur === HUMEURS.PEUR, acharne = humeur === HUMEURS.ACHARNE;
     const w = taille * p.sx, h = taille * p.sy;
     const arrondi = Math.min(w, h) * 0.32;
     const demi = taille * 0.5;
@@ -1471,7 +1540,8 @@
     // --- yeux ---
     const ecart = demi * 0.36 * p.sx;
     const oeilY = -demi * 0.14 * p.sy;
-    const rOeil = demi * 0.22;
+    // l'œil s'ouvre grand quand on a peur, se plisse quand on s'acharne
+    const rOeil = demi * 0.22 * (peur ? 1.22 : acharne ? 0.94 : 1);
     const px = Math.cos(p.regard) * rOeil * 0.42;
     const py = Math.sin(p.regard) * rOeil * 0.42;
     const encre = allume ? '#0a0a10' : couleur;
@@ -1487,11 +1557,21 @@
         ctx.stroke();
       }
     } else {
+      // La pupille rétrécit dans la peur : c'est ce contraste avec le blanc
+      // grand ouvert qui fait l'œil affolé, bien plus que sa taille.
+      const rPupille = rOeil * (peur ? 0.36 : acharne ? 0.58 : 0.5);
+      const hOeil = acharne ? rOeil * 0.62 : rOeil;   // paupière basse
+      const frisson = peur ? Math.sin(temps * 17 + (p.tremble || 0)) * rOeil * 0.07 : 0;
       for (const dx of [-ecart, ecart]) {
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath(); ctx.arc(dx, oeilY, rOeil, 0, TAU); ctx.fill();
+        ctx.save();
+        ctx.beginPath(); ctx.ellipse(dx, oeilY, rOeil, hOeil, 0, 0, TAU);
+        ctx.fillStyle = '#ffffff'; ctx.fill();
+        ctx.clip();                                   // la pupille reste dans l'œil
         ctx.fillStyle = '#0a0a10';
-        ctx.beginPath(); ctx.arc(dx + px, oeilY + py, rOeil * 0.5, 0, TAU); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(dx + px + frisson, oeilY + py, rPupille, 0, TAU);
+        ctx.fill();
+        ctx.restore();
       }
     }
 
@@ -1499,26 +1579,35 @@
     ctx.strokeStyle = encre;
     ctx.lineWidth = Math.max(2, demi * 0.12);
     ctx.lineCap = 'round';
-    const sy = oeilY - rOeil * 1.55;
-    const lg = rOeil * 1.1;
-    if (humeur < 0) {                       // froncés
-      for (const [dx, sens] of [[-ecart, 1], [ecart, -1]]) {
+    const lg = rOeil * 1.15;
+    if (peur) {
+      // Pointes INTÉRIEURES relevées, extérieures qui tombent, et le tout
+      // remonté loin au-dessus de l'œil : c'est le sourcil inquiet.
+      const sy = oeilY - rOeil * 1.95;
+      for (const cote of [-1, 1]) {
+        const dx = ecart * cote;
         ctx.beginPath();
-        ctx.moveTo(dx - lg * 0.5 * sens, sy - rOeil * 0.4);
-        ctx.lineTo(dx + lg * 0.5 * sens, sy + rOeil * 0.3);
+        ctx.moveTo(dx + lg * 0.55 * cote, sy + rOeil * 0.42);   // extérieur, bas
+        ctx.quadraticCurveTo(dx, sy - rOeil * 0.1,
+                             dx - lg * 0.55 * cote, sy - rOeil * 0.34); // intérieur, haut
         ctx.stroke();
       }
-    } else if (humeur > 0) {                // levés
-      for (const [dx, sens] of [[-ecart, 1], [ecart, -1]]) {
+    } else if (acharne) {
+      // L'exact miroir : intérieures baissées vers le nez, et posées bas.
+      const sy = oeilY - rOeil * 1.35;
+      for (const cote of [-1, 1]) {
+        const dx = ecart * cote;
         ctx.beginPath();
-        ctx.moveTo(dx - lg * 0.5 * sens, sy + rOeil * 0.1);
-        ctx.lineTo(dx + lg * 0.5 * sens, sy - rOeil * 0.45);
+        ctx.moveTo(dx + lg * 0.55 * cote, sy - rOeil * 0.45);   // extérieur, haut
+        ctx.lineTo(dx - lg * 0.55 * cote, sy + rOeil * 0.45);   // intérieur, bas
         ctx.stroke();
       }
-    } else {                                 // l'un levé, l'autre droit
+    } else {
+      // intrigué : l'un levé, l'autre droit — l'asymétrie fait tout
+      const sy = oeilY - rOeil * 1.6;
       ctx.beginPath();
-      ctx.moveTo(-ecart - lg * 0.5, sy - rOeil * 0.45);
-      ctx.lineTo(-ecart + lg * 0.5, sy - rOeil * 0.1);
+      ctx.moveTo(-ecart - lg * 0.5, sy - rOeil * 0.5);
+      ctx.lineTo(-ecart + lg * 0.5, sy - rOeil * 0.15);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(ecart - lg * 0.5, sy - rOeil * 0.1);
@@ -1527,31 +1616,28 @@
     }
 
     // --- bouche ---
-    const by = oeilY + rOeil * 2.5;
+    // La bouche ne contredit jamais les sourcils, elle les appuie. Elle reste
+    // petite : le personnage fait douze pixels de haut, une grande bouche y
+    // devient une tache.
+    const by = oeilY + rOeil * 2.4;
     const bl = demi * 0.42;
     ctx.lineWidth = Math.max(1.8, demi * 0.1);
     ctx.strokeStyle = encre;
     ctx.beginPath();
-    if (emotion === EMOTIONS.PEUR && humeur < 0) {
+    if (peur) {
       // petite bouche ouverte qui tremble
       const t = Math.sin(temps * 18 + (p.tremble || 0)) * demi * 0.03;
-      ctx.ellipse(0, by + t, bl * 0.34, bl * 0.42, 0, 0, TAU);
-    } else if (emotion === EMOTIONS.PEUR) {
-      // Un peureux au repos ne sourit pas : une vaguelette inquiète. Il souriait
-      // tant qu'il n'était pas menacé, ce qui contredisait tout le personnage.
-      // large et franche : à 8 px de large pour 2 px d'amplitude, l'ondulation
-      // ne se voyait tout simplement pas sur le personnage
+      ctx.ellipse(0, by + t, bl * 0.3, bl * 0.4, 0, 0, TAU);
+    } else if (acharne) {
+      ctx.moveTo(-bl * 0.4, by + bl * 0.1);      // trait serré, un rien tombant
+      ctx.quadraticCurveTo(0, by - bl * 0.12, bl * 0.4, by + bl * 0.1);
+    } else {
+      // intrigué : une vaguelette, ni sourire ni moue
       const t = Math.sin(temps * 2.5 + (p.tremble || 0)) * demi * 0.02;
-      const w = bl * 0.62, h2 = bl * 0.5;
+      const w = bl * 0.52, h2 = bl * 0.34;
       ctx.moveTo(-w, by + t);
       ctx.quadraticCurveTo(-w * 0.5, by - h2 + t, 0, by + t);
       ctx.quadraticCurveTo(w * 0.5, by + h2 + t, w, by + t);
-    } else if (humeur > 0) {
-      ctx.arc(0, by - bl * 0.42, bl * 0.72, 0.68, Math.PI - 0.68);      // sourire
-    } else if (humeur < 0) {
-      ctx.arc(0, by + bl * 0.62, bl * 0.72, Math.PI + 0.72, -0.72);     // moue
-    } else {
-      ctx.moveTo(-bl * 0.42, by); ctx.lineTo(bl * 0.42, by);            // trait
     }
     ctx.stroke();
     ctx.restore();
@@ -1763,20 +1849,19 @@
     for (const p of ordre) {
       const couleur = p.calme ? '#a8f0c8' : COULEURS[p.emotion];
       const repere = p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04);
-      dessinerTete(p, couleur, D.taille, p.eclaire || p.calme || repere, 1, p.emotion, p.humeur, temps);
+      dessinerTete(p, couleur, D.taille, p.eclaire || p.calme || repere, 1, p.humeur, temps);
     }
 
-    // --- le joueur : son humeur dit son état, c'est le retour de santé ---
-    // À la première forme il est peureux, point : jamais de sourire, une
-    // vaguelette au repos et une bouche ouverte quand on le fixe.
-    const peureux = joueur.niveau === 0 || joueur.souffle < 0.4;
-    const humeurJoueur = joueur.vu > 0.35 ? -1 : (peureux ? 0 : joueur.souffle > 0.85 ? 1 : 0);
-    const emotionJoueur = peureux ? EMOTIONS.PEUR : EMOTIONS.CURIEUX;
+    // --- le joueur : exactement la règle des âmes, pas une autre ---
+    // Il court : acharné. Il marche : intrigué. Un rouge cherche, ou on le
+    // tient dans un faisceau : peur. Son niveau de forme n'y change rien —
+    // une émotion vient de ce qui arrive, pas d'un palier de progression.
+    const humeurJoueur = humeurDuJoueur();
     // un bonus actif teinte le corps et, pour « voilé », le rend translucide :
     // c'est ce qui fait comprendre l'effet sans lire un mot
     const teinte = joueur.bonus ? BONUS[joueur.bonus].couleur : f.couleur;
     const opac = aBonus('souffle') ? 0.5 : 1;
-    dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, emotionJoueur, humeurJoueur, temps);
+    dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, humeurJoueur, temps);
 
     // --- cailloux en vol : une ombre au sol et le caillou en l'air ---
     for (const c of cailloux) {
@@ -2354,6 +2439,14 @@
       elFlash.classList.remove('on'); flashEnCours = false;
       majBoutons();
     },
+    humeurJoueur: humeurDuJoueur,
+    // dessine un visage agrandi sur le canvas du jeu, avec le vrai code
+    dessinerVisageTest: (ecranX, ecranY, taille, humeur, couleur) =>
+      dessinerTete({ x: cam.x + ecranX, y: cam.y + ecranY, sx: 1, sy: 1,
+                     regard: -Math.PI / 2, tremble: 0, aveugle: 0, cligne: 0 },
+                   couleur, taille, true, 1, humeur, 0.3),
+    menace: () => menace,
+    solide: (x, y) => solide(Math.floor(x / CASE), Math.floor(y / CASE)),
     lancerCaillou,
     // fait retomber un caillou à un endroit précis : c'est le vrai code
     // d'impact, pas une imitation

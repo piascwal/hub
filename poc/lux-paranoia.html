@@ -506,7 +506,8 @@
             amplitude: 0.5 + rnd() * 0.9,
             phase: rnd() * TAU,
             emotion: palette[Math.floor(rnd() * palette.length)],
-            eclaire: false, calme: false, aveugle: 0, compteCalme: 0,
+            eclaire: false, calme: false, suit: false, livre: false, rang: 0,
+            aveugle: 0, compteCalme: 0,
             tremble: rnd() * TAU, humeur: 0,
             alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
             curiosite: null, curieuxT: 0,
@@ -576,11 +577,18 @@
         ...z, numero, grain: grainTexte, lueurs, persos, torches,
         braises: [],
         depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
-        sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.42, vue: false },
+        // Le portail ne compte plus des lueurs mais des ÂMES : il faut lui
+        // amener des bonhommes calmés. Les lueurs redeviennent ce qu'elles
+        // auraient toujours dû être — du carburant, pas un objectif.
+        sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.55,
+                  vue: false, ames: 0 },
         // Il faut en ramasser nettement plus qu'avant : c'est ce qui laisse le
         // temps de remonter les formes depuis peureux. Deux lueurs de marge pour
         // ne jamais forcer à toutes les prendre.
-        requis: Math.max(4, Math.min(lueurs.length - 2, 8 + numero * 2)),
+        // nombre d'âmes à livrer : il en faut toujours au moins deux de reste
+        // pour ne jamais coincer le joueur si un PNJ panique
+        requis: Math.max(2, Math.min(persos.filter((q) => q.emotion !== EMOTIONS.COLERE).length - 2,
+                                     2 + Math.floor(numero / 2))),
         largeur: z.cols * CASE, hauteur: z.lignes * CASE, longueur: loin,
       };
     }
@@ -710,7 +718,7 @@
   function propager() {
     const eclaires = new Set();
     // un calmé brille tout seul, faisceau ou pas
-    for (const p of zone.persos) if (p.calme) eclaires.add(p);
+    for (const p of zone.persos) if (p.calme && !p.livre) eclaires.add(p);
     const portee = porteeFaisceau();
     if (!portee) return eclaires;
     const cone = coneFaisceau();
@@ -857,23 +865,62 @@
     majJelly(joueur, dt);
   }
 
-  // Un calmé n'est pas une statue : il flâne autour de son poste et son regard
-  // dérive doucement. Sa lumière reste allumée — c'est ça qui compte — mais il
-  // continue de vivre.
-  function flaner(p, dt) {
-    p.flane = (p.flane === undefined ? Math.random() * TAU : p.flane) + 0.32 * dt;
-    const cx = p.baseX + Math.cos(p.flane) * CASE * 0.85;
-    const cy = p.baseY + Math.sin(p.flane * 0.7) * CASE * 0.85;
-    p.vx += (cx - p.x) * 2.4 * dt;
-    p.vy += (cy - p.y) * 2.4 * dt;
-    p.phase += 0.3 * dt;
-    p.regard = p.regardRepos + Math.sin(p.phase) * 0.42;
-    p.humeur = 1;
+  // Le convoi. Chacun suit celui qui le précède, à la queue leu leu, pour ne pas
+  // s'empiler sur le joueur. Les deux couleurs n'obéissent pas à la même règle,
+  // et c'est tout l'arbitrage du jeu :
+  //   BLEU — timide : il n'avance que tant qu'il est DANS la lumière. Discret,
+  //          mais il colle et il ralentit.
+  //   OR   — curieux : il suit partout et garde son faisceau allumé devant lui.
+  //          Il éclaire la route, et il dénonce.
+  function suivre(p, dt) {
+    // Le portail aspire : sans ça un suiveur gardait son espacement derrière le
+    // joueur et n'entrait jamais dans le rayon de livraison, même collé dessus.
+    const versPortail = Math.hypot(zone.sortie.x - p.x, zone.sortie.y - p.y);
+    if (zone.sortie.ames < zone.requis && versPortail < CASE * 2.6) {
+      const ax = zone.sortie.x - p.x, ay = zone.sortie.y - p.y;
+      const ad = versPortail || 1;
+      p.vx += (ax / ad) * 2400 * dt;
+      p.vy += (ay / ad) * 2400 * dt;
+      p.regard += ecartAngle(p.regard, Math.atan2(ay, ax)) * 5 * dt;
+      p.humeur = 1;
+      return;
+    }
+
+    const file = zone.persos.filter((q) => q.suit && !q.livre).sort((a, b) => a.rang - b.rang);
+    const i = file.indexOf(p);
+    const devant = i <= 0 ? joueur : file[i - 1];
+    const dx = devant.x - p.x, dy = devant.y - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const ecart = D.taille * 1.5;
+
+    const timide = p.emotion === EMOTIONS.PEUR;
+    const auClair = !timide || estEclaire(p.x, p.y);
+
+    // Hors de la lumière, le bleu TRAÎNE — il ne se fige pas. Mesuré avec la
+    // règle « il n'avance que s'il est éclairé » : un bleu sorti du halo ne
+    // pouvait plus jamais revenir et restait planté à onze cases du convoi.
+    // Et l'accélération doit être d'un tout autre ordre que celle d'un PNJ
+    // immobile : à 320 le frottement la plafonnait à 50 px/s, six fois moins
+    // que le joueur, donc le convoi décrochait systématiquement.
+    if (d > ecart) {
+      const vitesse = (timide ? 2100 : 2700) * (auClair ? 1 : 0.3);
+      p.vx += (dx / d) * vitesse * dt;
+      p.vy += (dy / d) * vitesse * dt;
+      if (!timide) p.regard += ecartAngle(p.regard, Math.atan2(dy, dx)) * 5 * dt;
+    }
+    if (timide) {
+      p.regard += ecartAngle(p.regard, Math.atan2(joueur.y - p.y, joueur.x - p.x)) * 3 * dt;
+      p.humeur = auClair ? 0 : -1;
+      if (!auClair && Math.random() < dt * 3) emettre(p.x, p.y - D.taille * 0.7, '#8fd0ff', 1, 24);
+    } else {
+      p.humeur = 1;
+    }
   }
 
   function majPersos(dt, temps, eclaires) {
     const demi = D.taille * 0.5;
     for (const p of zone.persos) {
+      if (p.livre) continue;                      // absorbé par le portail
       p.eclaire = eclaires.has(p);
       if (p.aveugle > 0) p.aveugle -= dt;
       if (p.emotion === EMOTIONS.COLERE) {
@@ -892,7 +939,7 @@
 
       if (p.emotion === EMOTIONS.CURIEUX) {
         if (p.calme) {
-          flaner(p, dt);
+          suivre(p, dt);
         } else {
           p.phase += p.balayage * (p.eclaire ? 0.18 : 1) * dt;
           p.regard = p.regardRepos + Math.sin(p.phase) * p.amplitude;
@@ -900,7 +947,7 @@
         }
 
       } else if (p.emotion === EMOTIONS.PEUR) {
-        if (p.calme) { flaner(p, dt); } else if (voit && d < CASE * 2.6) {
+        if (p.calme) { suivre(p, dt); } else if (voit && d < CASE * 2.6) {
           p.vx -= (dx / d) * 300 * dt;
           p.vy -= (dy / d) * 300 * dt;
           p.regard = Math.atan2(-dy, -dx);
@@ -1046,6 +1093,9 @@
 
   /* ==================================================== règles =========== */
 
+  // Formes déjà expliquées une fois dans la session : on ne réexplique pas.
+  const dejaVues = new Set();
+
   function evoluer() {
     const suivant = FORMES[joueur.niveau + 1];
     if (!suivant || joueur.sommet < suivant.seuil) return;
@@ -1053,7 +1103,16 @@
     if (joueur.niveau === 2) joueur.braises = Math.max(joueur.braises, 3);
     majBoutons();
     emettre(joueur.x, joueur.y - D.taille * 0.7, suivant.couleur, 16, 90);
-    montrerFlash(suivant.nom, suivant.texte, suivant.couleur, suivant.verbe);
+    // Le bandeau modal met le jeu en pause. Acceptable pour découvrir un verbe,
+    // insupportable au milieu d'une escorte — et comme la forme repart à zéro à
+    // chaque zone, on le reverrait à chaque fois. Une seule explication par
+    // forme et par session ; ensuite un simple bandeau passager.
+    if (dejaVues.has(suivant.nom)) {
+      montrerToast(`${suivant.nom} — ${suivant.verbe}`, suivant.couleur);
+    } else {
+      dejaVues.add(suivant.nom);
+      montrerFlash(suivant.nom, suivant.texte, suivant.couleur, suivant.verbe);
+    }
   }
 
   function majBoutons() {
@@ -1074,6 +1133,19 @@
     joueur.eclat += n;
     joueur.sommet = Math.max(joueur.sommet, joueur.eclat);
     evoluer();
+  }
+
+  // Un membre du convoi repéré s'enfuit et redevient farouche. Il reste
+  // récupérable : il faut retourner le calmer, ce qui coûte du temps.
+  function paniquer(q) {
+    q.suit = false; q.calme = false; q.compteCalme = 0;
+    q.humeur = -1;
+    const a = Math.atan2(q.y - joueur.y, q.x - joueur.x);
+    q.vx += Math.cos(a) * 420; q.vy += Math.sin(a) * 420;
+    q.baseX = q.x; q.baseY = q.y;
+    emettre(q.x, q.y - D.taille * 0.8, '#8fd0ff', 8, 70);
+    montrerToast('Une âme t\'échappe !', '#8fd0ff');
+    for (const r of zone.persos) if (r.suit && r.rang > q.rang) r.rang--;
   }
 
   function eteindre() {
@@ -1130,14 +1202,17 @@
     // PERMANENT : c'est ce qui donne enfin un rôle aux personnages non joués.
     // Une lampe qu'on gagne en la regardant, et qu'on choisit où allumer.
     for (const p of zone.persos) {
-      if (p.emotion === EMOTIONS.COLERE || p.calme || !p.eclaire) continue;
+      if (p.emotion === EMOTIONS.COLERE || p.calme || p.livre || !p.eclaire) continue;
       p.compteCalme += dt;
       if (p.compteCalme > 1.1) {
         p.calme = true;
-        p.regardRepos = p.regard;      // il fige sa direction : c'est un phare
+        p.suit = true;
+        p.rang = zone.persos.filter((q) => q.suit).length;   // sa place dans la file
         gagnerEclat(6);
         emettre(p.x, p.y - D.taille * 0.7, '#a8f0c8', 12, 80);
-        montrerToast('Calmé — son faisceau reste allumé', '#a8f0c8');
+        montrerToast(p.emotion === EMOTIONS.PEUR
+          ? 'Il te suit — mais seulement dans ta lumière'
+          : 'Il te suit et éclaire devant lui', '#a8f0c8');
       }
     }
 
@@ -1151,7 +1226,7 @@
     let pire = 0, traque = false;
 
     for (const p of zone.persos) {
-      if (p.emotion !== EMOTIONS.COLERE) continue;
+      if (p.emotion !== EMOTIONS.COLERE || p.livre) continue;
 
       // Hystérésis sur l'abri : une sentinelle arrêtée pile au bord d'une braise
       // basculait alerte / pas alerte plusieurs fois par seconde. Elle entre
@@ -1161,17 +1236,33 @@
       const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
       if (d < D.taille && joueur.repit <= 0 && p.aveugle <= 0) { eteindre(); return; }
 
-      const dansFaisceau = !aBonus('souffle') && !abri && joueur.repit <= 0
-        && !p.gene && p.cligne <= 0
-        && d <= PORTEE_VUE
-        && dansLeCone(p.x, p.y, p.regard, joueur.x, joueur.y, PORTEE_VUE, 0.42)
-        && vueLibre(p.x, p.y, joueur.x, joueur.y);
+      // Ce que la sentinelle peut voir : toi ET ton convoi. C'est le cœur de
+      // l'arbitrage — chaque âme que tu escortes est une silhouette de plus
+      // dans le faisceau, et la jauge monte d'autant plus vite.
+      const exposable = (q) => !p.gene && p.cligne <= 0
+        && Math.hypot(q.x - p.x, q.y - p.y) <= PORTEE_VUE
+        && dansLeCone(p.x, p.y, p.regard, q.x, q.y, PORTEE_VUE, 0.42)
+        && vueLibre(p.x, p.y, q.x, q.y);
 
-      if (dansFaisceau) {
+      const joueurVu = !aBonus('souffle') && !abri && joueur.repit <= 0 && exposable(joueur);
+      const convoi = zone.persos.filter((q) => q.suit && !q.livre && exposable(q));
+      const corps = (joueurVu ? 1 : 0) + convoi.length;
+      p.corpsVus = corps;                       // exposé pour les mesures
+
+      if (corps > 0) {
         traque = true;
         p.alerte = 2.8;                         // elle se doute, elle n'a pas vu
-        p.charge = Math.min(1, p.charge + 0.34 * dt);
-        if (p.charge * PORTEE_VUE >= d) { eteindre(); return; }   // le front t'a rattrapé
+        p.charge = Math.min(1, p.charge + 0.34 * corps * dt);
+
+        // Le front rouge rattrape quelqu'un : le joueur est éliminé, mais un
+        // membre du convoi PANIQUE seulement. On perd la cargaison, pas la
+        // partie — un échec qui coûte du temps plutôt qu'une punition sèche.
+        const front = p.charge * PORTEE_VUE;
+        if (joueurVu && front >= d) { eteindre(); return; }
+        for (const q of convoi) {
+          if (front < Math.hypot(q.x - p.x, q.y - p.y)) continue;
+          paniquer(q);
+        }
       } else {
         const cache = !vueLibre(p.x, p.y, joueur.x, joueur.y);
         p.charge = Math.max(0, p.charge - (cache ? 0.7 : 0.45) * dt);
@@ -1204,7 +1295,21 @@
     if (joueur.chargeDispo < 1) { joueur.chargeDispo = Math.min(1, joueur.chargeDispo + dt / 3.4); majBoutons(); }
     if (joueur.eclairDispo < 1) { joueur.eclairDispo = Math.min(1, joueur.eclairDispo + dt / 9); majBoutons(); }
 
-    if (priseCount >= zone.requis &&
+    // Livraison : tout membre du convoi qui touche le portail y entre.
+    for (const q of zone.persos) {
+      if (!q.suit || q.livre) continue;
+      if (Math.hypot(zone.sortie.x - q.x, zone.sortie.y - q.y) > zone.sortie.r) continue;
+      q.livre = true; q.suit = false;
+      zone.sortie.ames++;
+      gagnerEclat(10);
+      emettre(zone.sortie.x, zone.sortie.y, '#ffe9a8', 16, 110);
+      ondes.push({ x: zone.sortie.x, y: zone.sortie.y, r: 0, max: CASE * 2.6, couleur: '#ffe9a8' });
+      montrerToast(zone.sortie.ames >= zone.requis
+        ? 'Le portail est chargé — entre'
+        : `Âme livrée — ${zone.sortie.ames}/${zone.requis}`, '#ffe9a8');
+    }
+
+    if (zone.sortie.ames >= zone.requis &&
         Math.hypot(zone.sortie.x - joueur.x, zone.sortie.y - joueur.y) < zone.sortie.r) {
       zoneSuivante();
     }
@@ -1647,7 +1752,7 @@
     }
 
     // --- sortie ---
-    const ouverte = priseCount >= zone.requis;
+    const ouverte = zone.sortie.ames >= zone.requis;
     const pulse = 1 + Math.sin(temps * 3) * 0.07;
     ctx.save();
     ctx.translate(zone.sortie.x - cam.x, zone.sortie.y - cam.y);
@@ -1682,7 +1787,7 @@
     }
 
     // --- bonhommes, coléreux au-dessus ---
-    const ordre = [...zone.persos].sort((a, b) =>
+    const ordre = [...zone.persos].filter((q) => !q.livre).sort((a, b) =>
       (a.emotion === EMOTIONS.COLERE ? 1 : 0) - (b.emotion === EMOTIONS.COLERE ? 1 : 0));
     for (const p of ordre) {
       const couleur = p.calme ? '#a8f0c8' : COULEURS[p.emotion];
@@ -2043,7 +2148,7 @@
     elForme.style.color = f.couleur;
     elBarre.style.width = `${clamp((joueur.eclat - bas) / (haut - bas), 0, 1) * 100}%`;
     elBarre.style.background = f.couleur;
-    elZone.textContent = `ZONE ${zone.numero} · ${priseCount}/${zone.requis}`;
+    elZone.textContent = `ZONE ${zone.numero} · ${zone.sortie.ames}/${zone.requis} âmes`;
 
     if (joueur.bonus && joueur.bonusT > 0) {
       const b = BONUS[joueur.bonus];
@@ -2252,6 +2357,8 @@
       zone: zone.numero, grain: zone.grain,
       cols: zone.cols, lignes: zone.lignes, salles: zone.salles.length,
       lueurs: zone.lueurs.length, requis: zone.requis,
+      ames: zone.sortie.ames, convoi: zone.persos.filter((q) => q.suit && !q.livre).length,
+      calmables: zone.persos.filter((q) => q.emotion !== EMOTIONS.COLERE && !q.livre).length,
       speciales: zone.lueurs.filter((l) => l.type !== 'eclat').length,
       persos: zone.persos.length, longueur: zone.longueur,
       niveau: joueur.niveau, eclat: Math.round(joueur.eclat), prises: priseCount,

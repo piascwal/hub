@@ -543,6 +543,7 @@
             phase: rnd() * TAU,
             emotion: palette[Math.floor(rnd() * palette.length)],
             eclaire: false, calme: false, suit: false, livre: false, rang: 0,
+            prime: false,                  // a-t-elle déjà payé son calmage ?
             aveugle: 0, compteCalme: 0,
             tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
             alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
@@ -631,7 +632,7 @@
           x: (c.cx + 0.5) * CASE, y: (c.cy + 0.5) * CASE,
           // le couloir est horizontal -> le battant barre verticalement
           verticale: c.couloirH,
-          ouverte: 0, phase: rnd() * TAU,
+          ouverte: 0, sens: 1, phase: rnd() * TAU,
         });
       }
 
@@ -1317,13 +1318,24 @@
   // où on voudrait rester caché.
   function majPortes(dt) {
     for (const pt of zone.portes) {
-      let proche = Math.hypot(joueur.x - pt.x, joueur.y - pt.y) < CASE * 0.95;
-      if (!proche) {
-        for (const q of zone.persos) {
-          if (q.livre) continue;
-          if (Math.hypot(q.x - pt.x, q.y - pt.y) < CASE * 0.95) { proche = true; break; }
-        }
+      // on retient QUI ouvre, et pas seulement qu'on ouvre : le battant doit
+      // s'écarter de celui qui pousse
+      let ouvreur = null, plusPres = CASE * 0.95;
+      const tester = (q) => {
+        const d = Math.hypot(q.x - pt.x, q.y - pt.y);
+        if (d < plusPres) { plusPres = d; ouvreur = q; }
+      };
+      tester(joueur);
+      for (const q of zone.persos) if (!q.livre) tester(q);
+
+      // Le sens est figé au moment où la porte s'entrouvre, et gardé jusqu'à ce
+      // qu'elle soit refermée : sans ça le battant claquerait d'un côté à
+      // l'autre pendant qu'on la traverse.
+      if (ouvreur && pt.ouverte <= 0.02) {
+        const ecart = pt.verticale ? ouvreur.x - pt.x : pt.y - ouvreur.y;
+        pt.sens = ecart >= 0 ? 1 : -1;
       }
+      const proche = !!ouvreur;
       const avant = pt.ouverte;
       pt.ouverte = clamp(pt.ouverte + (proche ? 3.2 : -1.3) * dt, 0, 1);
       // franchir le seuil change ce qui est solide : les ombres portées des
@@ -1361,7 +1373,13 @@
         p.calme = true;
         p.suit = true;
         p.rang = zone.persos.filter((q) => q.suit).length;   // sa place dans la file
-        gagnerEclat(6);
+        // Une âme ne paie QU'UNE FOIS. Paniquer et mourir remettent `calme` à
+        // faux, donc recalmer la même âme repayait 6 d'éclat à chaque tour :
+        // mesuré, une seule âme rapportait 30 d'éclat en cinq recalmages, sans
+        // aucune limite. C'est ce qui faisait monter les formes bien plus vite
+        // que le plafond d'une zone ne l'autorise. La récupérer reste gagnant —
+        // on récupère sa cargaison et ses dix points de livraison.
+        if (!p.prime) { p.prime = true; gagnerEclat(6); }
         emettre(p.x, p.y - D.taille * 0.7, '#a8f0c8', 12, 80);
         montrerToast(p.emotion === EMOTIONS.PEUR
           ? 'Il te suit — mais seulement dans ta lumière'
@@ -1842,19 +1860,50 @@
   // fait déjà autant.
   const RAYONS_ROND = 64;
 
+  // Parcours de grille : on saute de frontière de case en frontière de case, si
+  // bien qu'aucune case traversée n'est omise. Un pas fixe, lui, enjambe un coin
+  // dès qu'il le rase en diagonale — mesuré au pas de 0,2 case, 7 rayons sur
+  // 7680 passaient au travers d'un mur, jusqu'à 1,7 case de pierre.
+  // On dépasse la paroi d'un cinquième de case en s'y arrêtant : on veut voir la
+  // face du mur allumée, elle serait bizarrement noire sinon. Une case fait au
+  // moins une case d'épaisseur, la lumière ne ressort donc jamais de l'autre côté.
+  function distanceMur(wx, wy, dx, dy, portee) {
+    let cx = Math.floor(wx / CASE), cy = Math.floor(wy / CASE);
+    const versX = dx > 0 ? 1 : -1, versY = dy > 0 ? 1 : -1;
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    const sautX = adx < 1e-9 ? Infinity : CASE / adx;
+    const sautY = ady < 1e-9 ? Infinity : CASE / ady;
+    let tX = adx < 1e-9 ? Infinity
+      : (dx > 0 ? (cx + 1) * CASE - wx : wx - cx * CASE) / adx;
+    let tY = ady < 1e-9 ? Infinity
+      : (dy > 0 ? (cy + 1) * CASE - wy : wy - cy * CASE) / ady;
+    for (let garde = 0; garde < 400; garde++) {
+      let t;
+      if (tX < tY) { t = tX; cx += versX; tX += sautX; }
+      else { t = tY; cy += versY; tY += sautY; }
+      if (t >= portee) return portee;
+      if (solide(cx, cy)) {
+        // Un mur, on en mord la face. Une porte fermée, elle, est un panneau au
+        // MILIEU de sa case : la lumière doit aller jusqu'à lui, sinon le
+        // battant qui nous barre la route reste dans le noir et on ne comprend
+        // pas ce qui nous arrête.
+        // La morsure est bornée à la SORTIE de la case touchée (tX et tY
+        // pointent déjà la frontière suivante) : un rayon qui ne fait que raser
+        // un coin en diagonale n'y parcourt qu'une fraction de case, et une
+        // morsure fixe le faisait alors ressortir de l'autre côté — mesuré,
+        // 145 rayons sur 7680 filaient ainsi jusqu'à 2,7 cases dans la pierre.
+        const porte = zone.porteDe[cy] && zone.porteDe[cy][cx];
+        return Math.min(t + CASE * (porte ? 0.55 : 0.2), tX, tY, portee);
+      }
+    }
+    return portee;
+  }
+
   function portéesRond(wx, wy, portee) {
     const out = new Array(RAYONS_ROND);
-    const pas = CASE * 0.2;
     for (let i = 0; i < RAYONS_ROND; i++) {
       const a = (i / RAYONS_ROND) * TAU;
-      const cx = Math.cos(a), cy = Math.sin(a);
-      let d = 0;
-      while (d < portee) {
-        const suivant = Math.min(d + pas, portee);
-        d = suivant;
-        if (solide(Math.floor((wx + cx * d) / CASE), Math.floor((wy + cy * d) / CASE))) break;
-      }
-      out[i] = d;
+      out[i] = distanceMur(wx, wy, Math.cos(a), Math.sin(a), portee);
     }
     return out;
   }
@@ -1910,6 +1959,11 @@
       for (let cx = c0x; cx <= c1x; cx++)
         if (!zone.mur[cy][cx]) ctx.fillRect(cx * CASE - cam.x, cy * CASE - cam.y, CASE + 1, CASE + 1);
 
+    // Ces traits soulignent l'ARCHITECTURE, donc ils lisent la pierre seule et
+    // pas `solide` : une porte fermée y devenait un mur, et sa case se
+    // retrouvait cernée d'un rectangle qui clignotait à chaque ouverture.
+    const pierre = (cx, cy) =>
+      cx < 0 || cy < 0 || cx >= zone.cols || cy >= zone.lignes || zone.mur[cy][cx] === 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.13)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -1917,10 +1971,10 @@
       for (let cx = c0x; cx <= c1x; cx++) {
         if (zone.mur[cy][cx]) continue;
         const x = cx * CASE - cam.x, y = cy * CASE - cam.y;
-        if (solide(cx, cy - 1)) { ctx.moveTo(x, y); ctx.lineTo(x + CASE, y); }
-        if (solide(cx, cy + 1)) { ctx.moveTo(x, y + CASE); ctx.lineTo(x + CASE, y + CASE); }
-        if (solide(cx - 1, cy)) { ctx.moveTo(x, y); ctx.lineTo(x, y + CASE); }
-        if (solide(cx + 1, cy)) { ctx.moveTo(x + CASE, y); ctx.lineTo(x + CASE, y + CASE); }
+        if (pierre(cx, cy - 1)) { ctx.moveTo(x, y); ctx.lineTo(x + CASE, y); }
+        if (pierre(cx, cy + 1)) { ctx.moveTo(x, y + CASE); ctx.lineTo(x + CASE, y + CASE); }
+        if (pierre(cx - 1, cy)) { ctx.moveTo(x, y); ctx.lineTo(x, y + CASE); }
+        if (pierre(cx + 1, cy)) { ctx.moveTo(x + CASE, y); ctx.lineTo(x + CASE, y + CASE); }
       }
     }
     ctx.stroke();
@@ -1935,7 +1989,7 @@
       if (pt.verticale) ctx.rotate(Math.PI / 2);
       // le battant pivote sur son gond : fermé il barre le couloir, ouvert il
       // se range le long de la paroi
-      const angle = pt.ouverte * (Math.PI / 2) * 0.92;
+      const angle = pt.ouverte * (Math.PI / 2) * 0.92 * (pt.sens || 1);
       ctx.translate(-demi, 0);
       ctx.rotate(angle);
       const g = ctx.createLinearGradient(0, -demi * 0.2, 0, demi * 0.2);
@@ -2693,6 +2747,7 @@
     vueLibre,
     camera: () => ({ x: cam.x, y: cam.y }),
     porteesRond: portéesRond,
+    rayonHalo,
     // les seuils, lus depuis le jeu : un test qui les recopie devient faux au
     // premier rééquilibrage, et c'est arrivé
     seuils: () => FORMES.map((f) => f.seuil),

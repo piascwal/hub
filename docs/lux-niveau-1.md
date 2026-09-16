@@ -234,17 +234,21 @@ Quelques motes tièdes montent du corps pour appuyer.
 Vérifié : rouge en alerte hors abri → « peur » ; le même rouge en alerte, à la
 torche → « apaisé ».
 
-> **Une asymétrie qu'il faudra trancher.** Dans le code actuel, l'abri protège
-> **le joueur seul** : les membres du convoi restent exposés (`joueurVu` teste
-> `abri`, `exposable(q)` ne le teste pas). Se cacher près d'une torche avec deux
-> âmes derrière soi laisse donc les âmes repérables, alors que le visage de
-> Falot dit « tout va bien ».
->
-> Trois issues possibles : étendre l'abri au convoi (cohérent avec « les rouges
-> ne supportent pas cette lumière », mais ça rend la fuite plus facile) ;
-> laisser tel quel et n'afficher l'apaisement que sans convoi ; ou laisser tel
-> quel et l'assumer — l'abri protège qui s'y tient, pas ceux qui traînent
-> dehors. **À décider, je n'ai rien changé au comportement.**
+### L'abri protège qui s'y tient
+
+L'asymétrie est tranchée : **ce n'est pas un statut, c'est une position.** Le
+joueur et chaque suiveur posent la même question depuis l'endroit où ils se
+trouvent. Celui qui est dans la lumière est couvert ; celui qui dépasse reste
+prenable — et son visage le dit, puisque l'apaisement s'affiche âme par âme.
+
+Cela transforme un abri en **problème de placement** plutôt qu'en interrupteur :
+avec quatre suiveurs et une braise, il faut que tout le monde tienne dedans.
+C'est exactement l'arbitrage que le jeu cherche partout ailleurs.
+
+Mesuré sur 60 images, une braise couvrant le joueur et une âme sur deux : l'âme
+du dedans est comptée à l'abri 60 fois sur 60 et porte le visage apaisé, celle
+du dehors 0 fois et porte la peur, et la sentinelle ne voit **qu'un corps sur
+les trois présents**.
 
 ---
 

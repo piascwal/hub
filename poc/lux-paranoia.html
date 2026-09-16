@@ -1098,6 +1098,11 @@
   const prochedUneBraise = (x, y, marge) =>
     zone.braises.some((b) => Math.hypot(b.x - x, b.y - y) < b.r * (marge || 1));
 
+  // L'abri protège QUI S'Y TIENT, pas un statut. Le joueur et chaque suiveur
+  // posent donc la même question depuis leur propre position : celui qui est
+  // dans la lumière est couvert, celui qui traîne dehors reste attrapable.
+  const aLAbri = (x, y) => prochedUneBraise(x, y, 1) || procheDuneTorche(x, y);
+
   const procheDuneTorche = (x, y) =>
     zone.torches.some((t) => t.reste > 0 && Math.hypot(t.x - x, t.y - y) < t.r);
 
@@ -1281,7 +1286,13 @@
       // Une âme ne porte pas une humeur de naissance : elle porte celle de la
       // situation, exactement comme le joueur. Calculée avant son déplacement,
       // donc sur la vitesse de l'image précédente — un retard invisible.
-      if (p.emotion !== EMOTIONS.COLERE) p.humeur = humeurSelon(p, menace || p.fuit > 0, p.calme);
+      // Une âme à l'abri porte le même visage apaisé que Falot : d'un coup
+      // d'œil on voit lesquels de ses suiveurs sont couverts et lesquels
+      // dépassent de la lumière.
+      if (p.emotion !== EMOTIONS.COLERE) {
+        p.humeur = p.abri ? HUMEURS.APAISE
+          : humeurSelon(p, menace || p.fuit > 0, p.calme);
+      }
 
       if (p.emotion === EMOTIONS.CURIEUX) {
         if (p.calme) {
@@ -1678,8 +1689,14 @@
     // sortir. S'il t'atteint — ou si tu la touches — c'est fini. La distance
     // fait donc le délai toute seule, sans aucune formule.
     if (joueur.repit > 0) joueur.repit -= dt;
-    const abri = prochedUneBraise(joueur.x, joueur.y, 1) || procheDuneTorche(joueur.x, joueur.y);
+    const abri = aLAbri(joueur.x, joueur.y);
     joueur.abri = abri;                 // lu par le visage : voir `humeurDuJoueur`
+    // Calculé UNE fois par image et non par sentinelle : la question ne dépend
+    // que de la position de l'âme, pas de qui la regarde.
+    for (const q of zone.persos) {
+      q.abri = q.emotion !== EMOTIONS.COLERE && q.suit && !q.livre
+        && aLAbri(q.x, q.y);
+    }
     // quelques motes tièdes qui montent : le calme a son bruit de fond
     if (abri && Math.random() < dt * 7) {
       emettre(joueur.x + (Math.random() - 0.5) * D.taille * 1.4,
@@ -1711,7 +1728,8 @@
       // un faisceau à cinq sans rien perdre.
       const voile = aBonus('souffle');
       const joueurVu = !voile && !abri && joueur.repit <= 0 && exposable(joueur);
-      const convoi = voile ? [] : zone.persos.filter((q) => q.suit && !q.livre && exposable(q));
+      const convoi = voile ? []
+        : zone.persos.filter((q) => q.suit && !q.livre && !q.abri && exposable(q));
       const corps = (joueurVu ? 1 : 0) + convoi.length;
       p.corpsVus = corps;                       // exposé pour les mesures
 

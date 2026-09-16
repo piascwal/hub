@@ -410,6 +410,20 @@
     return h >>> 0;
   }
 
+  // Coupe une phrase en lignes courtes, sans couper les mots. Les murmures sont
+  // dessinés dans le monde : une ligne trop longue sortirait de l'écran.
+  function decouper(texte, max) {
+    const mots = texte.split(' ');
+    const out = [];
+    let ligne = '';
+    for (const m of mots) {
+      if (ligne && (ligne + ' ' + m).length > max) { out.push(ligne); ligne = m; }
+      else ligne = ligne ? ligne + ' ' + m : m;
+    }
+    if (ligne) out.push(ligne);
+    return out;
+  }
+
   function ecartAngle(a, b) {
     let d = (b - a) % TAU;
     if (d > Math.PI) d -= TAU;
@@ -551,6 +565,39 @@
   // de verrouillage qui décroît avec la distance (voir majRegles), comme dans
   // un Metal Gear : au bord du cône elle te soupçonne, elle ne te tient pas.
   const PORTEE_VUE = CASE * 3.6;
+
+  // Un personnage, quel qu'il soit. Extrait du générateur parce que les étages
+  // écrits à la main ont besoin d'en poser exactement les mêmes : un PNJ du
+  // premier étage doit obéir aux mêmes règles que ceux des étages suivants,
+  // sinon l'étage 1 n'enseigne pas le jeu qu'on va jouer ensuite.
+  // `fabriqueRonde` est appelée EN DERNIER, comme dans la version d'origine :
+  // l'ordre des tirages décide des plans, et le changer regénérerait un autre
+  // monde pour une graine donnée.
+  function nouveauPerso(x, y, emotion, rnd, fabriqueRonde) {
+    const regard = rnd() * TAU;
+    const p = {
+      x, y, baseX: x, baseY: y, vx: 0, vy: 0,
+      sx: 1, sy: 1, vsx: 0, vsy: 0,
+      regard, regardRepos: regard,
+      balayage: (rnd() < 0.5 ? 1 : -1) * (0.35 + rnd() * 0.5),
+      amplitude: 0.5 + rnd() * 0.9,
+      phase: rnd() * TAU,
+      emotion,
+      eclaire: false, calme: false, suit: false, livre: false, rang: 0,
+      prime: false,                  // a-t-elle déjà payé son calmage ?
+      aveugle: 0, compteCalme: 0,
+      tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
+      alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
+      curiosite: null, curieuxT: 0,
+      // Les sentinelles clignent des yeux : quelques dixièmes de seconde
+      // où elles ne voient rien. C'est ce qui rend l'observation des yeux
+      // dans le noir réellement utile, et donne une fenêtre pour passer.
+      cligne: 0, prochainCligne: 1.5 + rnd() * 3.5,
+      ronde: [],
+    };
+    p.ronde = fabriqueRonde ? fabriqueRonde() : [];
+    return p;
+  }
 
   // Une zone est un plan de salles reliées par des couloirs. C'est volontairement
   // une grille : la seule chose à garantir ici, c'est « peut-on aller d'ici à
@@ -757,36 +804,14 @@
       {
         for (let iPlace = 0; iPlace < places.length; iPlace++) {
           const { cx, cy } = places[iPlace];
-          const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
-          const regard = rnd() * TAU;
-          // la ronde a besoin de savoir si c'est une sentinelle, et une
-          // propriété d'objet n'est pas une variable
           const emotion = emotions[iPlace];
-          persos.push({
-            x, y, baseX: x, baseY: y, vx: 0, vy: 0,
-            sx: 1, sy: 1, vsx: 0, vsy: 0,
-            regard, regardRepos: regard,
-            balayage: (rnd() < 0.5 ? 1 : -1) * (0.35 + rnd() * 0.5),
-            amplitude: 0.5 + rnd() * 0.9,
-            phase: rnd() * TAU,
-            emotion,
-            eclaire: false, calme: false, suit: false, livre: false, rang: 0,
-            prime: false,                  // a-t-elle déjà payé son calmage ?
-            aveugle: 0, compteCalme: 0,
-            tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
-            alerte: 0, etape: 0, charge: 0, route: null, immobile: 0, bouscule: 0,
-            curiosite: null, curieuxT: 0,
-            // Les sentinelles clignent des yeux : quelques dixièmes de seconde
-            // où elles ne voient rien. C'est ce qui rend l'observation des yeux
-            // dans le noir réellement utile, et donne une fenêtre pour passer.
-            cligne: 0, prochainCligne: 1.5 + rnd() * 3.5,
-            // points de passage de la ronde, pris dans les cases libres autour
+          persos.push(nouveauPerso((cx + 0.5) * CASE, (cy + 0.5) * CASE, emotion, rnd,
             // Points de ronde. Ils doivent être NETTEMENT écartés du poste et
             // les uns des autres : tirés sans distance minimale, ils pouvaient
             // tomber tous les trois dans la case de la sentinelle. Elle
             // « arrivait » alors à chaque frame, passait au point suivant, et
             // ne bougeait jamais — une sentinelle sur 29 restait ainsi plantée.
-            ronde: (() => {
+            () => {
               const pts = [];
               // Son monde s'arrête aux portes : un point de ronde de l'autre
               // côté d'un battant la ferait pousser contre le bois sans fin.
@@ -809,8 +834,7 @@
               // moins de deux points utilisables : elle tient son poste et
               // balaye, ce qui est un garde statique parfaitement lisible
               return pts.length >= 2 ? pts : [];
-            })(),
-          });
+            }));
         }
       }
 
@@ -855,6 +879,10 @@
         ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
         versionPortes: 0,
         braises: [],
+        // Réservés aux étages écrits à la main. Vides ici, mais présents : le
+        // reste du jeu les parcourt sans avoir à demander de quel type de zone
+        // il s'agit.
+        reprises: [], murmures: [],
         depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
         // Le portail ne compte plus des lueurs mais des ÂMES : il faut lui
         // amener des bonhommes calmés. Les lueurs redeviennent ce qu'elles
@@ -869,6 +897,151 @@
       };
     }
     return null;
+  }
+
+  /* ============================================ les étages écrits ======== */
+
+  // L'étage 1 n'est pas un tutoriel : c'est le premier étage du vrai jeu, écrit
+  // à la main pour que sa GÉOGRAPHIE enseigne. Aucun panneau, aucune question
+  // posée au joueur — une salle, un problème, une seule issue.
+  //
+  //   #  mur         .  sol          @  départ       S  Seuil
+  //   o  lueur       T  torche       b  Frileux      r  Guet
+  //   |  porte (battant vertical)    =  porte (battant horizontal)
+  //   *  point de reprise            1-9  murmure
+  //
+  // Déplacer une lettre suffit à retoucher le niveau : rien ici n'est du code.
+  const ETAGES_ECRITS = {
+    1: {
+      carte: [
+        '#########################',   //  0
+        '##############.........##',   //  1   la salle de la torche
+        '##...#########.........##',   //  2
+        '##.@..o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
+        '##...#########.........##',   //  4
+        '##############.........##',   //  5
+        '##############..2T.....##',   //  6
+        '##################*######',   //  7
+        '##################=######',   //  8
+        '##################1######',   //  9
+        '############..r........##',   // 10   la galerie du premier Guet
+        '##################.######',   // 11
+        '##################=######',   // 12
+        '##################.######',   // 13
+        '##############....*....##',   // 14   la salle du Frileux qu'on ne peut pas aider
+        '##############.......b.##',   // 15
+        '#########.T###.........##',   // 16   l'alcôve de la torche : un abri au milieu de l'examen
+        '######.r....3|.*.......##',   // 17   le couloir d'examen
+        '######=##################',   // 18
+        '##....*.########......###',   // 19
+        '##......########......###',   // 20
+        '##..S....o.o.o..*..b..###',   // 21   le Seuil, la montée en confiance, le second Frileux
+        '##....4.########......###',   // 22
+        '##......########......###',   // 23
+        '#########################',   // 24
+      ],
+      // Une ronde par « r », dans l'ordre de lecture de la carte. Écrites et non
+      // tirées : un premier étage doit se relire à l'identique d'une partie sur
+      // l'autre, sinon on ne peut ni l'équilibrer ni le déboguer.
+      rondes: [
+        [[12, 10], [22, 10]],          // le Guet de la galerie balaye d'un mur à l'autre
+        [[6, 17], [12, 17]],           // celui de l'examen fait l'aller-retour du couloir
+      ],
+      murmures: {
+        '1': 'Quelqu\'un a fixé une lampe ici jusqu\'à ce qu\'elle renonce. Le regard est resté.',
+        '2': 'D\'autres sont passés avant toi. Quelques-unes de leurs lampes brûlent encore.',
+        '3': 'Un regard va tout droit, et n\'a pas de mains.',
+        '4': 'Tomber est facile. Sortir, c\'est monter.',
+      },
+      // Deux âmes, pas une : avec une seule on livrerait le Frileux du couloir
+      // et on partirait sans jamais revenir chercher celui du début. Le détour
+      // EST la leçon — on retourne chercher ceux qu'on a laissés derrière.
+      requis: 2,
+    },
+  };
+
+  // Lit une carte écrite et rend exactement la même structure de zone que le
+  // générateur : lumière, portes, détection et convoi ne savent pas — et n'ont
+  // pas à savoir — si le plan a été tiré ou dessiné.
+  function zoneEcrite(numero) {
+    const modele = ETAGES_ECRITS[numero];
+    if (!modele) return null;
+    const src = modele.carte;
+    const lignes = src.length, cols = src[0].length;
+    // Une graine fixe : elle ne décide d'aucun plan, seulement des déphasages
+    // d'animation. Écrite en dur pour que l'étage soit identique à chaque essai.
+    const rnd = mulberry32(0x1EC7);
+
+    const mur = [];
+    const lueurs = [], torches = [], portes = [], reprises = [], murmures = [];
+    const bleus = [], rouges = [];
+    let depart = null, sortie = null;
+    for (let cy = 0; cy < lignes; cy++) {
+      const rang = new Array(cols).fill(1);
+      for (let cx = 0; cx < cols; cx++) {
+        const c = src[cy][cx];
+        if (c === '#') continue;
+        rang[cx] = 0;                       // tout ce qui n'est pas mur est sol
+        const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
+        if (c === '@') depart = { cx, cy };
+        else if (c === 'S') sortie = { cx, cy };
+        else if (c === 'o') lueurs.push({ x, y, type: 'eclat', prise: false, vue: false, phase: rnd() * TAU });
+        else if (c === 'T') torches.push({ cx, cy });
+        else if (c === 'b') bleus.push({ cx, cy });
+        else if (c === 'r') rouges.push({ cx, cy });
+        else if (c === '*') reprises.push({ x, y, pris: false });
+        else if (c === '|' || c === '=') portes.push({
+          cx, cy, x, y, verticale: c === '|', ouverte: 0, sens: 1, phase: rnd() * TAU,
+        });
+        else if (c >= '1' && c <= '9') murmures.push({ x, y, texte: modele.murmures[c], dit: false });
+      }
+      mur.push(rang);
+    }
+    if (!depart || !sortie) return null;
+
+    const z = { mur, cols, lignes, salles: [] };
+    const porteDe = [];
+    for (let cy = 0; cy < lignes; cy++) porteDe.push(new Array(cols).fill(null));
+    for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
+    z.porteDe = porteDe;
+
+    // Une torche se fixe à une paroi : on cherche le mur voisin et on décale le
+    // brandon vers lui, exactement comme le fait le générateur.
+    const torchesPosees = torches.map(({ cx, cy }) => {
+      const cotes = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([ox, oy]) => {
+        const nx = cx + ox, ny = cy + oy;
+        return nx < 0 || ny < 0 || nx >= cols || ny >= lignes || mur[ny][nx];
+      });
+      const [ox, oy] = cotes.length ? cotes[0] : [0, 0];
+      return {
+        x: (cx + 0.5 + ox * 0.36) * CASE, y: (cy + 0.5 + oy * 0.36) * CASE,
+        r: CASE * 2.1, duree: 26, reste: 0, phase: rnd() * TAU,
+      };
+    });
+
+    const persos = [];
+    for (const b of bleus) {
+      persos.push(nouveauPerso((b.cx + 0.5) * CASE, (b.cy + 0.5) * CASE, EMOTIONS.PEUR, rnd, null));
+    }
+    rouges.forEach((r, i) => {
+      const pts = (modele.rondes[i] || []).map(([cx, cy]) =>
+        ({ cx, cy, x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE }));
+      persos.push(nouveauPerso((r.cx + 0.5) * CASE, (r.cy + 0.5) * CASE, EMOTIONS.COLERE, rnd, () => pts));
+    });
+
+    const d = distances(z, depart);
+    return {
+      ...z, numero, grain: 'ÉCRIT-' + numero,
+      lueurs, persos, torches: torchesPosees, portes, porteDe,
+      versionPortes: 0, braises: [],
+      reprises, murmures,
+      depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
+      sortie: { x: (sortie.cx + 0.5) * CASE, y: (sortie.cy + 0.5) * CASE, r: CASE * 0.55,
+                vue: false, ames: 0 },
+      requis: modele.requis,
+      largeur: cols * CASE, hauteur: lignes * CASE,
+      longueur: d[sortie.cy][sortie.cx],
+    };
   }
 
   /* ==================================================== état ============= */
@@ -1128,11 +1301,41 @@
     flottants.push({ x, y, texte, couleur, vie: 1.1, max: 1.1 });
   }
 
+  // Les mots du jeu ne coûtent JAMAIS un clic. Un murmure est une phrase pâle
+  // posée dans le décor, à l'endroit exact où elle veut dire quelque chose ;
+  // elle monte lentement et s'efface seule pendant qu'on continue de jouer.
+  // C'est le canal de fond du récit — celui de Dark Souls, pas celui du panneau
+  // à valider.
+  function murmurer(x, y, texte, couleur) {
+    flottants.push({ x, y, texte, couleur: couleur || '#98a0ad', vie: 5.2, max: 5.2, murmure: true });
+  }
+
+  // Ce que disent les âmes qu'on rallume. Le meilleur canal possible : il est
+  // mérité — on ne l'entend qu'après avoir sauvé quelqu'un —, il est diégétique
+  // — ce sont des gens qui parlent —, et il est inépuisable.
+  const REPLIQUES = {
+    [EMOTIONS.PEUR]: [
+      'Je croyais que j\'étais éteinte pour de bon.',
+      'Tu es tout petit. C\'est pour ça que je te suis.',
+      'Reste devant moi. Je ne vois plus rien sans toi.',
+      'J\'ai oublié qui j\'éclairais. Toi aussi ?',
+      'On ne m\'avait pas regardé depuis très longtemps.',
+    ],
+    [EMOTIONS.CURIEUX]: [
+      'Il y en a d\'autres. Plus haut. Beaucoup d\'autres.',
+      'Ne les regarde pas trop longtemps. C\'est comme ça qu\'on tombe.',
+      'Je marchais. Je ne sais plus vers quoi.',
+      'Je peux éclairer devant. Ça te coûtera d\'être vu.',
+      'En haut, il paraît qu\'il y a des fenêtres.',
+    ],
+  };
+  let numReplique = 0;
+
   function majFlottants(dt) {
     for (let i = flottants.length - 1; i >= 0; i--) {
       const f = flottants[i];
       f.vie -= dt;
-      f.y -= 34 * dt;
+      f.y -= (f.murmure ? 5 : 34) * dt;
       if (f.vie <= 0) flottants.splice(i, 1);
     }
   }
@@ -1570,6 +1773,10 @@
   // un « +4 » vers la barre du haut et la fait tressaillir — le lien entre
   // l'objet et la progression se voit, il n'a plus à être lu.
   let premiereLueur = true;
+  let premiereReprise = true;
+  // La règle attachée à une espèce ne se dit qu'une fois : répétée à chaque
+  // âme, elle redevient la modale intrusive qu'on a retirée.
+  const regleDite = {};
 
   function ramasser(l) {
     l.prise = true;
@@ -1658,6 +1865,30 @@
       }
     }
 
+    // Les points de reprise. À la mort on repart à l'entrée de la salle en
+    // cours, pas au seuil de l'étage : la mort doit coûter des secondes, pas de
+    // la patience. Un niveau écrit à la main en pose un par salle ; les zones
+    // tirées au sort n'en ont aucun et repartent du seuil, comme avant.
+    for (const rp of zone.reprises) {
+      if (rp.pris || Math.hypot(rp.x - joueur.x, rp.y - joueur.y) > CASE * 0.85) continue;
+      rp.pris = true;
+      zone.depart = { x: rp.x, y: rp.y };
+      emettre(rp.x, rp.y, '#ffe9a8', 10, 45);
+      ondes.push({ x: rp.x, y: rp.y, r: 0, max: CASE * 1.5, couleur: '#ffe9a8' });
+      if (premiereReprise) {
+        premiereReprise = false;
+        montrerToast('Tu te souviendras d\'être passé ici', '#ffe9a8');
+      }
+    }
+
+    // Les murmures : de la matière narrative posée exactement là où elle est
+    // pertinente, et jamais en travers du chemin.
+    for (const m of zone.murmures) {
+      if (m.dit || Math.hypot(m.x - joueur.x, m.y - joueur.y) > CASE * 1.4) continue;
+      m.dit = true;
+      murmurer(m.x, m.y - CASE * 0.95, m.texte);
+    }
+
     // Regarder un bonhomme assez longtemps le calme — n'importe lequel, pas
     // seulement les peureux. Il passe au vert et SON FAISCEAU DEVIENT
     // PERMANENT : c'est ce qui donne enfin un rôle aux personnages non joués.
@@ -1677,9 +1908,16 @@
         // on récupère sa cargaison et ses dix points de livraison.
         if (!p.prime) { p.prime = true; gagnerEclat(6); }
         emettre(p.x, p.y - D.taille * 0.7, '#a8f0c8', 12, 80);
-        montrerToast(p.emotion === EMOTIONS.PEUR
-          ? 'Il te suit — mais seulement dans ta lumière'
-          : 'Il te suit et éclaire devant lui', '#a8f0c8');
+        // La règle, une fois. Ensuite ce sont eux qui parlent : une phrase
+        // au-dessus de la tête, sans bouton, pendant qu'on continue de jouer.
+        if (!regleDite[p.emotion]) {
+          regleDite[p.emotion] = true;
+          montrerToast(p.emotion === EMOTIONS.PEUR
+            ? 'Il te suit — mais seulement dans ta lumière'
+            : 'Il te suit et éclaire devant lui', '#a8f0c8');
+        }
+        const pool = REPLIQUES[p.emotion];
+        if (pool) murmurer(p.x, p.y - D.taille * 1.9, pool[numReplique++ % pool.length], '#a8f0c8');
       }
     }
 
@@ -2707,16 +2945,35 @@
       }
     }
 
-    // --- les gains qui montent vers la jauge ---
+    // --- les gains qui montent vers la jauge, et les phrases du décor ---
     for (const f of flottants) {
-      const a = clamp(f.vie / f.max, 0, 1);
       ctx.save();
-      ctx.font = '700 15px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.shadowColor = rgba(f.couleur, a * 0.9);
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = rgba(f.couleur, a);
-      ctx.fillText(f.texte, f.x - cam.x, f.y - cam.y);
+      if (f.murmure) {
+        // Un murmure apparaît en fondu et repart en fondu : il ne doit jamais
+        // « claquer » à l'écran comme une notification.
+        const a = clamp(Math.min(f.vie / 1.4, (f.max - f.vie) / 0.5), 0, 1) * 0.92;
+        ctx.font = 'italic 400 14px Georgia, serif';
+        ctx.shadowColor = 'rgba(6,7,12,0.95)';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = rgba(f.couleur, a);
+        const lignes = decouper(f.texte, 30);
+        // Le bloc se construit VERS LE HAUT depuis son point d'ancrage, et il
+        // est ramené dans l'écran : une phrase dite au bord de la carte partait
+        // hors cadre, et une phrase dite sous les pieds recouvrait le visage.
+        const sx = clamp(f.x - cam.x, 118, W - 118);
+        const sy = f.y - cam.y;
+        for (let i = 0; i < lignes.length; i++) {
+          ctx.fillText(lignes[i], sx, sy + (i - lignes.length + 1) * 19);
+        }
+      } else {
+        const a = clamp(f.vie / f.max, 0, 1);
+        ctx.font = '700 15px system-ui, sans-serif';
+        ctx.shadowColor = rgba(f.couleur, a * 0.9);
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = rgba(f.couleur, a);
+        ctx.fillText(f.texte, f.x - cam.x, f.y - cam.y);
+      }
       ctx.restore();
     }
 
@@ -2974,7 +3231,12 @@
     // Les lueurs spéciales ne dépendent plus de la forme courante — elle repart
     // à zéro à chaque zone — mais du NUMÉRO de zone : la variété s'ouvre au fil
     // de l'aventure, la puissance se regagne à chaque fois.
-    const z = genererZone(grain, numero, Math.min(FORMES.length - 1, numero));
+    // Un étage écrit à la main passe avant le générateur. Il n'y en a qu'un
+    // aujourd'hui — le premier — et c'est voulu : la fiction commence à sa
+    // place, et tout ce qui suit est tiré au sort.
+    const z = ETAGES_ECRITS[numero]
+      ? zoneEcrite(numero)
+      : genererZone(grain, numero, Math.min(FORMES.length - 1, numero));
     if (!z) return;
     zone = z;
     if (numero === 1) montee = [];   // nouvelle aventure, nouvelle cage
@@ -3321,7 +3583,9 @@
       return { sortie: ok(zone.sortie), lueurs: zone.lueurs.every(ok), persos: zone.persos.every(ok) };
     },
     charger: chargerZone,
-    graine: (g) => { grain = g; chargerZone(1); },
+    // La graine ne décide plus du premier étage — il est écrit à la main — mais
+    // de tous les suivants. On repart donc du premier étage PROCÉDURAL.
+    graine: (g, etage) => { grain = g; chargerZone(etage || 2); },
     joueur: () => ({ ...joueur }),
     toast: () => elToast.classList.contains('on'),
     // pousse le joystick vers un point du monde, comme un doigt le ferait

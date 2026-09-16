@@ -996,14 +996,17 @@
         // Le choc se voit sur la matière : on s'écrase sur l'axe de l'impact et
         // on se gonfle sur l'autre. Sans ça `degager` annulait la vitesse, la
         // cible du jelly revenait à 1 et le mur ne se sentait pas du tout.
+        // À 0,006 l'écrasement plafonnait à peine à 10 % et personne ne le
+        // voyait : la matière encaisse maintenant trois fois plus, et l'échelle
+        // elle-même est bornée pour que ça reste une gelée et pas une flaque.
         if (Math.abs(dx) < Math.abs(dy)) {
           const choc = Math.abs(p.vx);
           p.x += dx; p.vx = 0;
-          if (choc > 45) { p.vsx -= choc * 0.006; p.vsy += choc * 0.006; }
+          if (choc > 30) { p.vsx -= choc * 0.02; p.vsy += choc * 0.02; }
         } else {
           const choc = Math.abs(p.vy);
           p.y += dy; p.vy = 0;
-          if (choc > 45) { p.vsy -= choc * 0.006; p.vsx += choc * 0.006; }
+          if (choc > 30) { p.vsy -= choc * 0.02; p.vsx += choc * 0.02; }
         }
       }
     }
@@ -1147,8 +1150,8 @@
     p.vsy += (cibleY - p.sy) * 190 * dt;
     p.vsx -= p.vsx * 13 * dt;
     p.vsy -= p.vsy * 13 * dt;
-    p.sx += p.vsx * dt;
-    p.sy += p.vsy * dt;
+    p.sx = clamp(p.sx + p.vsx * dt, 0.55, 1.5);
+    p.sy = clamp(p.sy + p.vsy * dt, 0.55, 1.5);
   }
 
   let filDernier = { x: 0, y: 0 };
@@ -2801,6 +2804,7 @@
       ctx.fillRect(0, 0, W, H);
     }
 
+    dessinerVidange();
     dessinerManche();
     dessinerVisee();
   }
@@ -2953,7 +2957,7 @@
   function ouvrirLeSeuil() {
     if (vidange) return;
     montee.push({ etage: numeroZone, ames: zone.sortie.ames });
-    vidange = { t: 0, duree: 1.5, eclat0: joueur.eclat, suivante: numeroZone + 1 };
+    vidange = { t: 0, duree: 2.2, eclat0: joueur.eclat, suivante: numeroZone + 1, motes: [] };
     joueur.vx = joueur.vy = 0;
     manche.actif = false; manche.force = 0;
     touches.gauche = touches.droite = touches.haut = touches.bas = false;
@@ -2965,24 +2969,96 @@
     // la jauge du haut se vide au même rythme que le halo se referme
     joueur.eclat = vidange.eclat0 * (1 - k);
     majInterface();
-    // le filet d'étincelles qui quitte le corps et rejoint le portail
-    const flux = 1 - k * 0.5;
-    if (Math.random() < dt * 90 * flux) {
-      const a = Math.random() * TAU;
-      const r = D.taille * (0.3 + Math.random() * 0.5);
-      emettre(joueur.x + Math.cos(a) * r, joueur.y + Math.sin(a) * r,
-              forme().couleur, 1, 26 + Math.random() * 30);
+
+    // Des motes montent hors du corps en spirale. Elles ont leur propre liste
+    // parce qu'elles sont peintes PAR-DESSUS le voile : les particules
+    // ordinaires sont dessinées dessous, et le halo qui se referme les aurait
+    // effacées au fur et à mesure — c'est-à-dire exactement quand il faut les
+    // voir.
+    const cadence = 74 * (1 - k * 0.45);
+    let aNaitre = cadence * dt + (vidange.reste || 0);
+    vidange.reste = aNaitre % 1;
+    for (let i = 0; i < Math.floor(aNaitre); i++) {
+      vidange.motes.push({
+        a: Math.random() * TAU,
+        r: D.taille * (0.15 + Math.random() * 0.45),
+        h: 0,
+        vh: 46 + Math.random() * 70,
+        va: (Math.random() < 0.5 ? -1 : 1) * (1.4 + Math.random() * 2.2),
+        vie: 1, max: 0.8 + Math.random() * 0.5,
+        taille: 1.4 + Math.random() * 2.2,
+      });
     }
-    if (Math.random() < dt * 26) {
-      ondes.push({ x: joueur.x, y: joueur.y, r: D.taille * 0.6,
-                   max: D.taille * (2 + Math.random() * 2), couleur: forme().couleur });
+    for (let i = vidange.motes.length - 1; i >= 0; i--) {
+      const m = vidange.motes[i];
+      m.h += m.vh * dt;
+      m.a += m.va * dt;
+      m.r *= 1 - 0.55 * dt;                 // la spirale se resserre en montant
+      m.vie -= dt / m.max;
+      if (m.vie <= 0) vidange.motes.splice(i, 1);
     }
+
+    // et le sol rend ce qu'on lui a pris : des ondes qui partent du corps
+    if (Math.random() < dt * 9) {
+      ondes.push({ x: joueur.x, y: joueur.y, r: D.taille * 0.5,
+                   max: D.taille * (2.4 + Math.random() * 2.4), couleur: forme().couleur });
+    }
+
     if (vidange.t >= vidange.duree) {
       const n = vidange.suivante;
       vidange = null;
       chargerZone(n);
       montrerCage(n);
     }
+  }
+
+  // Peinte après le voile d'obscurité, en lumière additive : c'est de la
+  // lumière qui s'en va, elle ne peut pas être masquée par le noir.
+  function dessinerVidange() {
+    if (!vidange) return;
+    const k = clamp(vidange.t / vidange.duree, 0, 1);
+    const jx = joueur.x - cam.x, jy = joueur.y - cam.y;
+    const teinte = forme().couleur;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // la colonne : ce qui sort de lui et monte
+    const haut = D.taille * 5.5;
+    const col = ctx.createLinearGradient(jx, jy, jx, jy - haut);
+    col.addColorStop(0, rgba(teinte, 0.34 * (1 - k * 0.5)));
+    col.addColorStop(0.45, rgba(teinte, 0.12 * (1 - k * 0.5)));
+    col.addColorStop(1, rgba(teinte, 0));
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(jx - D.taille * 0.62, jy + D.taille * 0.2);
+    ctx.lineTo(jx + D.taille * 0.62, jy + D.taille * 0.2);
+    ctx.lineTo(jx + D.taille * 0.22, jy - haut);
+    ctx.lineTo(jx - D.taille * 0.22, jy - haut);
+    ctx.closePath();
+    ctx.fill();
+
+    for (const m of vidange.motes) {
+      const x = jx + Math.cos(m.a) * m.r;
+      const y = jy - m.h;
+      const a = clamp(m.vie, 0, 1);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, m.taille * 4);
+      g.addColorStop(0, rgba(teinte, a * 0.95));
+      g.addColorStop(1, rgba(teinte, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, m.taille * 4, 0, TAU); ctx.fill();
+      ctx.fillStyle = rgba('#ffffff', a * 0.8);
+      ctx.beginPath(); ctx.arc(x, y, m.taille * 0.55, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+
+    // le corps s'assombrit : la lumière le quitte pour de bon
+    ctx.save();
+    ctx.globalAlpha = k * 0.72;
+    ctx.fillStyle = 'rgba(8,8,14,1)';
+    carreArrondi(ctx, jx - D.taille * 0.55, jy - D.taille * 0.55,
+                 D.taille * 1.1, D.taille * 1.1, D.taille * 0.34);
+    ctx.fill();
+    ctx.restore();
   }
 
   function cadrer(immediat) {
@@ -3029,12 +3105,15 @@
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) elToast.classList.remove('on'); }
 
     if (vidange) {
-      // le monde se tait : plus de sentinelles, plus de règles. Il ne reste que
-      // la lumière qui s'en va.
+      // Le monde se tait : plus de sentinelles, plus de règles. Il ne reste que
+      // la lumière qui s'en va — mais il faut bien la DESSINER. Cette branche
+      // ne rendait rien du tout : le canvas gardait la dernière image et
+      // l'effet était rigoureusement invisible.
       majVidange(dt);
       majParticules(dt);
       majFlottants(dt);
       cadrer(false);
+      dessiner(temps, propager());
     } else if (!flashEnCours) {
       majPortes(dt);              // avant tout le reste : `solide` doit être stable
       majJoueur(dt);

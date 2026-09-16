@@ -147,6 +147,9 @@ Le geste ne change jamais — ce qu'il emporte, si.
 | On le voit se vider avant de passer | La lumière quitte son corps par filets et rejoint le portail ; le halo se referme jusqu'à presque rien |
 | Le corps d'une âme se remplit pendant qu'on l'éclaire | On la rallume vraiment : le niveau monte en elle, du contour sombre au vert plein |
 | Une carte verticale entre deux zones | Les Dessous sont un bâtiment. Chaque Seuil est un étage de plus vers la surface |
+| Une âme rallumée dit une phrase | Ce sont des gens. On ne l'entend que si on a sauvé quelqu'un, et le jeu ne s'arrête pas pour autant |
+| Des phrases pâles posées dans le décor | D'autres sont passés ici. Ce qu'ils ont compris est resté sur place, comme le reste |
+| Un premier étage écrit à la main, les suivants tirés au sort | Le bas du puits a une forme ; au-dessus, plus personne ne sait |
 
 ## À débattre
 
@@ -164,7 +167,14 @@ Le geste ne change jamais — ce qu'il emporte, si.
 4. **Le nom du monde.** « Les Dessous » ou « la Basse-Lumière ».
    *Les Dessous. On peut le dire à voix haute.*
 
-## Point 2 — ce que ça donne au niveau d'introduction
+## Point 2 — l'étage 1 (fait)
+
+L'histoire a écrit le scénario du premier étage, qui existe désormais pour de
+bon : une carte dessinée case par case, une salle par moment du récit, et aucun
+panneau à valider. Le détail est dans `docs/lux-niveau-1.md`. Ce qui suit est
+l'intention d'origine, gardée telle quelle pour mémoire.
+
+### L'intention d'origine
 
 L'histoire écrit déjà le scénario du niveau linéaire : une salle par mécanique,
 et chaque salle est un moment du récit plutôt qu'un tutoriel.

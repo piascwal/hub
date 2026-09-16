@@ -268,6 +268,74 @@ Rien d'autre ne lit l'URL ; sans paramètre, le jeu démarre normalement. Vérif
 
 ---
 
+## Le plan, tel qu'il est écrit
+
+Ce n'est plus une intention : c'est la carte que `zoneEcrite` lit au démarrage.
+Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
+
+```
+#########################
+##############.........##     1  la salle de la torche
+##...#########.........##
+##.@..o.o.o.o.*........##     3  le réveil, puis le couloir des lueurs
+##...#########.........##
+##############.........##
+##############..2T.....##
+##################*######
+##################=######
+##################1######
+############..r........##    10  la galerie du premier Guet
+##################.######
+##################=######
+##################.######
+##############....*....##    14  le Frileux qu'on ne peut pas encore aider
+##############.......b.##
+#########.T###.........##    16  l'alcôve de la torche : un abri au milieu de l'examen
+######.r....3|.*.......##    17  le couloir d'examen
+######=##################
+##....*.########......###
+##......########......###
+##..S....o.o.o..*..b..###    21  le Seuil, la montée en confiance, le second Frileux
+##....4.########......###
+##......########......###
+#########################
+```
+
+`#` mur — `@` départ — `S` Seuil — `o` lueur — `T` torche — `b` Frileux —
+`r` Guet — `|` et `=` portes — `*` point de reprise — `1-9` murmure.
+
+**Le parcours.** Réveil, couloir des lueurs, salle de la torche, galerie du
+Guet, salle du premier Frileux — qu'on ne peut pas sauver —, couloir d'examen,
+Seuil qui réclame deux âmes, passage latéral des fragments, second Frileux.
+On le livre : 1 sur 2. Et il faut retourner chercher le premier, cette fois
+avec un suiveur dans le dos, par le même couloir et devant le même Guet.
+
+**L'alcôve du couloir d'examen** tient deux corps sous la même torche. C'est
+l'arbitrage du jeu en petit : on ne se met pas à l'abri, on **y met tout le
+monde**.
+
+**Les deux Guets sont scellés dans leur quartier** par les portes — 13 cases
+pour celui de la galerie, 9 pour celui de l'examen. Vérifié : ni l'un ni
+l'autre n'atteint le Seuil ni le premier Frileux, quoi qu'il arrive.
+
+**Le budget d'éclat est calibré à deux points près** : sept lueurs à 4, soit 28,
+pour un seuil de Curieux à 26. La forme s'ouvre donc à la troisième lueur du
+passage latéral — exactement là où le niveau en a besoin, et jamais avant.
+
+### Ce qui a été mesuré
+
+| Ce qu'on voulait | Ce qu'on a mesuré |
+|---|---|
+| Personne n'est récupérable sans faisceau | à la forme Peureux le premier Frileux n'est même pas *éclairé* : `eclaire` reste faux |
+| Le faisceau change tout | même position, forme Curieux : calmé et suiveur |
+| 28 d'éclat pour un seuil à 26 | 28 exactement, forme 1 atteinte |
+| Les Guets restent chez eux | 0 des 2 n'atteint le Seuil ou le premier Frileux, portes fermées |
+| Les murmures se déclenchent au passage | 4 sur 4, et 0 avant d'y passer |
+| La reprise déplace le départ | mort après un point de reprise → renaissance exactement dessus |
+| Le Seuil réclame deux âmes | avec 1 livrée il reste fermé ; avec 2 la vidange part et l'étage 2 se charge |
+
+---
+
 ## Ce que ça demande côté technique
 
 L'étage 1 étant écrit à la main, il faut un **format de niveau**. Le plus simple
@@ -282,9 +350,18 @@ avec des lettres pour le mobilier :
 #########     S  Seuil
 ```
 
-`chargerZone(1)` lit cette carte au lieu d'appeler le générateur ; tout le reste
-du jeu — lumière, portes, détection, convoi — fonctionne sans modification,
-puisqu'il ne lit qu'une grille de murs et une liste de personnages.
+`chargerZone` lit cette carte au lieu d'appeler le générateur dès qu'un étage
+écrit existe pour ce numéro ; tout le reste du jeu — lumière, portes, détection,
+convoi — fonctionne sans modification, puisqu'il ne lit qu'une grille de murs et
+une liste de personnages. Une seule chose a dû bouger dans le générateur : la
+fabrication d'un personnage, extraite dans `nouveauPerso` pour que les PNJ
+écrits à la main soient rigoureusement les mêmes que les autres. L'ordre des
+tirages y est préservé au tirage près — le changer aurait regeneré un autre
+monde pour chaque graine.
+
+Les rondes des Guets, elles, sont **écrites** et non tirées : un premier étage
+doit se relire à l'identique d'une partie sur l'autre, sinon il n'est ni
+équilibrable ni débogable.
 
 C'est aussi ce qui rend le niveau amendable sans toucher au code : on déplace
 une lettre, on rejoue.

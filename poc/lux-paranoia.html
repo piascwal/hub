@@ -264,6 +264,73 @@
 
   .toast.on { opacity: 1; }
 
+  /* L'écran-titre. UN seul bouton : « Descendre ». On ne demande pas au joueur
+     s'il veut apprendre un jeu qu'il n'a pas encore vu — la question avoue la
+     faiblesse, et celui qui répond « non » en voudra au jeu. Le saut n'apparaît
+     qu'à qui a déjà fini l'étage 1 : c'est le traitement qu'un prologue
+     mérite. */
+  .titre {
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    text-align: center;
+    padding: 2rem 1.6rem;
+    background: radial-gradient(120% 90% at 50% 45%, #14141d 0%, #06060a 70%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+  }
+
+  .titre.on { opacity: 1; pointer-events: auto; }
+  .titre em { font-style: normal; font-size: 0.68rem; letter-spacing: 0.22em;
+              text-transform: uppercase; color: rgba(255, 233, 168, 0.5); }
+  .titre strong { font-size: 2.1rem; letter-spacing: 0.02em; color: #ffe9a8;
+                  text-shadow: 0 0 28px rgba(255, 200, 110, 0.28); }
+  .titre p { max-width: 21rem; font-size: 0.85rem; line-height: 1.55;
+             color: rgba(232, 232, 240, 0.5); margin: 0.2rem 0 1.1rem; }
+  .titre .btn { font-size: 1rem; padding: 0.6rem 2.1rem; letter-spacing: 0.08em; }
+  .titre .lien { font: inherit; font-size: 0.78rem; margin-top: 0.6rem;
+                 background: none; border: 0; cursor: pointer;
+                 color: rgba(232, 232, 240, 0.35);
+                 text-decoration: underline; text-underline-offset: 3px; }
+  .titre .lien[hidden] { display: none; }
+
+  /* Le seul arrêt qu'on s'autorise avant la première image : deux lignes, pas
+     de bouton, ça s'efface tout seul. Inside, Limbo, Journey ouvrent ainsi. */
+  .ouverture {
+    position: fixed;
+    inset: 0;
+    z-index: 23;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.1rem;
+    text-align: center;
+    padding: 2rem;
+    background: #05050a;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 1.1s ease;
+  }
+
+  .ouverture.on { opacity: 1; pointer-events: auto; }
+  .ouverture b { font-weight: 400; font-size: 0.95rem; font-family: Georgia, serif;
+                 font-style: italic; color: rgba(232, 232, 240, 0.4);
+                 opacity: 0; transition: opacity 1.4s ease; }
+  .ouverture b.vu { opacity: 1; }
+  .ouverture b + b { font-size: 1.35rem; color: rgba(255, 233, 168, 0.75); }
+
+  /* le récit de la cage : deux à quatre phrases, sur un arrêt déjà prévu */
+  .recit { max-width: 21rem; font-size: 0.82rem !important; line-height: 1.6;
+           font-family: Georgia, serif; font-style: italic;
+           color: rgba(232, 232, 240, 0.48) !important; margin: 0.5rem 0 0.2rem; }
+
   /* La cage d'escalier, seul écran plein du jeu. Le bandeau modal qui servait
      à l'évolution et au passage de zone a disparu : l'un se dit par le bouton
      caillou, l'autre par cette carte. */
@@ -368,13 +435,33 @@
   <button type="button" class="rond on" id="caillou">CAILLOU<br><span id="caillou-n">1</span></button>
 </div>
 
+<!-- Les commandes, et rien d'autre : le reste, l'étage 1 l'enseigne par sa
+     géographie. La ligne « éclaire les bleus » mentait au début de la partie,
+     où l'on n'a pas encore de faisceau pour le faire. -->
 <p class="hint" id="hint">
   Pose le doigt n'importe où : un joystick apparaît sous lui.<br>
-  Glisse depuis CAILLOU pour viser, lâche pour lancer.<br>
-  Éclaire les bleus pour les calmer, amène-les au portail.
+  Ou joue aux flèches du clavier.<br>
+  Glisse depuis CAILLOU pour viser, lâche pour lancer.
 </p>
 
 <div class="toast" id="toast"></div>
+
+<!-- L'écran-titre et l'écran noir d'ouverture. Ils ne servent qu'une fois par
+     partie : passé le premier Seuil, le jeu ne s'arrête plus. -->
+<div class="titre" id="titre">
+  <em>Les Dessous</em>
+  <strong>Lux &amp; Paranoïa</strong>
+  <p>Falot est la plus petite lampe d'ici. Il ne se souvient pas de qui il
+     éclairait — seulement que quelqu'un, quelque part, avait moins peur grâce
+     à lui.</p>
+  <button type="button" class="btn" id="titre-descendre">Descendre</button>
+  <button type="button" class="lien" id="titre-plus-haut" hidden>Reprendre plus haut</button>
+</div>
+
+<div class="ouverture" id="ouverture">
+  <b id="ouverture-1">Une lumière qui s'éteint ne disparaît pas.</b>
+  <b id="ouverture-2">Elle tombe.</b>
+</div>
 
 <!-- La cage d'escalier. Les Dessous sont un bâtiment : la lumière y tombe, et
      sortir c'est monter. Cet écran n'est pas une barre de progression, c'est un
@@ -385,6 +472,7 @@
   <strong id="cage-titre"></strong>
   <div class="puits" id="puits"></div>
   <p id="cage-bilan"></p>
+  <p class="recit" id="cage-recit"></p>
   <button type="button" class="btn" id="cage-ok">Monter</button>
 </div>
 
@@ -1766,6 +1854,16 @@
     montrerToast(perdues
       ? `Éteint — ${perdues} âme${perdues > 1 ? 's' : ''} lâchée${perdues > 1 ? 's' : ''} là où tu es tombé`
       : 'Éteint — tu repars du seuil');
+
+    // On ne donne jamais l'outil avant le problème. La toute première fois
+    // qu'un regard nous éteint, le bouton CAILLOU se signale — sans un mot
+    // d'explication : il se met à battre, et c'est au joueur d'essayer.
+    if (premiereMort) {
+      premiereMort = false;
+      elCaillou.classList.remove('evolue');
+      void elCaillou.offsetWidth;
+      elCaillou.classList.add('evolue');
+    }
   }
 
   // À quoi servent les petites choses jaunes ? On ne l'avait jamais dit. La
@@ -1774,6 +1872,7 @@
   // l'objet et la progression se voit, il n'a plus à être lu.
   let premiereLueur = true;
   let premiereReprise = true;
+  let premiereMort = true;
   // La règle attachée à une espèce ne se dit qu'une fois : répétée à chaque
   // âme, elle redevient la modale intrusive qu'on a retirée.
   const regleDite = {};
@@ -3146,6 +3245,29 @@
 
   const elCage = el('cage'), elPuits = el('puits');
 
+  // Le récit de fond. La cage est un arrêt de toute façon : deux à quatre
+  // phrases y passent sans rien coûter, et sur dix étages cela fait une
+  // histoire complète. C'est le seul endroit du jeu où l'on s'autorise un
+  // paragraphe.
+  const RECIT_CAGE = {
+    2: 'Elles sont entrées avant toi. Un Seuil ne s\'ouvre pas avec une clé : '
+     + 'il s\'ouvre quand assez de lumière se tient dedans — et cette lumière, '
+     + 'c\'était la tienne. Tu viens de tout lui donner. Tu ne te souviens déjà '
+     + 'plus de ce que tu savais faire il y a un instant.',
+    3: 'Il n\'y a pas de jour dans les Dessous, seulement des lampes et ce '
+     + 'qu\'elles montrent. Personne n\'a construit cet endroit. On y a entassé '
+     + 'ce qui ne servait plus, jusqu\'à ce que ça ressemble à une prison.',
+    4: 'Les regards rouges ne montent pas derrière toi. Ils n\'ont nulle part '
+     + 'où aller : ils sont ce qui reste quand une lampe a renoncé, et ils '
+     + 'attendent la suivante.',
+  };
+  const RECIT_PLUS_HAUT = [
+    'Tu ne comptes plus les étages. Elles, si.',
+    'Plus haut, paraît-il, il y a des fenêtres. Personne n\'en a vu.',
+    'Tu recommences petit à chaque fois, et tu ne te souviens pas assez pour '
+      + 't\'en lasser.',
+  ];
+
   function montrerCage(arrivee) {
     el('cage-titre').textContent = `Étage ${arrivee}`;
     const total = montee.reduce((a, m) => a + m.ames, 0);
@@ -3182,6 +3304,9 @@
       }
       elPuits.appendChild(ligne);
     }
+    el('cage-recit').textContent = RECIT_CAGE[arrivee]
+      || RECIT_PLUS_HAUT[(arrivee - 5) % RECIT_PLUS_HAUT.length];
+
     // l'étage courant doit être visible même quand la liste s'allonge
     elCage.classList.add('on');
     flashEnCours = true;
@@ -3263,8 +3388,18 @@
 
   // Franchir un Seuil ne se fait plus d'un coup : Falot s'y vide d'abord. La
   // zone suivante ne se charge qu'une fois la dernière étincelle partie.
+  // Le saut du prologue ne s'ouvre qu'à qui l'a déjà fini une fois. On ne
+  // demande jamais au joueur s'il veut apprendre un jeu qu'il n'a pas vu.
+  const CLE_PROLOGUE = 'lux-etage1-fini';
+  const prologueFini = () => {
+    try { return localStorage.getItem(CLE_PROLOGUE) === 'oui'; } catch (e) { return false; }
+  };
+
   function ouvrirLeSeuil() {
     if (vidange) return;
+    if (numeroZone === 1) {
+      try { localStorage.setItem(CLE_PROLOGUE, 'oui'); } catch (e) { /* navigation privée */ }
+    }
     montee.push({ etage: numeroZone, ames: zone.sortie.ames });
     vidange = { t: 0, duree: 2.2, eclat0: joueur.eclat, suivante: numeroZone + 1, motes: [] };
     joueur.vx = joueur.vy = 0;
@@ -3547,14 +3682,68 @@
   // début à chaque essai — et un niveau d'introduction écrit à la main rendra
   // ça franchement pénible. Rien d'autre ne lit l'URL, le jeu démarre
   // normalement quand elle est vide.
+  const elTitre = el('titre'), elOuverture = el('ouverture');
+
+  // L'écran noir d'ouverture : deux lignes, aucun bouton, il s'efface tout
+  // seul. C'est le seul arrêt qu'on s'autorise avant la première image — et on
+  // peut l'écourter d'un geste, parce qu'on le reverra à chaque partie.
+  function ouvrir() {
+    elOuverture.classList.add('on');
+    flashEnCours = true;
+    let clos = false;
+    const fermer = () => {
+      if (clos) return;
+      clos = true;
+      minuteries.forEach(clearTimeout);
+      removeEventListener('pointerdown', fermer);
+      removeEventListener('keydown', fermer);
+      elOuverture.classList.remove('on');
+      setTimeout(() => {
+        el('ouverture-1').classList.remove('vu');
+        el('ouverture-2').classList.remove('vu');
+        flashEnCours = false;
+      }, 900);
+    };
+    const minuteries = [
+      setTimeout(() => el('ouverture-1').classList.add('vu'), 400),
+      setTimeout(() => el('ouverture-2').classList.add('vu'), 2200),
+      setTimeout(fermer, 5400),
+      // on laisse le temps de lire avant d'autoriser le saut
+      setTimeout(() => {
+        if (clos) return;
+        addEventListener('pointerdown', fermer);
+        addEventListener('keydown', fermer);
+      }, 1300),
+    ];
+  }
+
+  function descendre(etage) {
+    elTitre.classList.remove('on');
+    chargerZone(etage);
+    if (etage > 1) { flashEnCours = false; return; }
+    ouvrir();
+  }
+
   {
     const reglages = new URLSearchParams(location.search);
     const g = reglages.get('graine');
     if (g) grain = g;
-    const e = Math.max(1, Math.min(99, parseInt(reglages.get('etage'), 10) || 1));
+    const demande = parseInt(reglages.get('etage'), 10);
+    const e = Math.max(1, Math.min(99, demande || 1));
     chargerZone(e);
-    if (e > 1) montrerToast(`Départ direct à l'étage ${e}`, '#ffe9a8');
+    if (demande) {
+      // raccourci de développement : on saute l'écran-titre, sinon il faudrait
+      // le cliquer à chaque essai
+      montrerToast(e > 1 ? `Départ direct à l'étage ${e}` : 'Départ direct', '#ffe9a8');
+    } else {
+      flashEnCours = true;
+      elTitre.classList.add('on');
+      el('titre-plus-haut').hidden = !prologueFini();
+    }
   }
+
+  el('titre-descendre').addEventListener('click', () => descendre(1));
+  el('titre-plus-haut').addEventListener('click', () => descendre(2));
 
   requestAnimationFrame(boucle);
 

@@ -486,7 +486,7 @@
   // vrai danger — sans cette nuance, un peureux tranquille hurlait en
   // permanence et on ne voyait plus arriver le moment qui compte.
   const HUMEURS = { PEUR: 'peur', INQUIET: 'inquiet', INTRIGUE: 'intrigue',
-                    ACHARNE: 'acharne', VISEE: 'visee' };
+                    ACHARNE: 'acharne', VISEE: 'visee', APAISE: 'apaise' };
 
   // Le vert d'une âme rallumée. Nommé une fois : il sert au corps qui se
   // remplit, au personnage une fois calmé, et à ses particules.
@@ -505,7 +505,13 @@
   // Le joueur a peur des mêmes choses que ses âmes, plus une : sentir sa propre
   // lumière se faire manger. Et viser au caillou passe avant tout le reste :
   // c'est un geste volontaire, il mérite son visage à lui.
-  const humeurDuJoueur = () => visee.actif ? HUMEURS.VISEE
+  // L'ABRI PASSE AVANT TOUT. Se tenir dans la lumière d'une torche ou d'une
+  // braise coupe la détection, mais rien ne le disait : on continuait à jouer
+  // la peur au ventre sans savoir qu'on ne risquait plus rien. C'est la seule
+  // fois du jeu où Falot sourit, et ça se lit même avec un rouge en alerte à
+  // deux pas — c'est précisément là que l'information a de la valeur.
+  const humeurDuJoueur = () => joueur.abri ? HUMEURS.APAISE
+    : visee.actif ? HUMEURS.VISEE
     : humeurSelon(joueur, menace || joueur.vu > 0.15 || joueur.souffle < 0.45,
                   joueur.niveau > 0);
   const COULEURS = {
@@ -1673,6 +1679,12 @@
     // fait donc le délai toute seule, sans aucune formule.
     if (joueur.repit > 0) joueur.repit -= dt;
     const abri = prochedUneBraise(joueur.x, joueur.y, 1) || procheDuneTorche(joueur.x, joueur.y);
+    joueur.abri = abri;                 // lu par le visage : voir `humeurDuJoueur`
+    // quelques motes tièdes qui montent : le calme a son bruit de fond
+    if (abri && Math.random() < dt * 7) {
+      emettre(joueur.x + (Math.random() - 0.5) * D.taille * 1.4,
+              joueur.y + D.taille * 0.3, '#ffd9a0', 1, 30);
+    }
     let pire = 0, traque = false;
 
     for (const p of zone.persos) {
@@ -1923,6 +1935,7 @@
     const peur = affole || inquiet;                  // mêmes yeux, mêmes sourcils
     const acharne = humeur === HUMEURS.ACHARNE;
     const visee = humeur === HUMEURS.VISEE;
+    const apaise = humeur === HUMEURS.APAISE;
     const w = taille * p.sx, h = taille * p.sy;
     const arrondi = Math.min(w, h) * 0.32;
     const demi = taille * 0.5;
@@ -1979,7 +1992,7 @@
     const ecart = demi * 0.36 * p.sx;
     const oeilY = -demi * 0.14 * p.sy;
     // l'œil s'ouvre grand quand on a peur, se plisse quand on s'acharne
-    const rOeil = demi * 0.22 * (peur ? 1.22 : acharne ? 0.94 : 1);
+    const rOeil = demi * 0.22 * (peur ? 1.22 : acharne ? 0.94 : apaise ? 0.92 : 1);
     // en visée on ferme un œil : c'est le geste universel de qui ajuste
     const clinDoeil = visee ? 1 : 0;
     const px = Math.cos(p.regard) * rOeil * 0.42;
@@ -2000,7 +2013,8 @@
       // La pupille rétrécit dans la peur : c'est ce contraste avec le blanc
       // grand ouvert qui fait l'œil affolé, bien plus que sa taille.
       const rPupille = rOeil * (peur ? 0.36 : acharne ? 0.58 : 0.5);
-      const hOeil = acharne ? rOeil * 0.62 : rOeil;   // paupière basse
+      // apaisé : l'œil se détend à demi. Pas fermé — fermé, c'est « aveuglé ».
+      const hOeil = acharne ? rOeil * 0.62 : apaise ? rOeil * 0.72 : rOeil;
       const frisson = affole ? Math.sin(temps * 17 + (p.tremble || 0)) * rOeil * 0.07 : 0;
       for (const dx of [-ecart, ecart]) {
         if (clinDoeil && dx > 0) {                    // l'œil droit se ferme
@@ -2029,7 +2043,18 @@
     ctx.lineWidth = Math.max(2, demi * 0.12);
     ctx.lineCap = 'round';
     const lg = rOeil * 1.15;
-    if (visee) {
+    if (apaise) {
+      // sourcils hauts, droits et symétriques : ni froncés, ni inquiets.
+      // C'est l'absence de tension qui fait lire le calme.
+      const sy = oeilY - rOeil * 1.85;
+      for (const cote of [-1, 1]) {
+        const dx = ecart * cote;
+        ctx.beginPath();
+        ctx.moveTo(dx - lg * 0.5, sy);
+        ctx.quadraticCurveTo(dx, sy - rOeil * 0.3, dx + lg * 0.5, sy);
+        ctx.stroke();
+      }
+    } else if (visee) {
       // un sourcil remonté, l'autre baissé sur l'œil fermé : la concentration
       ctx.beginPath();
       ctx.moveTo(-ecart - lg * 0.5, oeilY - rOeil * 2.1);
@@ -2083,7 +2108,11 @@
     ctx.lineWidth = Math.max(1.8, demi * 0.1);
     ctx.strokeStyle = encre;
     ctx.beginPath();
-    if (visee) {
+    if (apaise) {
+      // le seul sourire du jeu. Il ne s'obtient qu'à l'abri, et il vaut donc
+      // quelque chose : un peureux qui sourit tout le temps ne dit plus rien.
+      ctx.arc(0, by - bl * 0.5, bl * 0.78, 0.62, Math.PI - 0.62);
+    } else if (visee) {
       // bouche poussée sur le côté, comme on mord sa joue en ajustant
       ctx.moveTo(-bl * 0.1, by + bl * 0.06);
       ctx.quadraticCurveTo(bl * 0.22, by + bl * 0.02, bl * 0.46, by - bl * 0.12);
@@ -3232,7 +3261,21 @@
   });
 
   redimensionner();
-  chargerZone(1);
+
+  // Raccourci de développement : ?etage=4 démarre directement à cet étage,
+  // ?graine=LUX-1234 fixe le plan. Sans ça il faudrait retraverser tout le
+  // début à chaque essai — et un niveau d'introduction écrit à la main rendra
+  // ça franchement pénible. Rien d'autre ne lit l'URL, le jeu démarre
+  // normalement quand elle est vide.
+  {
+    const reglages = new URLSearchParams(location.search);
+    const g = reglages.get('graine');
+    if (g) grain = g;
+    const e = Math.max(1, Math.min(99, parseInt(reglages.get('etage'), 10) || 1));
+    chargerZone(e);
+    if (e > 1) montrerToast(`Départ direct à l'étage ${e}`, '#ffe9a8');
+  }
+
   requestAnimationFrame(boucle);
 
   // Exposé pour les mesures automatisées. L'accessibilité du plan se vérifie

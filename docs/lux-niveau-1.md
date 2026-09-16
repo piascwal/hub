@@ -290,13 +290,13 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 ##################.######
 ##############....*....##    14  le Frileux qu'on ne peut pas encore aider
 ##############.......b.##
-#########.T###.........##    16  l'alcôve de la torche : un abri au milieu de l'examen
-######.r....3|.*.......##    17  le couloir d'examen
+##############.........##
+######......3|.*.......##    17  le couloir calme, et sa porte
 ######=##################
 ##....*.########......###
-##......########......###
-##..S....o.o.o..*..b..###    21  le Seuil, la montée en confiance, le second Frileux
-##....4.########......###
+##......##5T####...b..###    20  l'alcôve de la torche, sur le trajet de l'escorte
+##..S...|o.o.or|*.....###    21  le Seuil, les fragments, le Guet de l'escorte
+##....4.########...b..###    22
 ##......########......###
 #########################
 ```
@@ -305,17 +305,29 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 `r` Guet — `|` et `=` portes — `*` point de reprise — `1-9` murmure.
 
 **Le parcours.** Réveil, couloir des lueurs, salle de la torche, galerie du
-Guet, salle du premier Frileux — qu'on ne peut pas sauver —, couloir d'examen,
-Seuil qui réclame deux âmes, passage latéral des fragments, second Frileux.
-On le livre : 1 sur 2. Et il faut retourner chercher le premier, cette fois
-avec un suiveur dans le dos, par le même couloir et devant le même Guet.
+premier Guet, salle d'un Frileux — qu'on ne peut pas encore sauver —, couloir
+calme, Seuil qui réclame deux âmes. Puis le couloir des fragments, gardé par le
+second Guet, et au bout la salle du fond : **les deux âmes y sont, côte à
+côte**. On les rallume, on les ramène, et le retour repasse devant le même Guet
+— seul à l'aller, avec deux suiveurs au retour. C'est l'examen, et il tombe au
+même endroit que la leçon.
 
-**L'alcôve du couloir d'examen** tient deux corps sous la même torche. C'est
-l'arbitrage du jeu en petit : on ne se met pas à l'abri, on **y met tout le
-monde**.
+> **Corrigé après essai.** Les deux âmes étaient d'abord aux deux bouts du
+> niveau, pour que le Seuil oblige à revenir chercher la première. À la manette
+> ce demi-tour **ne se devine pas** : rien sur le chemin ne le demande, et on
+> retraverse la moitié de l'étage sans savoir pourquoi. Le Frileux du début
+> reste donc ce qu'il est — la démonstration qu'il te manque quelque chose — et
+> on n'est plus jamais obligé d'y retourner. Qui le veut peut, une fois le
+> faisceau ouvert ; le Seuil accepte les âmes en trop.
+
+**L'alcôve** s'est déplacée avec le Guet : elle est maintenant sur le trajet de
+l'escorte, et un murmure y dit enfin la règle à voix haute — *« Tant que la
+flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi. »*
+C'est l'arbitrage du jeu en petit : on ne se met pas à l'abri, on **y met tout
+le monde**.
 
 **Les deux Guets sont scellés dans leur quartier** par les portes — 13 cases
-pour celui de la galerie, 9 pour celui de l'examen. Vérifié : ni l'un ni
+pour celui de la galerie, 8 pour celui de l'escorte. Vérifié : ni l'un ni
 l'autre n'atteint le Seuil ni le premier Frileux, quoi qu'il arrive.
 
 **Le budget d'éclat est calibré à deux points près** : sept lueurs à 4, soit 28,
@@ -345,21 +357,30 @@ niveau.
 | Couloir des lueurs | 2,4 s |
 | Salle de la torche | 4,7 s |
 | Galerie du Guet traversée | 7,7 s |
-| Seuil atteint, vide | 18,1 s |
-| Fragments ramassés (forme Curieux) | 20,5 s |
-| Première livraison | 28,2 s |
-| Retour sur le premier Frileux, seconde livraison | 43,3 s |
-| Les deux âmes dedans, le Seuil s'ouvre | 49,3 s |
+| Seuil atteint, vide | 17,9 s |
+| Fragments ramassés (forme Curieux) | 21,0 s |
+| Les deux âmes du fond suivent | 23,0 s |
+| Livraison, le Seuil s'ouvre, étage 2 chargé | 37,3 s |
 
-**49 secondes de marche pure.** Le niveau tient donc largement sous les quatre
-minutes visées : le reste du temps de jeu, c'est ce qui fait le jeu — attendre
+**37 secondes de marche pure**, contre 49 quand les deux âmes étaient aux deux
+bouts du niveau. Le reste du temps de jeu, c'est ce qui fait le jeu — attendre
 qu'un regard passe, se mettre à l'abri, mourir une fois ou deux.
 
-Une précision honnête : ce pilote-là ne sait ni lancer un caillou ni se mettre
-à l'abri. Guets actifs, il **n'a pas traversé le couloir d'examen en
-45 secondes** — ce qui dit que le couloir est un vrai obstacle, et ne dit rien
-du temps qu'y mettra quelqu'un qui a compris. Ce chiffre-là se mesure à la
-main, pas au robot.
+Une précision honnête : ce pilote ne sait ni lancer un caillou ni se mettre à
+l'abri. Guets actifs, il ne franchit pas un couloir gardé — ce qui dit que le
+couloir est un vrai obstacle, et rien du temps qu'y mettra quelqu'un qui a
+compris. Ce chiffre-là se mesure à la main.
+
+### Passer le prologue
+
+Le bouton **« Passer le prologue — reprendre à l'étage 2 »** est visible en
+permanence sur l'écran-titre. La règle prévue — ne le débloquer qu'après une
+première fin — est la bonne pour un jeu publié, mais elle rend l'étage 1
+obligatoire à chaque essai pendant qu'on le construit. Une ligne suffit à la
+rétablir le jour venu (`hidden = !prologueFini()`).
+
+Et depuis la console, `__lux.charger(4)` ou `__lux.graine('LUX-7001')` referment
+l'écran-titre au passage : sans ça le monde reste gelé derrière lui.
 
 ---
 

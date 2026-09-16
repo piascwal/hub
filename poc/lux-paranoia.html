@@ -455,7 +455,7 @@
      éclairait — seulement que quelqu'un, quelque part, avait moins peur grâce
      à lui.</p>
   <button type="button" class="btn" id="titre-descendre">Descendre</button>
-  <button type="button" class="lien" id="titre-plus-haut" hidden>Reprendre plus haut</button>
+  <button type="button" class="lien" id="titre-plus-haut" hidden>Passer le prologue — reprendre à l'étage 2</button>
 </div>
 
 <div class="ouverture" id="ouverture">
@@ -1018,13 +1018,13 @@
         '##################.######',   // 13
         '##############....*....##',   // 14   la salle du Frileux qu'on ne peut pas aider
         '##############.......b.##',   // 15
-        '#########.T###.........##',   // 16   l'alcôve de la torche : un abri au milieu de l'examen
-        '######.r....3|.*.......##',   // 17   le couloir d'examen
+        '##############.........##',   // 16
+        '######......3|.*.......##',   // 17   le couloir calme, et sa porte
         '######=##################',   // 18
         '##....*.########......###',   // 19
-        '##......########......###',   // 20
-        '##..S....o.o.o..*..b..###',   // 21   le Seuil, la montée en confiance, le second Frileux
-        '##....4.########......###',   // 22
+        '##......##5T####...b..###',   // 20   l'alcôve de la torche, sur le trajet de l'escorte
+        '##..S...|o.o.or|*.....###',   // 21   le Seuil, les fragments, le Guet de l'escorte
+        '##....4.########...b..###',   // 22
         '##......########......###',   // 23
         '#########################',   // 24
       ],
@@ -1033,17 +1033,22 @@
       // l'autre, sinon on ne peut ni l'équilibrer ni le déboguer.
       rondes: [
         [[12, 10], [22, 10]],          // le Guet de la galerie balaye d'un mur à l'autre
-        [[6, 17], [12, 17]],           // celui de l'examen fait l'aller-retour du couloir
+        [[9, 21], [13, 21]],           // celui de l'escorte fait l'aller-retour du couloir
       ],
       murmures: {
         '1': 'Quelqu\'un a fixé une lampe ici jusqu\'à ce qu\'elle renonce. Le regard est resté.',
         '2': 'D\'autres sont passés avant toi. Quelques-unes de leurs lampes brûlent encore.',
         '3': 'Un regard va tout droit, et n\'a pas de mains.',
         '4': 'Tomber est facile. Sortir, c\'est monter.',
+        '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
       },
-      // Deux âmes, pas une : avec une seule on livrerait le Frileux du couloir
-      // et on partirait sans jamais revenir chercher celui du début. Le détour
-      // EST la leçon — on retourne chercher ceux qu'on a laissés derrière.
+      // Deux âmes, et les deux sont dans la même salle, au bout du couloir des
+      // fragments. Elles ont d'abord été posées aux deux bouts du niveau : il
+      // fallait alors retraverser la moitié de l'étage pour la seconde, et ce
+      // demi-tour ne se devinait pas — rien sur le chemin ne le demandait.
+      // Le Frileux de la salle 5 reste donc ce qu'il est : la démonstration
+      // qu'il manque quelque chose. On peut revenir le chercher une fois le
+      // faisceau ouvert, personne n'y oblige.
       requis: 2,
     },
   };
@@ -3738,7 +3743,11 @@
     } else {
       flashEnCours = true;
       elTitre.classList.add('on');
-      el('titre-plus-haut').hidden = !prologueFini();
+      // Le saut reste visible en permanence. La règle « débloqué après une
+      // première fin » est la bonne pour un jeu publié, mais elle rend l'étage 1
+      // obligatoire à chaque essai pendant qu'on le construit. Pour la
+      // rétablir : `= !prologueFini()`.
+      el('titre-plus-haut').hidden = false;
     }
   }
 
@@ -3771,10 +3780,18 @@
       };
       return { sortie: ok(zone.sortie), lueurs: zone.lueurs.every(ok), persos: zone.persos.every(ok) };
     },
-    charger: chargerZone,
+    // Charger une zone à la main, c'est entrer dans le jeu : on referme
+    // l'écran-titre au passage. Sans ça le monde reste gelé derrière lui et
+    // plus rien ne bouge — ce qui a fait passer deux mesures au rouge sans que
+    // le jeu ait le moindre problème.
+    charger: (n) => { elTitre.classList.remove('on'); flashEnCours = false; chargerZone(n); },
     // La graine ne décide plus du premier étage — il est écrit à la main — mais
     // de tous les suivants. On repart donc du premier étage PROCÉDURAL.
-    graine: (g, etage) => { grain = g; chargerZone(etage || 2); },
+    graine: (g, etage) => {
+      grain = g;
+      elTitre.classList.remove('on'); flashEnCours = false;
+      chargerZone(etage || 2);
+    },
     joueur: () => ({ ...joueur }),
     toast: () => elToast.classList.contains('on'),
     // pousse le joystick vers un point du monde, comme un doigt le ferait

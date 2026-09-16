@@ -21,6 +21,18 @@ portes qui se referment seules, et un noir si épais qu'on n'y voit que ce qu'on
 Il n'y a pas de jour dans les Dessous. Il n'y a que des lampes, et ce qu'elles
 montrent.
 
+### Les Dessous sont un bâtiment
+
+Ce n'est pas un paysage : ce sont des couloirs et des cellules, exactement ce que
+le générateur produit. **Personne ne l'a construit.** C'est la forme que prend un
+endroit où l'on entasse ce qu'on n'utilise plus — un dépôt, un garde-meuble,
+quelque chose qui a fini par ressembler à une prison sans que quiconque l'ait
+voulu.
+
+Et cela répond à la question du passage d'une zone à l'autre : **la lumière tombe
+ici ; tomber est facile, sortir c'est monter.** Chaque Seuil franchi est un étage
+de plus vers la surface. Personne ne sait combien il en reste.
+
 ## Qui vit ici
 
 Les **Éteints** sont tombés ; ils ont oublié qu'ils étaient des lampes. Les
@@ -70,8 +82,18 @@ faire.
 
 Un Seuil ne s'ouvre pas avec une clé. Il s'ouvre quand assez de lumière se tient
 dedans. Chaque âme que Falot y amène y laisse sa flamme, et quand il y en a
-assez, le passage cède — *pour eux*. Falot, lui, ne passe pas : il pousse tout
-ce qu'il a devant lui et reste de ce côté-ci pour la salle suivante.
+assez, le passage cède. Il pousse les siens devant lui, puis il monte à leur
+suite — vidé de tout ce qu'il avait retrouvé.
+
+### La cage d'escalier
+
+L'écran entre deux étages n'est pas une barre de progression : **c'est un appel
+des noms.** On y voit s'accumuler, étage par étage, les petites lumières qu'on y
+a envoyées. Au-dessus, trois étages de noir qui s'effacent, et la seule mention
+qu'on se permette : *personne n'est jamais monté si haut.*
+
+Une carte à la Candy Crush se parcourt en touriste ; ici on évacue un immeuble
+par le bas, et c'est la verticalité qui porte le propos.
 
 ## Le cœur — pourquoi il redevient petit
 
@@ -122,6 +144,9 @@ Le geste ne change jamais — ce qu'il emporte, si.
 | Un fil marque le chemin déjà parcouru | Il ne connaît pas les Dessous, seulement ce qu'il a déjà traversé |
 | Des torches fixées aux murs, rallumables | D'autres lampes sont passées avant lui ; certaines brûlent encore un peu |
 | On repart Peureux à chaque nouvelle zone | Il a tout donné au Seuil, et il le paie à chaque fois |
+| On le voit se vider avant de passer | La lumière quitte son corps par filets et rejoint le portail ; le halo se referme jusqu'à presque rien |
+| Le corps d'une âme se remplit pendant qu'on l'éclaire | On la rallume vraiment : le niveau monte en elle, du contour sombre au vert plein |
+| Une carte verticale entre deux zones | Les Dessous sont un bâtiment. Chaque Seuil est un étage de plus vers la surface |
 
 ## À débattre
 

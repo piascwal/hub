@@ -334,6 +334,33 @@ passage latéral — exactement là où le niveau en a besoin, et jamais avant.
 | La reprise déplace le départ | mort après un point de reprise → renaissance exactement dessus |
 | Le Seuil réclame deux âmes | avec 1 livrée il reste fermé ; avec 2 la vidange part et l'étage 2 se charge |
 
+### Combien de temps ça fait
+
+Un pilote automatique a parcouru l'étage entier, **Guets aveuglés en
+permanence** : ce qui reste est la part de trajet, le plancher incompressible du
+niveau.
+
+| Moment | Temps |
+|---|---|
+| Couloir des lueurs | 2,4 s |
+| Salle de la torche | 4,7 s |
+| Galerie du Guet traversée | 7,7 s |
+| Seuil atteint, vide | 18,1 s |
+| Fragments ramassés (forme Curieux) | 20,5 s |
+| Première livraison | 28,2 s |
+| Retour sur le premier Frileux, seconde livraison | 43,3 s |
+| Les deux âmes dedans, le Seuil s'ouvre | 49,3 s |
+
+**49 secondes de marche pure.** Le niveau tient donc largement sous les quatre
+minutes visées : le reste du temps de jeu, c'est ce qui fait le jeu — attendre
+qu'un regard passe, se mettre à l'abri, mourir une fois ou deux.
+
+Une précision honnête : ce pilote-là ne sait ni lancer un caillou ni se mettre
+à l'abri. Guets actifs, il **n'a pas traversé le couloir d'examen en
+45 secondes** — ce qui dit que le couloir est un vrai obstacle, et ne dit rien
+du temps qu'y mettra quelqu'un qui a compris. Ce chiffre-là se mesure à la
+main, pas au robot.
+
 ---
 
 ## Ce que ça demande côté technique

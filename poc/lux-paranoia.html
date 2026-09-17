@@ -156,25 +156,10 @@
   .barre.pulse { animation: jaugePulse 0.45s ease-out; }
 
   /* bonus temporaire en cours */
-  .bonus {
-    position: fixed;
-    left: 50%;
-    top: 3.6rem;
-    transform: translateX(-50%);
-    display: none;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.3rem 0.75rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    letter-spacing: 0.04em;
-    z-index: 11;
-    pointer-events: none;
-  }
-
-  .bonus.on { display: flex; }
-
-  .bonus b { font-weight: 600; }
+  /* le bonus reprend exactement la forme de la jauge d'évolution */
+  #bonus, #bonus-barre { display: none; }
+  #bonus.on, #bonus-barre.on { display: flex; }
+  #bonus .forme { font-size: 0.72rem; }
 
   .bonus s {
     display: block;
@@ -253,19 +238,6 @@
 
   .rond:active:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
 
-  .hint {
-    position: fixed;
-    left: 0; right: 0;
-    bottom: max(1.1rem, env(safe-area-inset-bottom));
-    padding: 0 6.5rem 0 1.2rem;
-    text-align: center;
-    font-size: 0.85rem;
-    line-height: 1.45;
-    color: rgba(232, 232, 240, 0.5);
-    pointer-events: none;
-    z-index: 10;
-    transition: opacity 0.5s ease;
-  }
 
   /* bandeau passager : il informe sans arrêter le jeu */
   /* Le bandeau passager tenait dans une pastille à bord coloré, sur une seule
@@ -287,7 +259,7 @@
     font-style: italic;
     font-size: 0.97rem;
     line-height: 1.5;
-    color: #ffb4a8;
+    color: #c6ccd8;
     text-shadow: 0 2px 12px rgba(6, 7, 12, 0.96), 0 0 24px rgba(6, 7, 12, 0.9);
     opacity: 0;
     pointer-events: none;
@@ -465,24 +437,21 @@
       <em class="suite" id="forme-suite"></em>
     </span>
     <span class="barre"><i id="barre"></i></span>
+    <!-- Le bonus en cours, même format et juste en dessous : c'était une
+         pastille flottante au milieu de l'écran, sans rapport avec le reste. -->
+    <span class="jauge-mots" id="bonus">
+      <b class="forme" id="bonus-nom"></b>
+    </span>
+    <span class="barre" id="bonus-barre"><i id="bonus-jauge"></i></span>
   </span>
 </div>
 
-<div class="bonus" id="bonus"><b id="bonus-nom"></b><s id="bonus-jauge"></s></div>
+
 
 <div class="actions">
   <button type="button" class="rond on" id="caillou">CAILLOU<br><span id="caillou-n">1</span></button>
 </div>
 
-<!-- Les commandes, et rien d'autre : le reste, l'étage 1 l'enseigne par sa
-     géographie. La ligne « éclaire les bleus » mentait au début de la partie,
-     où l'on n'a pas encore de faisceau pour le faire. -->
-<p class="hint" id="hint">
-  Pose le doigt n'importe où : un joystick apparaît sous lui.<br>
-  Ou joue aux flèches du clavier.<br>
-  Glisse depuis CAILLOU pour viser, lâche pour lancer — ou ESPACE au clavier.<br>
-  Un caillou ne brille pas : là où il tombe, les regards vont voir.
-</p>
 
 <div class="toast" id="toast"></div>
 
@@ -1125,7 +1094,7 @@
         '2': 'Un Guet ne voit pas les corps. Il cherche une petite lumière seule dans le noir. Dans une plus grande que lui, il ne distingue plus rien.',
         '4': 'Sortir, c\'est monter. Mais un Seuil ne s\'ouvre pas avec une clé : il cède quand assez d\'âmes se tiennent dedans.',
         '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
-        '6': 'Tu as gardé un caillou — la seule chose ici qui ne brille pas. Et cette pierre, juste en dessous, est déjà fendue.',
+        '6': 'Le mur, juste en dessous, est fendu. Un caillou suffirait.',
         '8': 'Un brandon mort au mur, laissé par qui passait avant toi. Ce qu\'il te reste de lumière suffit à le reprendre.',
       },
       // Deux âmes, et les deux sont dans la même salle, au bout du couloir des
@@ -1313,9 +1282,10 @@
     elBarreBoite.classList.add('pulse');
     elJauge.classList.add('pulse');
   }
-  const elHint = el('hint'), elToast = el('toast');
+  const elToast = el('toast');
   const elCaillou = el('caillou'), elCaillouN = el('caillou-n');
-  const elBonus = el('bonus'), elBonusNom = el('bonus-nom'), elBonusJauge = el('bonus-jauge');
+  const elBonus = el('bonus'), elBonusNom = el('bonus-nom');
+  const elBonusBarre = el('bonus-barre'), elBonusJauge = el('bonus-jauge');
 
   const forme = () => FORMES[joueur.niveau];
   const aBonus = (k) => joueur.bonus === k && joueur.bonusT > 0;
@@ -1509,25 +1479,11 @@
   // elle monte lentement et s'efface seule pendant qu'on continue de jouer.
   // C'est le canal de fond du récit — celui de Dark Souls, pas celui du panneau
   // à valider.
-  // Un seul à la fois, et les autres ATTENDENT leur tour. Couper la phrase
-  // précédente ne valait pas mieux que les empiler : quand on rallume deux âmes
-  // coup sur coup, chacune a quelque chose à dire et on n'en lisait aucune.
-  let filMurmures = [];
+  // Une phrase du décor n'a plus de position : c'est une explication, elle passe
+  // par le bandeau comme les autres. Seule une phrase attachée à quelqu'un reste
+  // dans le monde — et elle le SUIT, sinon on ne sait plus qui a parlé.
   function murmurer(x, y, texte, couleur, sujet) {
-    const m = { x, y, texte, couleur, sujet, duree: sujet ? 3.4 : 5 };
-    if (flottants.some((f) => f.murmure && f.vie > 0.2)) {
-      if (filMurmures.length < 3) filMurmures.push(m);   // au-delà, tant pis
-      return;
-    }
-    poserMurmure(m);
-  }
-  function poserMurmure(m) {
-    // Une phrase attachée à quelqu'un le suit : une réplique figée pendant que
-    // celui qui parle s'éloigne, on ne sait plus qui a parlé.
-    flottants.push({
-      x: m.x, y: m.y, texte: m.texte, couleur: m.couleur || '#98a0ad',
-      vie: m.duree, max: m.duree, murmure: true, sujet: m.sujet,
-    });
+    dire(sujet ? { x, y, texte, couleur, sujet, duree: 4.2 } : { texte, duree: 5.4 });
   }
 
   // Ce que disent les âmes qu'on rallume. Le meilleur canal possible : il est
@@ -1571,10 +1527,6 @@
         f.y -= (f.murmure ? 5 : 34) * dt;
       }
       if (f.vie <= 0) flottants.splice(i, 1);
-    }
-    // la suivante ne part que quand la précédente a fini de s'effacer
-    if (filMurmures.length && !flottants.some((f) => f.murmure && f.vie > 0.2)) {
-      poserMurmure(filMurmures.shift());
     }
   }
 
@@ -1767,7 +1719,44 @@
         if (p.alerte > 0) p.alerte -= dt;         // l'alerte est posée par majRegles
         if (p.gene) p.alerte = 0;
 
-        if (p.alerte > 0) {
+        // LE BRUIT PASSE AVANT TOUT. Un caillou qui tombe à portée lui fait
+        // oublier ce qu'elle était en train de faire, alerte comprise : elle se
+        // tourne et elle y va. C'est la seule arme du début du jeu, elle ne peut
+        // pas dépendre de l'humeur où on la surprend.
+        if (p.curiosite && p.curieuxT > 0) {
+          p.enAlerte = false;
+          p.curieuxT -= dt;
+          const cd = Math.hypot(p.curiosite.x - p.x, p.curiosite.y - p.y);
+          if (cd < CASE * 0.8 || p.curieuxT <= 0) { p.curiosite = null; p.route = null; p.curieuxT = 0; }
+          else {
+            if (!p.route || !p.route.length) p.route = routeVers(p.x, p.y, p.curiosite.x, p.curiosite.y, true);
+            // Pas de chemin — le caillou est tombé derrière une porte, ou dans un
+            // recoin qu'elle ne peut pas atteindre : elle y va quand même, tout
+            // droit. Mieux vaut qu'elle bute contre un mur en regardant ailleurs
+            // que de rester plantée comme si elle n'avait rien entendu.
+            let vx = p.curiosite.x - p.x, vy = p.curiosite.y - p.y;
+            if (!p.route || !p.route.length) {
+              const vd = Math.hypot(vx, vy) || 1;
+              p.vx += (vx / vd) * 300 * dt;
+              p.vy += (vy / vd) * 300 * dt;
+            }
+            if (p.route && p.route.length) {
+              const w = p.route[0];
+              const rx = w.x - p.x, ry = w.y - p.y, rd = Math.hypot(rx, ry) || 1;
+              if (rd < CASE * 0.45) p.route.shift();
+              else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; vx = rx; vy = ry; }
+            }
+            // elle REGARDE où elle va : sans ça son cône restait braqué sur le
+            // couloir d'avant et on ne voyait pas qu'elle s'était détournée
+            // `ecartAngle(a, b)` rend b moins a : pour tourner le regard VERS la
+            // cible, c'est (regard, cible) et pas l'inverse. À l'envers, elle se
+            // détournait du bruit tout en marchant dessus — mesuré à 171 degrés.
+            const vise = Math.atan2(vy, vx);
+            p.regard += ecartAngle(p.regard, vise) * Math.min(1, 7 * dt);
+          }
+          p.humeur = HUMEURS.INTRIGUE;
+
+        } else if (p.alerte > 0) {
           // EN ALERTE, ELLE N'A PAS VU LE HÉROS. Elle se doute de quelque chose
           // et fouille sa zone : elle balaye largement et avance dans la
           // direction qu'elle regarde. Elle ne fonce surtout pas sur le joueur —
@@ -1785,24 +1774,6 @@
 
         } else {
           p.enAlerte = false;
-          // elle a entendu un caillou : elle va voir, sans être alertée
-          if (p.curiosite && p.curieuxT > 0) {
-            p.curieuxT -= dt;
-            const cd = Math.hypot(p.curiosite.x - p.x, p.curiosite.y - p.y);
-            if (cd < CASE * 0.8 || p.curieuxT <= 0) { p.curiosite = null; p.route = null; }
-            else {
-              if (!p.route || !p.route.length) p.route = routeVers(p.x, p.y, p.curiosite.x, p.curiosite.y, true);
-              if (p.route && p.route.length) {
-                const w = p.route[0];
-                const rx = w.x - p.x, ry = w.y - p.y, rd = Math.hypot(rx, ry) || 1;
-                if (rd < CASE * 0.45) p.route.shift();
-                else { p.vx += (rx / rd) * 430 * dt; p.vy += (ry / rd) * 430 * dt; }
-              }
-              p.regard += ecartAngle(p.regard, Math.atan2(p.curiosite.y - p.y, p.curiosite.x - p.x)) * 4 * dt;
-              p.humeur = HUMEURS.INTRIGUE;     // un bruit, pas une certitude
-              if (Math.random() < dt * 2) emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 1, 26);
-            }
-          }
           // ronde : elle va d'un point de passage au suivant, et le regard
           // balaye autour de sa direction de marche
           // elle recule jusqu'à être NETTEMENT hors de la braise : s'arrêter à
@@ -1813,8 +1784,6 @@
             p.vx += (bx / bd) * 300 * dt;
             p.vy += (by / bd) * 300 * dt;
             p.humeur = HUMEURS.INTRIGUE;
-          } else if (p.curiosite) {
-            // on la laisse finir son détour avant de reprendre la ronde
           } else if (p.ronde && p.ronde.length) {
             const c = p.ronde[p.etape % p.ronde.length];
 
@@ -2226,7 +2195,11 @@
       // Hystérésis sur l'abri : une sentinelle arrêtée pile au bord d'une braise
       // basculait alerte / pas alerte plusieurs fois par seconde. Elle entre
       // dans l'état « gênée » plus loin qu'elle n'en sort.
-      p.gene = p.aveugle > 0 || prochedUneBraise(p.x, p.y, p.gene ? 1.12 : 0.95);
+      // Pendant qu'elle va voir un bruit, elle ne cherche plus personne. C'est
+      // tout l'intérêt du caillou : il ne détourne pas seulement son regard, il
+      // lui fait lâcher ce qu'elle tenait.
+      p.gene = p.aveugle > 0 || p.curieuxT > 0
+        || prochedUneBraise(p.x, p.y, p.gene ? 1.12 : 0.95);
 
       const d = Math.hypot(joueur.x - p.x, joueur.y - p.y);
       if (d < D.taille && joueur.repit <= 0 && p.aveugle <= 0) { eteindre(); return; }
@@ -2304,7 +2277,7 @@
                 joueur.y + (Math.random() - 0.5) * D.taille,
                 BONUS[joueur.bonus].couleur, 1, 18);
       }
-      if (joueur.bonusT <= 0) { joueur.bonus = null; montrerToast('Le bonus s\'éteint', '#9aa1ac'); }
+      if (joueur.bonusT <= 0) joueur.bonus = null;      // sa jauge se vide, c'est assez
     }
 
     // Les galets reviennent un par un, au rythme du palier atteint.
@@ -2456,12 +2429,18 @@
       // l'éclat aveugle toute la salle, le coup au but n'étourdit que sa cible
       if (r.eclate && d <= CASE * 6) { p.aveugle = 5; p.alerte = 0; p.route = null; continue; }
       if (r.frappe && d <= CASE * 0.85) { p.aveugle = Math.max(p.aveugle, 2.6); p.alerte = 0; p.route = null; continue; }
-      if (p.aveugle > 0 || p.alerte > 0) continue;          // déjà sur toi : trop tard
+      if (p.aveugle > 0) continue;                         // déjà étourdie
       // Un caillou s'entend de loin. À cinq cases et demie, on le lançait
       // souvent sans que personne ne bouge, et le leurre passait pour inutile.
       if (d > CASE * 9) continue;
+      // ELLE OUBLIE TOUT. Alerte, jauge, poursuite : la pierre efface tout ça et
+      // elle part au bruit. Un leurre qui ne marche que sur une sentinelle au
+      // repos ne sert à rien au moment où l'on en a besoin.
       p.curiosite = { x: c.x1, y: c.y1 };
-      p.curieuxT = 4.5;
+      p.curieuxT = 4.8;
+      p.alerte = 0;
+      p.charge = 0;
+      p.enAlerte = false;
       p.route = null;
       emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 3, 40);
     }
@@ -2487,7 +2466,6 @@
       ondes.push({ x: f.x, y: f.y, r: 0, max: CASE * 2.9, couleur: '#cdd3e0' });
       emettre(f.x, f.y, '#9aa1ac', 24, 140);
       emettre(f.x, f.y, '#6f7686', 14, 70);
-      montrerToast('La pierre cède', '#cdd3e0');
     }
   }
 
@@ -3605,13 +3583,42 @@
 
   /* ==================================================== interface ======== */
 
-  let toastT = 0;
-  function montrerToast(texte, couleur) {
-    elToast.textContent = texte;
-    elToast.style.color = couleur || '#ffb4a8';
-    elToast.classList.add('on');
-    toastT = 2.8;
+  // UNE seule voix. Le bandeau passager et les phrases du décor disaient la
+  // même chose, de deux couleurs et à deux endroits différents, et se
+  // recouvraient l'une l'autre. Tout ce qui EXPLIQUE passe désormais par le
+  // bandeau, d'un seul ton ; seules les répliques des âmes restent dans le
+  // monde, attachées à qui parle — là, la couleur dit qui, pas quoi.
+  let filVoix = [];
+  let voixT = 0;
+
+  function dire(v) {
+    if (voixT > 0.25) { if (filVoix.length < 3) filVoix.push(v); return; }
+    poserVoix(v);
   }
+
+  function poserVoix(v) {
+    voixT = v.duree;
+    if (v.sujet) {
+      flottants.push({ x: v.x, y: v.y, texte: v.texte, couleur: v.couleur || RALLUME,
+                       vie: v.duree, max: v.duree, murmure: true, sujet: v.sujet });
+    } else {
+      elToast.textContent = v.texte;
+      elToast.classList.add('on');
+    }
+  }
+
+  function majVoix(dt) {
+    if (voixT > 0) {
+      voixT -= dt;
+      if (voixT > 0) return;
+      elToast.classList.remove('on');
+    }
+    if (filVoix.length) poserVoix(filVoix.shift());
+  }
+
+  // Le bandeau : tout ce que le jeu explique. La couleur ne lui sert plus à
+  // rien, elle est ignorée — les appels la passent encore par habitude.
+  function montrerToast(texte) { dire({ texte, duree: 4.4 }); }
 
   let flashEnCours = false;        // un écran plein arrête le monde
 
@@ -3718,11 +3725,14 @@
     if (joueur.bonus && joueur.bonusT > 0) {
       const b = BONUS[joueur.bonus];
       elBonus.classList.add('on');
-      elBonus.style.color = b.couleur;
+      elBonusBarre.classList.add('on');
+      elBonusNom.style.color = b.couleur;
+      elBonusJauge.style.background = b.couleur;
       elBonusNom.textContent = b.nom;
-      elBonusJauge.style.width = `${clamp(joueur.bonusT / b.duree, 0, 1) * 46}px`;
+      elBonusJauge.style.width = `${clamp(joueur.bonusT / b.duree, 0, 1) * 100}%`;
     } else {
       elBonus.classList.remove('on');
+      elBonusBarre.classList.remove('on');
     }
   }
 
@@ -3749,7 +3759,9 @@
     cailloux = [];
     traces = [];
     flottants = [];
-    filMurmures = [];
+    filVoix = [];
+    voixT = 0;
+    elToast.classList.remove('on');
     fil = [];
     // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
     joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
@@ -3951,7 +3963,7 @@
     // le joystick : au clavier, ou pendant qu'on vise, une machine qui peine ne
     // se rattrapait jamais.
     surveillerCadence(dt);
-    if (toastT > 0) { toastT -= dt; if (toastT <= 0) elToast.classList.remove('on'); }
+    majVoix(dt);
 
     if (vidange) {
       // Le monde se tait : plus de sentinelles, plus de règles. Il ne reste que
@@ -4004,7 +4016,7 @@
     manche.actif = true;
     manche.ox = p.x; manche.oy = p.y;
     manche.dx = 0; manche.dy = 0; manche.force = 0;
-    elHint.style.opacity = '0';
+
   });
 
   canvas.addEventListener('pointermove', (e) => {
@@ -4062,7 +4074,6 @@
     const t = CAP_TOUCHES[e.key];
     // la consigne ne s'effaçait qu'au premier toucher de l'écran : au clavier
     // elle restait affichée par-dessus le personnage pour toujours
-    if (t || e.key === ' ') elHint.style.opacity = '0';
     if (t) { touches[t] = true; e.preventDefault(); return; }
     if (e.key === ' ' && !e.repeat) { lancerCaillou(joueur.regard, 0.55); e.preventDefault(); }
   });

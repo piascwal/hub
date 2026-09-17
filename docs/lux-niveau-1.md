@@ -536,4 +536,50 @@ et demie.
 > (`__lux.couts()`), et c'est en comparant ce coût — resté minuscule — à
 > l'écart réel qu'on a vu que le temps partait dans la rastérisation.
 
+### Une seule voix
+
+Le bandeau passager et les phrases du décor disaient la même chose, **de deux
+couleurs et à deux endroits différents**, et se recouvraient l'une l'autre. Tout
+ce qui EXPLIQUE passe maintenant par le bandeau, d'un seul ton. Seules les
+répliques des âmes restent dans le monde, attachées à qui parle — là, la couleur
+dit *qui*, pas *quoi* : bleu quand elle est encore éteinte, vert quand elle
+vient de se rallumer.
+
+Une seule file, donc une seule phrase à l'écran. Mesuré en rallumant toutes les
+âmes d'un coup : **au pire 1** texte affiché à la fois, bandeau compris. Et le
+texte reste plus longtemps — 4,4 s pour une explication, 5,4 s pour une phrase
+du décor, contre 2,8 s avant.
+
+Trois bandeaux ont disparu : l'aide en bas de l'écran, « la pierre cède » (on le
+voit) et « le bonus s'éteint » (sa jauge se vide). Le murmure du réveil tient
+désormais en une ligne — *« Le mur, juste en dessous, est fendu. Un caillou
+suffirait. »* : il débordait sur la tête du personnage, et il n'avait pas besoin
+de répéter que le caillou ne brille pas.
+
+Le bonus a quitté sa pastille flottante : même format que la jauge d'évolution,
+même largeur, juste en dessous.
+
+### Le bruit passe avant tout
+
+Le caillou ne servait qu'à une sentinelle au repos : dès qu'elle était en
+alerte, le jet ne faisait rien — c'est-à-dire précisément au moment où l'on en
+a besoin. Un caillou qui tombe à portée **efface tout** : alerte, jauge,
+poursuite. Elle lâche, elle se tourne, elle y va, et pendant tout ce temps
+**elle ne cherche plus personne**.
+
+Mesuré, sentinelle en pleine poursuite avec le joueur à deux cases dans son
+cône : alerte 2,57 → **0**, jauge → **0**, curiosité 4,8 s, et elle se rapproche
+du caillou de 4,11 à 3,11 cases en une seconde, le regard à **0,06 radian** de
+sa direction de marche.
+
+> **Un bug bien à moi, attrapé par la mesure.** `ecartAngle(a, b)` rend *b moins
+> a* ; j'avais écrit `(cible, regard)` au lieu de `(regard, cible)`. La
+> sentinelle marchait vers le caillou **en se détournant de lui** — 171 degrés
+> à côté. Rien ne l'aurait montré sans mesurer l'écart entre le regard et la
+> marche.
+>
+> Au passage : si le caillou tombe dans un recoin qu'elle ne peut pas atteindre,
+> elle y va tout droit au lieu de rester plantée comme si elle n'avait rien
+> entendu.
+
 ### Passer le prologue

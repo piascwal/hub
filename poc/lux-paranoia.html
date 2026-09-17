@@ -156,10 +156,26 @@
   .barre.pulse { animation: jaugePulse 0.45s ease-out; }
 
   /* bonus temporaire en cours */
-  /* le bonus reprend exactement la forme de la jauge d'évolution */
-  #bonus, #bonus-barre { display: none; }
-  #bonus.on, #bonus-barre.on { display: flex; }
-  #bonus .forme { font-size: 0.72rem; }
+  /* Le bonus : même barre, même largeur totale, mais son nom à gauche sur la
+     même ligne. Empilé entre les deux barres il paraissait posé dessus. */
+  .bonus {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    width: 148px;
+  }
+
+  .bonus.on { display: flex; }
+
+  .bonus b {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .bonus .barre { flex: 1; height: 8px; }
 
   .bonus s {
     display: block;
@@ -268,6 +284,8 @@
   }
 
   .toast.on { opacity: 1; }
+  /* passé son moment, la phrase reste lisible mais s'efface au second plan */
+  .toast.on.pale { opacity: 0.42; transition: opacity 1.4s ease; }
 
   /* L'écran-titre. UN seul bouton : « Descendre ». On ne demande pas au joueur
      s'il veut apprendre un jeu qu'il n'a pas encore vu — la question avoue la
@@ -437,12 +455,12 @@
       <em class="suite" id="forme-suite"></em>
     </span>
     <span class="barre"><i id="barre"></i></span>
-    <!-- Le bonus en cours, même format et juste en dessous : c'était une
-         pastille flottante au milieu de l'écran, sans rapport avec le reste. -->
-    <span class="jauge-mots" id="bonus">
-      <b class="forme" id="bonus-nom"></b>
+    <!-- Le bonus en cours, juste en dessous et sur UNE seule ligne : son nom
+         coincé entre les deux barres semblait posé dessus. -->
+    <span class="bonus" id="bonus">
+      <b id="bonus-nom"></b>
+      <span class="barre" id="bonus-barre"><i id="bonus-jauge"></i></span>
     </span>
-    <span class="barre" id="bonus-barre"><i id="bonus-jauge"></i></span>
   </span>
 </div>
 
@@ -1239,6 +1257,13 @@
   // le VOIT partir — sinon la règle la plus dure du jeu (repartir peureux) ne
   // ressemble qu'à une remise à zéro arbitraire.
   let vidange = null;              // { t, duree, eclat0, suivante }
+  // La scène d'ouverture. « Elle tombe », dit l'écran noir : alors on la voit
+  // tomber. Une petite lumière bleue traverse le plafond, touche le sol, et
+  // Falot est là — il regarde à gauche, à droite, et seulement après il peut
+  // partir. Tant que la scène dure, il n'existe pas : ni corps, ni halo.
+  let chute = null;                // { t, x, y, y0, pose }
+  let eclosion = 1;                // 0 = Falot n'est pas encore là, 1 = il y est
+  const CHUTE = { tombe: 1.5, pose: 0.5, gauche: 0.8, droite: 0.8, fin: 0.45 };
   // Les étages déjà vidés, et combien d'âmes y sont remontées. C'est la seule
   // chose que Falot garde d'une zone à l'autre — d'où la carte.
   let montee = [];                 // [{ etage, ames }]
@@ -1285,7 +1310,7 @@
   const elToast = el('toast');
   const elCaillou = el('caillou'), elCaillouN = el('caillou-n');
   const elBonus = el('bonus'), elBonusNom = el('bonus-nom');
-  const elBonusBarre = el('bonus-barre'), elBonusJauge = el('bonus-jauge');
+  const elBonusJauge = el('bonus-jauge');
 
   const forme = () => FORMES[joueur.niveau];
   const aBonus = (k) => joueur.bonus === k && joueur.bonusT > 0;
@@ -1310,7 +1335,7 @@
   // Pendant la vidange le halo se referme jusqu'à presque rien : c'est la
   // lumière qui s'en va, et c'est le seul moment où on la voit quitter le corps.
   const rayonHalo = () => D.halo * forme().halo * (0.68 + joueur.souffle * 0.32)
-    * (vidange ? Math.max(0.04, 1 - vidange.t / vidange.duree) : 1);
+    * (vidange ? Math.max(0.04, 1 - vidange.t / vidange.duree) : 1) * eclosion;
   const porteeFaisceau = () => forme().portee * CASE;
   const coneFaisceau = () => forme().cone;
 
@@ -3183,7 +3208,30 @@
     // c'est ce qui fait comprendre l'effet sans lire un mot
     const teinte = joueur.bonus ? BONUS[joueur.bonus].couleur : f.couleur;
     const opac = aBonus('souffle') ? 0.5 : 1;
-    dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, humeurJoueur, temps, 0);
+    // Pendant la scène d'ouverture il n'est pas encore là : on ne le dessine pas,
+    // puis il gonfle depuis rien quand la lumière touche le sol.
+    if (eclosion > 0.02) {
+      dessinerTete(joueur, teinte, D.taille * 1.06 * eclosion, true, opac * eclosion,
+                   humeurJoueur, temps, 0);
+    }
+
+    // --- la lumière qui tombe ---
+    if (chute && !chute.pose) {
+      const cx = chute.x - cam.x, cy = chute.y - cam.y;
+      const tr = ctx.createLinearGradient(cx, cy - CASE * 1.1, cx, cy);
+      tr.addColorStop(0, 'rgba(143,208,255,0)');
+      tr.addColorStop(1, 'rgba(143,208,255,0.28)');
+      ctx.fillStyle = tr;
+      ctx.fillRect(cx - 2.5, cy - CASE * 1.1, 5, CASE * 1.1);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, CASE * 0.75);
+      g.addColorStop(0, 'rgba(198,230,255,0.9)');
+      g.addColorStop(0.35, 'rgba(143,208,255,0.42)');
+      g.addColorStop(1, 'rgba(143,208,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, CASE * 0.75, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#eaf5ff';
+      ctx.beginPath(); ctx.arc(cx, cy, 4.2, 0, TAU); ctx.fill();
+    }
 
     // --- ce que le caillou a laissé là où il est tombé ---
     // La pierre ne brille pas. Ce qui brille, c'est ce que Falot y a laissé en
@@ -3240,8 +3288,10 @@
     // Le halo du joueur traversait la pierre comme les torches : on voyait le
     // couloir d'à côté à travers un mur. Il se recalcule à chaque image, lui,
     // puisqu'il se déplace.
-    joueur.rayonsHalo = portéesRond(joueur.x, joueur.y, r);
-    percerRond(lctx, jx, jy, r, 1, joueur.rayonsHalo);
+    if (r > 1) {
+      joueur.rayonsHalo = portéesRond(joueur.x, joueur.y, r);
+      percerRond(lctx, jx, jy, r, 1, joueur.rayonsHalo);
+    }
     if (portee) percerCone(lctx, joueur.x, joueur.y, joueur.regard, portee, cone, 0.95, joueur.rayons);
     for (const p of eclaires) percerCone(lctx, p.x, p.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85, p.rayonsRelais);
     for (const b of zone.braises)
@@ -3249,6 +3299,7 @@
     // Le caillou en vol et sa trace. Sans ça on lance dans le noir et on ne
     // sait jamais où c'est retombé — or c'est précisément l'information dont on
     // a besoin pour décider par où passer.
+    if (chute && !chute.pose) percerDisque(lctx, chute.x - cam.x, chute.y - cam.y, CASE * 1.5, 0.92);
     for (const c of cailloux)
       percerDisque(lctx, c.x - cam.x, c.y - cam.y - c.hauteur, CASE * 0.5, 0.7);
     for (const t of traces) {
@@ -3603,6 +3654,7 @@
                        vie: v.duree, max: v.duree, murmure: true, sujet: v.sujet });
     } else {
       elToast.textContent = v.texte;
+      elToast.classList.remove('pale');
       elToast.classList.add('on');
     }
   }
@@ -3611,7 +3663,10 @@
     if (voixT > 0) {
       voixT -= dt;
       if (voixT > 0) return;
-      elToast.classList.remove('on');
+      // Le bandeau ne disparaît PAS : il pâlit et il reste. Une règle qui
+      // s'efface au bout de quatre secondes, on ne la lit qu'à moitié ; là on
+      // peut y revenir quand on veut, et elle ne gêne personne.
+      elToast.classList.add('pale');
     }
     if (filVoix.length) poserVoix(filVoix.shift());
   }
@@ -3725,14 +3780,12 @@
     if (joueur.bonus && joueur.bonusT > 0) {
       const b = BONUS[joueur.bonus];
       elBonus.classList.add('on');
-      elBonusBarre.classList.add('on');
       elBonusNom.style.color = b.couleur;
       elBonusJauge.style.background = b.couleur;
       elBonusNom.textContent = b.nom;
       elBonusJauge.style.width = `${clamp(joueur.bonusT / b.duree, 0, 1) * 100}%`;
     } else {
       elBonus.classList.remove('on');
-      elBonusBarre.classList.remove('on');
     }
   }
 
@@ -3754,6 +3807,8 @@
     numeroZone = numero;
     priseCount = 0;
     seuilDit = false;                // chaque Seuil redit ce qu'il attend
+    chute = null;
+    eclosion = 1;
     particules = [];
     ondes = [];
     cailloux = [];
@@ -3762,6 +3817,7 @@
     filVoix = [];
     voixT = 0;
     elToast.classList.remove('on');
+    elToast.classList.remove('pale');
     fil = [];
     // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
     joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
@@ -3796,6 +3852,40 @@
     joueur.vx = joueur.vy = 0;
     manche.actif = false; manche.force = 0;
     touches.gauche = touches.droite = touches.haut = touches.bas = false;
+  }
+
+  // Elle tombe, elle touche, il apparaît, il regarde autour de lui. Rien d'autre
+  // ne tourne pendant ce temps : ni règles, ni sentinelles, ni commandes.
+  function majChute(dt) {
+    chute.t += dt;
+    const t = chute.t;
+    if (t < CHUTE.tombe) {
+      const k = t / CHUTE.tombe;
+      chute.y = chute.y0 + (joueur.y - chute.y0) * (k * k);   // elle accélère
+      eclosion = 0;
+      if (Math.random() < dt * 26) emettre(chute.x, chute.y, '#8fd0ff', 1, 16);
+      return;
+    }
+    if (!chute.pose) {
+      chute.pose = true;
+      chute.y = joueur.y;
+      ondes.push({ x: joueur.x, y: joueur.y, r: 0, max: CASE * 2.6, couleur: '#8fd0ff' });
+      emettre(joueur.x, joueur.y, '#8fd0ff', 24, 95);
+      emettre(joueur.x, joueur.y, '#c6e6ff', 12, 45);
+    }
+    const a = t - CHUTE.tombe;
+    const vers = (cible, vitesse) => {
+      joueur.regard += ecartAngle(joueur.regard, cible) * Math.min(1, (vitesse || 5) * dt);
+    };
+    if (a < CHUTE.pose) { eclosion = a / CHUTE.pose; joueur.regard = Math.PI / 2; return; }
+    eclosion = 1;
+    const b = a - CHUTE.pose;
+    if (b < CHUTE.gauche) { vers(Math.PI); return; }         // il regarde à gauche
+    const c = b - CHUTE.gauche;
+    if (c < CHUTE.droite) { vers(0); return; }               // puis à droite
+    const d = c - CHUTE.droite;
+    if (d < CHUTE.fin) { vers(Math.PI / 2); return; }        // puis devant lui
+    chute = null;                                            // il peut partir
   }
 
   function majVidange(dt) {
@@ -3965,6 +4055,15 @@
     surveillerCadence(dt);
     majVoix(dt);
 
+    if (chute) {
+      majChute(dt);
+      majParticules(dt);
+      majFlottants(dt);
+      cadrer(false);
+      dessiner(temps, propager());
+      return;
+    }
+
     if (vidange) {
       // Le monde se tait : plus de sentinelles, plus de règles. Il ne reste que
       // la lumière qui s'en va — mais il faut bien la DESSINER. Cette branche
@@ -4114,10 +4213,15 @@
       removeEventListener('pointerdown', fermer);
       removeEventListener('keydown', fermer);
       elOuverture.classList.remove('on');
+      // La lumière part AVANT que le noir ait fini de s'effacer : on la voit
+      // déjà descendre à travers les derniers mots.
+      chute = { t: 0, x: joueur.x, y: joueur.y - CASE * 3.5,
+                y0: joueur.y - CASE * 3.5, pose: false };
+      eclosion = 0;
+      flashEnCours = false;
       setTimeout(() => {
         el('ouverture-1').classList.remove('vu');
         el('ouverture-2').classList.remove('vu');
-        flashEnCours = false;
       }, 900);
     };
     const minuteries = [
@@ -4136,7 +4240,8 @@
   function descendre(etage) {
     elTitre.classList.remove('on');
     chargerZone(etage);
-    if (etage > 1) { flashEnCours = false; return; }
+    if (etage > 1) { flashEnCours = false; eclosion = 1; return; }
+    eclosion = 0;            // il ne doit pas apparaître derrière l'écran noir
     ouvrir();
   }
 
@@ -4196,6 +4301,7 @@
     // plus rien ne bouge — ce qui a fait passer deux mesures au rouge sans que
     // le jeu ait le moindre problème.
     couts: () => coutsImage.slice(),
+    scene: () => (chute ? { t: +chute.t.toFixed(2), pose: chute.pose, eclosion: +eclosion.toFixed(2), regard: +joueur.regard.toFixed(2) } : { fini: true, eclosion: +eclosion.toFixed(2) }),
     charger: (n) => { elTitre.classList.remove('on'); flashEnCours = false; chargerZone(n); },
     // La graine ne décide plus du premier étage — il est écrit à la main — mais
     // de tous les suivants. On repart donc du premier étage PROCÉDURAL.

@@ -582,4 +582,41 @@ sa direction de marche.
 > elle y va tout droit au lieu de rester plantée comme si elle n'avait rien
 > entendu.
 
+### La scène d'ouverture
+
+L'écran noir dit « Elle tombe » — alors on la voit tomber. Une petite lumière
+bleue traverse le plafond de la première salle pendant que les derniers mots
+s'effacent, touche le sol, et Falot est là : il gonfle depuis rien, regarde à
+gauche, à droite, puis devant lui. Alors seulement il peut partir.
+
+**Avant ça, il n'existe pas.** Ni corps, ni halo : `eclosion` vaut 0 depuis le
+clic sur « Descendre », donc même quand le noir s'efface il n'y a rien à voir
+que la lumière qui descend. La scène a sa propre branche de boucle : pas de
+règles, pas de sentinelles, pas de commandes.
+
+| Moment | Durée |
+|---|---|
+| Elle tombe, en accélérant | 1,5 s |
+| Il apparaît | 0,5 s |
+| Il regarde à gauche | 0,8 s |
+| Puis à droite | 0,8 s |
+| Puis devant lui — et il est libre | 0,45 s |
+
+Mesuré : pendant les deux phrases `eclosion` = 0 ; à mi-chute la lumière est
+posée à `t` = 0,55 s et il n'y a toujours personne ; à l'impact `eclosion`
+démarre à 0,03 ; une seconde plus tard il regarde à 3,02 radians — à gauche.
+Le raccourci `?etage=1` saute la scène.
+
+### Les règles restent lisibles
+
+Une explication qui s'efface au bout de quatre secondes, on ne la lit qu'à
+moitié. Le bandeau **ne disparaît plus** : passé son moment il pâlit (42 %) et
+il reste, jusqu'à ce qu'une autre phrase le remplace. On peut y revenir quand on
+veut, et il ne gêne personne.
+
+Le bonus, lui, est repassé sur **une seule ligne** : son nom à gauche, sa barre
+à droite, le tout aligné sur la largeur de la jauge d'évolution. Empilé entre
+les deux barres avec 4 px de part et d'autre, il paraissait posé dessus. Le
+bandeau d'état est repassé de 83 à 68 px de haut.
+
 ### Passer le prologue

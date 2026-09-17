@@ -118,6 +118,11 @@ fonctionne. Un Guet suit ce qui bouge ; lancez-lui un caillou, il ira voir.
 À mesure que Falot se souvient, il met un peu plus de lui-même dans chaque jet.
 Le geste ne change jamais — ce qu'il emporte, si.
 
+Et il ne sert pas qu'à détourner un regard. Certaines parois d'ici sont
+fêlées — les Dessous n'ont pas été bâtis, ils se sont entassés, et ça se voit.
+**La seule chose capable de finir une fente, c'est ce qui ne brille pas.** On ne
+peut pas ouvrir un mur avec de la lumière.
+
 | Forme | Le geste | Ce qu'il y met |
 |---|---|---|
 | Peureux | Il le lance | Un leurre, rien d'autre : détourner un regard de lui |
@@ -143,6 +148,8 @@ Le geste ne change jamais — ce qu'il emporte, si.
 | Les âmes livrées restent, le convoi se disperse | Ce qui a franchi le Seuil est hors d'atteinte ; ce qu'il portait encore tombe avec lui |
 | Un fil marque le chemin déjà parcouru | Il ne connaît pas les Dessous, seulement ce qu'il a déjà traversé |
 | Des torches fixées aux murs, rallumables | D'autres lampes sont passées avant lui ; certaines brûlent encore un peu |
+| Une torche allumée met à l'abri | Un Guet cherche une lumière isolée dans le noir. Dans une lumière plus grande que lui, Falot n'en est plus une |
+| Des murs fêlés qu'un caillou ouvre | Personne n'a bâti les Dessous : on y a entassé. Ça tient mal, et la lumière ne perce pas la pierre — seule la chose qui ne brille pas le peut |
 | On repart Peureux à chaque nouvelle zone | Il a tout donné au Seuil, et il le paie à chaque fois |
 | On le voit se vider avant de passer | La lumière quitte son corps par filets et rejoint le portail ; le halo se referme jusqu'à presque rien |
 | Le corps d'une âme se remplit pendant qu'on l'éclaire | On la rallume vraiment : le niveau monte en elle, du contour sombre au vert plein |

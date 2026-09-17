@@ -277,10 +277,10 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 #########################
 ##############.........##     1  la salle de la torche
 ##...#########.........##
-##.@.6o.o.o.o.*........##     3  le réveil, le caillou, puis le couloir des lueurs
-##...#########.........##
-##############.........##
-##############..2T.....##
+##.@..o.o.o.o.*........##     3  le réveil, puis le couloir des lueurs
+##.6.#########.........##     4
+###%##########.........##     5  la pierre fendue, sous la salle du réveil
+##.g.#########..2T.....##     6  la niche, et la poche de cailloux qu'on y trouve
 ##################*######
 ##################=######
 ##################1######
@@ -301,8 +301,15 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 #########################
 ```
 
-`#` mur — `@` départ — `S` Seuil — `o` lueur — `T` torche — `b` Frileux —
-`r` Guet — `|` et `=` portes — `*` point de reprise — `1-9` murmure.
+`#` mur — `@` départ — `S` Seuil — `o` lueur — `g` poche de cailloux —
+`T` torche — `b` Frileux — `r` Guet — `%` mur fêlé — `|` et `=` portes —
+`*` point de reprise — `1-9` murmure.
+
+**La toute première chose qu'on fait dans ce jeu, désormais, c'est casser un
+mur.** La salle du réveil a une pierre fendue dans son plancher de pierre ; un
+murmure la désigne, le halo la montre, et le seul objet qu'on possède l'ouvre.
+Derrière : une niche et une poche de cailloux. Le caillou n'est plus un bouton
+dont on cherche l'usage — il a servi avant qu'on ait vu le moindre ennemi.
 
 **Le parcours.** Réveil, couloir des lueurs, salle de la torche, galerie du
 premier Guet, salle d'un Frileux — qu'on ne peut pas encore sauver —, couloir
@@ -378,15 +385,47 @@ compris. Ce chiffre-là se mesure à la main.
 
 ### Ce que le joueur ne comprenait pas
 
-Quatre choses, relevées à la manette. Aucune n'était un bug : toutes étaient
-des règles que le jeu appliquait sans jamais les dire.
+Relevé à la manette, en deux passes. Aucun bug : des règles que le jeu
+appliquait sans jamais les dire.
 
 | Ce qui manquait | Ce qui a été fait |
 |---|---|
-| À quoi sert le caillou, et qu'on en a un | Un murmure dès la sortie de la première salle (*« la seule chose ici qui ne brille pas »*), un autre juste avant la galerie du Guet (*« lance-le loin de toi : il ira voir là-bas »*), et le bouton qui se met à battre **quand un regard commence à te tenir** — trois fois par partie au plus |
-| Qu'on charge le portail avec des âmes | Le compte est écrit **sur le portail** (« ÂMES — 1 / 2 », « ENTRE » quand il cède), une phrase le dit à la première approche, et le murmure du Seuil ne se contente plus de « sortir c'est monter » |
-| Qu'on remplit une jauge qui change de forme | La barre passe de 80 à 148 px, gagne un contour, et surtout une légende : **PEUREUX → CURIEUX**. Toute la jauge sursaute au ramassage, pas seulement le trait |
+| À quoi sert le caillou | Un murmure dès la première salle, un autre avant la galerie du Guet, le bouton qui bat quand un regard commence à te tenir — et surtout **les murs fêlés** (voir plus bas) |
+| Qu'on charge le portail avec des âmes | Le compte est écrit **sur le portail** (« ÂMES — 1 / 2 », « ENTRE » quand il cède), une phrase le dit à la première approche, le murmure du Seuil l'explique |
+| Qu'on remplit une jauge qui change de forme | La barre passe de 80 à 148 px, gagne un contour et une légende : **PEUREUX → CURIEUX**. Toute la jauge sursaute au ramassage |
 | Que le portail se charge à plusieurs âmes | Les deux âmes sont séparées : on en livre une, on lit « 1/2 », on repart |
+| La torche était un abri, et le murmure parlait d'autre chose | Il disait *« d'autres sont passés avant toi »* — fidèle à la bible, mais inutile à cet endroit. Il dit maintenant les deux : *« Quelqu'un est passé avant toi, et a laissé ça allumé. Tant que la flamme tient, les regards glissent sur toi. »* |
+| Le bandeau passager jurait avec le reste | Il tenait dans une pastille à bord coloré, sur une ligne, et débordait de l'écran d'un téléphone dès cinq mots. Il a désormais la voix des murmures : de l'écriture sur le noir, calée sous le bandeau d'état, qui passe à la ligne |
+
+### Les murs fêlés
+
+Le vrai remède au caillou n'était pas de mieux l'expliquer : c'était de lui
+donner un travail qui ne dépende d'aucune sentinelle. **Certaines pierres sont
+fêlées, et seul un caillou les ouvre** — on ne perce pas un mur avec de la
+lumière.
+
+- Une fissure est **de la pierre** : elle bloque le pas, arrête la lumière, et
+  le parcours en largeur ne la traverse pas. Elle ne devient un couloir qu'une
+  fois cassée.
+- Elle laisse filtrer un souffle de ce qu'il y a derrière, sinon le halo du
+  Peureux s'arrêtait avant elle et la fente n'existait que pour qui savait
+  déjà où regarder.
+- Une case de tolérance à l'impact : le jet s'arrête toujours *avant* le
+  premier mur, donc viser la fente fait tomber le caillou juste à côté.
+- **Dans le prologue**, c'est la toute première chose qu'on fait : la salle du
+  réveil a une pierre fendue, un murmure la désigne, et derrière il y a une
+  poche de cailloux. Le caillou a donc servi avant qu'on ait vu le moindre
+  ennemi. La poche ne donne pas d'éclat — le budget du niveau reste calibré au
+  point près.
+- **En procédural**, une fissure n'est jamais un passage obligé : on ne la pose
+  que dans une pierre d'un seul rang séparant deux endroits **déjà
+  atteignables mais loin l'un de l'autre**. La casser ouvre un raccourci, elle
+  ne débloque jamais rien.
+
+Mesuré sur 90 zones tirées, étages 2 à 7 : **60 en portent au moins une**, 88 au
+total, pour un raccourci moyen de **8,6 cases** (de 6 à 28) — et **0 zone
+devenue infinissable**, puisque la zone reste entièrement parcourable sans
+casser quoi que ce soit.
 
 ### Passer le prologue
 

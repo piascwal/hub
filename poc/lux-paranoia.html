@@ -268,21 +268,30 @@
   }
 
   /* bandeau passager : il informe sans arrêter le jeu */
+  /* Le bandeau passager tenait dans une pastille à bord coloré, sur une seule
+     ligne : ça jurait avec tout le reste, et ça débordait de l'écran d'un
+     téléphone dès que la phrase dépassait cinq mots. C'est désormais la même
+     voix que les murmures du décor : de l'écriture posée sur le noir. */
   .toast {
     position: fixed;
     left: 50%;
-    top: 22%;
+    /* Tout en haut, juste sous le bandeau d'état. Les murmures du décor montent
+       depuis les objets et occupent la bande centrale ; deux textes de la même
+       voix qui se chevauchent, on ne lit plus ni l'un ni l'autre. La caméra ne
+       laisse jamais le joueur monter aussi haut, donc cette bande est libre. */
+    top: 9%;
     transform: translateX(-50%);
-    padding: 0.55rem 1.1rem;
-    border-radius: 999px;
-    background: rgba(255, 122, 107, 0.16);
-    border: 1px solid rgba(255, 122, 107, 0.4);
+    width: min(20rem, calc(100vw - 3rem));
+    text-align: center;
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-size: 0.97rem;
+    line-height: 1.5;
     color: #ffb4a8;
-    font-size: 0.85rem;
-    white-space: nowrap;
+    text-shadow: 0 2px 12px rgba(6, 7, 12, 0.96), 0 0 24px rgba(6, 7, 12, 0.9);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.35s ease;
     z-index: 14;
   }
 
@@ -994,8 +1003,47 @@
         }
       }
 
+      // MURS FÊLÉS. De la pierre d'un seul rang entre deux endroits déjà
+      // atteignables, mais LOIN l'un de l'autre par le chemin normal. Les
+      // casser ouvre un raccourci et jamais un passage obligatoire : la zone
+      // reste finissable par quelqu'un qui n'a pas compris le caillou.
+      const fissures = [];
+      {
+        const candidates = [];
+        for (let cy = 1; cy < z.lignes - 1; cy++) {
+          for (let cx = 1; cx < z.cols - 1; cx++) {
+            if (!z.mur[cy][cx] || porteDe[cy][cx]) continue;
+            for (const [[ax, ay], [bx, by]] of
+                 [[[cx - 1, cy], [cx + 1, cy]], [[cx, cy - 1], [cx, cy + 1]]]) {
+              if (z.mur[ay][ax] || z.mur[by][bx]) continue;
+              if (d[ay][ax] < 0 || d[by][bx] < 0) continue;
+              const gain = Math.abs(d[ay][ax] - d[by][bx]);
+              if (gain < 6) continue;                              // pas un vrai raccourci
+              candidates.push({ cx, cy, gain });
+              break;
+            }
+          }
+        }
+        for (let k = candidates.length - 1; k > 0; k--) {
+          const j = Math.floor(rnd() * (k + 1));
+          [candidates[k], candidates[j]] = [candidates[j], candidates[k]];
+        }
+        const maxF = 1 + Math.min(2, Math.floor(numero / 2));
+        for (const c of candidates) {
+          if (fissures.length >= maxF) break;
+          if (Math.abs(c.cx - depart.cx) + Math.abs(c.cy - depart.cy) < 3) continue;
+          if (Math.abs(c.cx - sortie.cx) + Math.abs(c.cy - sortie.cy) < 3) continue;
+          if (fissures.some((q) => Math.abs(q.cx - c.cx) + Math.abs(q.cy - c.cy) < 4)) continue;
+          fissures.push({
+            cx: c.cx, cy: c.cy, x: (c.cx + 0.5) * CASE, y: (c.cy + 0.5) * CASE,
+            casse: 0, phase: rnd() * TAU, gain: c.gain,
+          });
+        }
+      }
+
       return {
         ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
+        fissures,
         versionPortes: 0,
         braises: [],
         // Réservés aux étages écrits à la main. Vides ici, mais présents : le
@@ -1025,7 +1073,8 @@
   // posée au joueur — une salle, un problème, une seule issue.
   //
   //   #  mur         .  sol          @  départ       S  Seuil
-  //   o  lueur       T  torche       b  Frileux      r  Guet
+  //   o  lueur       g  poche de cailloux           T  torche
+  //   b  Frileux     r  Guet         %  mur fêlé (à casser au caillou)
   //   |  porte (battant vertical)    =  porte (battant horizontal)
   //   *  point de reprise            1-9  murmure
   //
@@ -1036,10 +1085,10 @@
         '#########################',   //  0
         '##############.........##',   //  1   la salle de la torche
         '##...#########.........##',   //  2
-        '##.@.6o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
-        '##...#########.........##',   //  4
-        '##############.........##',   //  5
-        '##############..2T.....##',   //  6
+        '##.@..o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
+        '##.6.#########.........##',   //  4
+        '###%##########.........##',   //  5   la pierre fendue, sous la salle du réveil
+        '##.g.#########..2T.....##',   //  6   la niche, et la poche de cailloux qu'on y trouve
         '##################*######',   //  7
         '##################=######',   //  8
         '##################1######',   //  9
@@ -1068,11 +1117,11 @@
       ],
       murmures: {
         '1': 'Un regard suit ce qui bouge. Lance ton caillou loin de toi : il ira voir là-bas.',
-        '2': 'D\'autres sont passés avant toi. Quelques-unes de leurs lampes brûlent encore.',
+        '2': 'Quelqu\'un est passé avant toi, et a laissé ça allumé. Tant que la flamme tient, les regards glissent sur toi.',
         '3': 'Un regard va tout droit, et n\'a pas de mains.',
         '4': 'Sortir, c\'est monter. Mais un Seuil ne s\'ouvre pas avec une clé : il cède quand assez d\'âmes se tiennent dedans.',
         '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
-        '6': 'Tu as gardé un caillou dans la main. C\'est la seule chose ici qui ne brille pas.',
+        '6': 'Tu as gardé un caillou — la seule chose ici qui ne brille pas. Et cette pierre, juste en dessous, est déjà fendue.',
       },
       // Deux âmes, et les deux sont dans la même salle, au bout du couloir des
       // fragments. Elles ont d'abord été posées aux deux bouts du niveau : il
@@ -1099,18 +1148,23 @@
 
     const mur = [];
     const lueurs = [], torches = [], portes = [], reprises = [], murmures = [];
-    const bleus = [], rouges = [];
+    const bleus = [], rouges = [], fissures = [];
     let depart = null, sortie = null;
     for (let cy = 0; cy < lignes; cy++) {
       const rang = new Array(cols).fill(1);
       for (let cx = 0; cx < cols; cx++) {
         const c = src[cy][cx];
         if (c === '#') continue;
+        // Un mur fêlé RESTE de la pierre : il barre le passage, il arrête la
+        // lumière et le parcours en largeur ne le traverse pas. Il ne devient un
+        // couloir qu'une fois cassé.
+        if (c === '%') { fissures.push({ cx, cy }); continue; }
         rang[cx] = 0;                       // tout ce qui n'est pas mur est sol
         const x = (cx + 0.5) * CASE, y = (cy + 0.5) * CASE;
         if (c === '@') depart = { cx, cy };
         else if (c === 'S') sortie = { cx, cy };
         else if (c === 'o') lueurs.push({ x, y, type: 'eclat', prise: false, vue: false, phase: rnd() * TAU });
+        else if (c === 'g') lueurs.push({ x, y, type: 'galet', prise: false, vue: false, phase: rnd() * TAU });
         else if (c === 'T') torches.push({ cx, cy });
         else if (c === 'b') bleus.push({ cx, cy });
         else if (c === 'r') rouges.push({ cx, cy });
@@ -1125,6 +1179,8 @@
     if (!depart || !sortie) return null;
 
     const z = { mur, cols, lignes, salles: [] };
+    const fissuresPosees = fissures.map(({ cx, cy }) =>
+      ({ cx, cy, x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE, casse: 0, phase: rnd() * TAU }));
     const porteDe = [];
     for (let cy = 0; cy < lignes; cy++) porteDe.push(new Array(cols).fill(null));
     for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
@@ -1158,6 +1214,7 @@
     return {
       ...z, numero, grain: 'ÉCRIT-' + numero,
       lueurs, persos, torches: torchesPosees, portes, porteDe,
+      fissures: fissuresPosees,
       versionPortes: 0, braises: [],
       reprises, murmures,
       depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
@@ -1959,6 +2016,10 @@
   // s'en approcher ouvre le couloir au regard d'en face, exactement au moment
   // où on voudrait rester caché.
   function majPortes(dt) {
+    // l'éboulement d'un mur fêlé : la pierre s'efface en un tiers de seconde
+    for (const f of zone.fissures) {
+      if (f.casse > 0 && f.casse < 1) f.casse = Math.min(1, f.casse + dt * 3);
+    }
     for (const pt of zone.portes) {
       // on retient QUI ouvre, et pas seulement qu'on ouvre : le battant doit
       // s'écarter de celui qui pousse
@@ -2307,6 +2368,11 @@
     // il se met à brûler : c'est l'abri du Veilleur, posé à distance
     if (r.couve) zone.braises.push({ x: c.x1, y: c.y1, r: CASE * 2.3, phase: Math.random() * TAU });
 
+    // Un caillou ne fait rien à la pierre saine. Sur une pierre déjà fendue, il
+    // finit le travail : c'est le seul moyen d'ouvrir ces passages-là, et ça
+    // donne au caillou un usage qui ne dépend d'aucune sentinelle.
+    briserAutour(c.x1, c.y1);
+
     for (const p of zone.persos) {
       if (p.emotion !== EMOTIONS.COLERE) continue;
       const d = Math.hypot(p.x - c.x1, p.y - c.y1);
@@ -2324,6 +2390,27 @@
   }
 
   /* ==================================================== rendu ============ */
+
+  // La pierre fêlée cède quand un caillou tombe à côté d'elle. Le jet s'arrête
+  // toujours AVANT le premier mur, donc viser la fissure fait tomber le caillou
+  // sur la case d'à côté : une case de tolérance suffit, et elle évite de
+  // demander une précision au pixel.
+  function briserAutour(x, y) {
+    const cx = Math.floor(x / CASE), cy = Math.floor(y / CASE);
+    for (const f of zone.fissures) {
+      if (f.casse > 0) continue;
+      if (Math.abs(f.cx - cx) + Math.abs(f.cy - cy) > 1) continue;
+      f.casse = 0.001;
+      zone.mur[f.cy][f.cx] = 0;
+      // `solide` vient de changer : les ombres portées des torches et des
+      // braises sont à recalculer, exactement comme à l'ouverture d'une porte.
+      zone.versionPortes++;
+      ondes.push({ x: f.x, y: f.y, r: 0, max: CASE * 2.9, couleur: '#cdd3e0' });
+      emettre(f.x, f.y, '#9aa1ac', 24, 140);
+      emettre(f.x, f.y, '#6f7686', 14, 70);
+      montrerToast('La pierre cède', '#cdd3e0');
+    }
+  }
 
   function carreArrondi(c, x, y, w, h, r) {
     c.beginPath();
@@ -2737,6 +2824,43 @@
     }
     ctx.stroke();
 
+    // --- les murs fêlés : de la pierre, mais fendue ---
+    // Deux fentes claires et un peu de poussière : assez pour qu'on le remarque
+    // en passant le halo dessus, pas assez pour que ça ressemble à un objet à
+    // ramasser. Une fois cassée, la pierre s'efface en fondu sur la case.
+    for (const f of zone.fissures) {
+      if (f.cx < c0x - 1 || f.cx > c1x + 1 || f.cy < c0y - 1 || f.cy > c1y + 1) continue;
+      const x = f.cx * CASE - cam.x, y = f.cy * CASE - cam.y;
+      if (f.casse >= 1) continue;
+      if (f.casse > 0) {                      // l'éboulement
+        ctx.fillStyle = `rgba(10,10,16,${1 - f.casse})`;
+        ctx.fillRect(x, y, CASE + 1, CASE + 1);
+        continue;
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 2, y + 2, CASE - 4, CASE - 4);
+      ctx.clip();
+      const o = Math.sin(f.phase) * CASE * 0.18;
+      ctx.beginPath();
+      ctx.moveTo(x + CASE * 0.18, y - 2);
+      ctx.lineTo(x + CASE * 0.44 + o, y + CASE * 0.38);
+      ctx.lineTo(x + CASE * 0.26, y + CASE * 0.62);
+      ctx.lineTo(x + CASE * 0.55 + o, y + CASE + 2);
+      ctx.moveTo(x + CASE * 0.82, y - 2);
+      ctx.lineTo(x + CASE * 0.58 + o, y + CASE * 0.45);
+      ctx.lineTo(x + CASE * 0.86, y + CASE + 2);
+      // l'ombre de la fente d'abord, le bord éclairé par-dessus : c'est ce qui
+      // donne du relief à deux traits
+      ctx.strokeStyle = 'rgba(6,6,11,0.85)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(214,220,234,0.5)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // --- les battants ---
     for (const pt of zone.portes) {
       if (pt.cx < c0x - 1 || pt.cx > c1x + 1 || pt.cy < c0y - 1 || pt.cy > c1y + 1) continue;
@@ -2998,6 +3122,14 @@
       else if (p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04)) {
         percerDisque(lctx, p.x - cam.x, p.y - cam.y, D.taille * 1.7, 0.95);
       }
+    }
+    // Un mur fêlé laisse passer un filet de ce qu'il y a derrière : juste de quoi
+    // repérer la fente en passant, pas de quoi éclairer. Sans ça la fissure
+    // n'existait que pour qui savait déjà où regarder — le halo du Peureux
+    // s'arrête avant elle.
+    for (const f of zone.fissures) {
+      if (f.casse > 0) continue;
+      percerDisque(lctx, f.x - cam.x, f.y - cam.y, CASE * 0.66, 0.45);
     }
     for (const t of zone.torches) {
       if (t.reste <= 0) continue;
@@ -3308,8 +3440,6 @@
   function montrerToast(texte, couleur) {
     elToast.textContent = texte;
     elToast.style.color = couleur || '#ffb4a8';
-    elToast.style.borderColor = couleur ? rgba(couleur, 0.45) : 'rgba(255,122,107,0.4)';
-    elToast.style.background = couleur ? rgba(couleur, 0.14) : 'rgba(255,122,107,0.16)';
     elToast.classList.add('on');
     toastT = 2.8;
   }

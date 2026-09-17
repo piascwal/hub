@@ -283,11 +283,11 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 ##.g.#########...T2....##     6  la niche ; le brandon, et la règle des deux lumières
 ##################*######
 ##################=######
-##################1######     9  le Guet nommé, et ce que fait le caillou
-############..r........##    10  la galerie du premier Guet
-##################.######
+############......1....##     9  le Guet nommé, et ce que fait le caillou
+############..r........##    10
+############...........##    11  la SALLE du Guet : 44 cases, de la place pour lancer
+############...........##    12
 ##################=######
-##################.######
 ##############....*....##    14  le Frileux qu'on ne peut pas encore aider
 ##############.......b.##
 ##############.........##
@@ -499,5 +499,41 @@ Il était dans la bible depuis le début et **nulle part ailleurs** : on pouvait
 jouer des heures sans que les rouges soient nommés. Les deux murmures de la
 salle de la torche et de la galerie, les textes des formes Peureux et Solaire,
 le bandeau de l'éclat et le récit du quatrième étage disent « un Guet ».
+
+### Ce qui a été corrigé après la troisième manette
+
+| Ce qui clochait | Ce qui a été fait |
+|---|---|
+| Ça saccadait | Voir ci-dessous : ce n'était aucune fonctionnalité, c'était le nombre de pixels |
+| Les fissures brillaient dans le noir | Elles ne s'éclairent plus toutes seules. En échange, **la lumière mord plus profond dans une pierre déjà fendue** (0,95 case au lieu de 0,2) : le réseau entier se lit dès que le halo l'atteint, et rien du tout quand il ne l'atteint pas |
+| On tourne autour de la première âme sans comprendre | Elle parle : *« On m'a vidé de ma lumière. Il m'en faudrait un peu de la tienne — mais la tienne est trop petite. »* Une fois, et seulement tant qu'on n'a pas de faisceau, c'est-à-dire tant que c'est vrai |
+| Le Guet était dans un croisement : on ne pouvait pas lancer par-dessus un mur | Ce n'est plus un couloir mais une **salle de 44 cases**. Le Guet la balaye en entier sur trois points ; il y a enfin de la place pour envoyer un caillou d'un côté et passer de l'autre |
+| On ne voyait pas qu'un Guet avait entendu | Il porte un **point d'interrogation** au-dessus de la tête, et il sort du noir pendant qu'il cherche. Le caillou s'entend désormais à **9 cases** au lieu de 5,5 |
+
+### Ce qui saccadait
+
+Ce n'était aucune fonctionnalité — le corps de la boucle coûte entre 1,1 et
+2,9 ms par image. C'était la **surface à remplir**. Plafonner la densité d'écran
+à 2 ne suffit pas : sur une tablette, ça fait encore trois millions de pixels.
+
+| Mesuré, manette en main | Avant | Après |
+|---|---|---|
+| Téléphone 412×915 @3, étage 1 | 1 image sur 300 au-dessus de 20 ms | 1 sur 300 |
+| Téléphone, étage 6 forme Solaire | 2 sur 300 | 1 sur 300 |
+| **Tablette 1024×1366 @2, étage 6** | **108 sur 300**, médiane 19,4 ms | **7 sur 300**, médiane 16,7 ms |
+
+Le remède est un **budget en pixels** (2,1 millions) dont on déduit la densité :
+un téléphone garde toute sa finesse, un grand écran rend un peu moins fin
+plutôt que de saccader. La tablette est passée de 1536×2049 à 1255×1674.
+Trois réglages l'accompagnent : un palier de repli supplémentaire sous le pixel
+d'écran, la surveillance de cadence qui tourne **tout le temps** et plus
+seulement le doigt sur le joystick, et une seconde d'observation au lieu d'une
+et demie.
+
+> **Comment on l'a trouvé.** L'écart entre deux images ne dit rien tant qu'on est
+> calé sur les 60 Hz : il vaut 16,7 ms qu'on ait trois fois trop de marge ou pas
+> assez. Le jeu mesure donc maintenant le coût réel du corps de sa boucle
+> (`__lux.couts()`), et c'est en comparant ce coût — resté minuscule — à
+> l'écart réel qu'on a vu que le temps partait dans la rastérisation.
 
 ### Passer le prologue

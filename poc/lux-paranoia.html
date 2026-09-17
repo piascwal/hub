@@ -712,6 +712,7 @@
       phase: rnd() * TAU,
       emotion,
       eclaire: false, calme: false, suit: false, livre: false, rang: 0,
+      aDit: false,                   // a-t-elle déjà dit qu'elle était vide ?
       prime: false,                  // a-t-elle déjà payé son calmage ?
       aveugle: 0, compteCalme: 0,
       tremble: rnd() * TAU, humeur: HUMEURS.INTRIGUE, fuit: 0,
@@ -1041,9 +1042,13 @@
         }
       }
 
+      const fissureDe = [];
+      for (let cy = 0; cy < z.lignes; cy++) fissureDe.push(new Array(z.cols).fill(null));
+      for (const f of fissures) fissureDe[f.cy][f.cx] = f;
+
       return {
         ...z, numero, grain: grainTexte, lueurs, persos, torches, portes, porteDe,
-        fissures,
+        fissures, fissureDe,
         versionPortes: 0,
         braises: [],
         // Réservés aux étages écrits à la main. Vides ici, mais présents : le
@@ -1091,11 +1096,11 @@
         '##.g.#########...T2....##',   //  6   la niche, et la poche de cailloux qu'on y trouve
         '##################*######',   //  7
         '##################=######',   //  8
-        '##################1######',   //  9
-        '############..r........##',   // 10   la galerie du premier Guet
-        '##################.######',   // 11
-        '##################=######',   // 12
-        '##################.######',   // 13
+        '############......1....##',   //  9   le Guet nommé, et ce que fait le caillou
+        '############..r........##',   // 10   la SALLE du premier Guet : de la place pour lancer
+        '############...........##',   // 11
+        '############...........##',   // 12
+        '##################=######',   // 13
         '##############....*....##',   // 14   la salle du Frileux qu'on ne peut pas aider
         '##############.......b.##',   // 15
         '##############.........##',   // 16
@@ -1112,7 +1117,7 @@
       // tirées : un premier étage doit se relire à l'identique d'une partie sur
       // l'autre, sinon on ne peut ni l'équilibrer ni le déboguer.
       rondes: [
-        [[12, 10], [22, 10]],          // le Guet de la galerie balaye d'un mur à l'autre
+        [[13, 10], [21, 12], [14, 12]],   // celui de la salle la balaye en entier
         [[9, 21], [13, 21]],           // celui de l'escorte fait l'aller-retour du couloir
       ],
       murmures: {
@@ -1181,6 +1186,11 @@
     const z = { mur, cols, lignes, salles: [] };
     const fissuresPosees = fissures.map(({ cx, cy }) =>
       ({ cx, cy, x: (cx + 0.5) * CASE, y: (cy + 0.5) * CASE, casse: 0, phase: rnd() * TAU }));
+    // table de consultation : `distanceMur` est appelée des milliers de fois par
+    // image, elle ne peut pas parcourir une liste à chaque rayon
+    const fissureDe = [];
+    for (let cy = 0; cy < lignes; cy++) fissureDe.push(new Array(cols).fill(null));
+    for (const f of fissuresPosees) fissureDe[f.cy][f.cx] = f;
     const porteDe = [];
     for (let cy = 0; cy < lignes; cy++) porteDe.push(new Array(cols).fill(null));
     for (const pt of portes) porteDe[pt.cy][pt.cx] = pt;
@@ -1214,7 +1224,7 @@
     return {
       ...z, numero, grain: 'ÉCRIT-' + numero,
       lueurs, persos, torches: torchesPosees, portes, porteDe,
-      fissures: fissuresPosees,
+      fissures: fissuresPosees, fissureDe,
       versionPortes: 0, braises: [],
       reprises, murmures,
       depart: { x: (depart.cx + 0.5) * CASE, y: (depart.cy + 0.5) * CASE },
@@ -1238,7 +1248,9 @@
   const lctx = lum.getContext('2d');
 
   let W = 0, H = 0, DPR = 1;
-  const PALIERS = [2, 1.5, 1];
+  // Le dernier palier passe sous le pixel d'écran : sur une machine qui peine,
+  // mieux vaut une image légèrement floue qu'une image en retard.
+  const PALIERS = [2, 1.5, 1, 0.8];
   let palier = 0, fenetre = [];
 
   let zone = null;
@@ -1538,6 +1550,15 @@
     ],
   };
   let numReplique = 0;
+
+  // Ce que dit une âme qu'on ne peut pas ENCORE rallumer. Sans ça on tourne
+  // autour d'elle en cherchant quoi faire, et l'échec n'apprend rien.
+  const ETEINTS = [
+    'On m\'a vidé de ma lumière. Il m\'en faudrait un peu de la tienne — mais la tienne est trop petite.',
+    'Regarde-moi assez longtemps et je me rallumerai. Tu ne sais pas encore le faire.',
+    'Je ne peux pas marcher sans lumière. Reviens quand tu en auras assez.',
+  ];
+  let numEteint = 0;
 
   function majFlottants(dt) {
     for (let i = flottants.length - 1; i >= 0; i--) {
@@ -2134,6 +2155,18 @@
       murmurer(m.x, m.y - CASE * 0.95, m.texte);
     }
 
+    // Une âme qu'on ne peut pas encore rallumer laisse le joueur tourner autour
+    // d'elle sans comprendre ce qu'elle attend. Elle le dit — une fois, et
+    // seulement tant qu'on n'a pas de faisceau, c'est-à-dire tant que c'est vrai.
+    if (!porteeFaisceau()) {
+      for (const p of zone.persos) {
+        if (p.emotion === EMOTIONS.COLERE || p.calme || p.livre || p.aDit) continue;
+        if (Math.hypot(p.x - joueur.x, p.y - joueur.y) > CASE * 2.4) continue;
+        p.aDit = true;
+        murmurer(p.x, p.y - D.taille * 1.9, ETEINTS[numEteint++ % ETEINTS.length], '#8fd0ff', p);
+      }
+    }
+
     // Regarder un bonhomme assez longtemps le calme — n'importe lequel, pas
     // seulement les peureux. Il passe au vert et SON FAISCEAU DEVIENT
     // PERMANENT : c'est ce qui donne enfin un rôle aux personnages non joués.
@@ -2424,7 +2457,9 @@
       if (r.eclate && d <= CASE * 6) { p.aveugle = 5; p.alerte = 0; p.route = null; continue; }
       if (r.frappe && d <= CASE * 0.85) { p.aveugle = Math.max(p.aveugle, 2.6); p.alerte = 0; p.route = null; continue; }
       if (p.aveugle > 0 || p.alerte > 0) continue;          // déjà sur toi : trop tard
-      if (d > CASE * 5.5) continue;
+      // Un caillou s'entend de loin. À cinq cases et demie, on le lançait
+      // souvent sans que personne ne bouge, et le leurre passait pour inutile.
+      if (d > CASE * 9) continue;
       p.curiosite = { x: c.x1, y: c.y1 };
       p.curieuxT = 4.5;
       p.route = null;
@@ -2782,7 +2817,12 @@
         // morsure fixe le faisait alors ressortir de l'autre côté — mesuré,
         // 145 rayons sur 7680 filaient ainsi jusqu'à 2,7 cases dans la pierre.
         const porte = zone.porteDe[cy] && zone.porteDe[cy][cx];
-        return Math.min(t + CASE * (porte ? 0.55 : 0.2), tX, tY, portee);
+        // Une pierre fêlée laisse entrer la lumière plus profond qu'une pierre
+        // saine. C'est ce qui rend la fente lisible quand le halo l'atteint — et
+        // ça ne l'éclaire toujours pas quand il ne l'atteint pas. Sans cette
+        // morsure on ne voyait qu'un liseré du haut de la case.
+        const fendue = !porte && zone.fissureDe && zone.fissureDe[cy] && zone.fissureDe[cy][cx];
+        return Math.min(t + CASE * (porte ? 0.55 : fendue ? 0.95 : 0.2), tX, tY, portee);
       }
     }
     return portee;
@@ -3098,13 +3138,12 @@
     // charge avec des âmes. Deux chiffres suffisent à nommer la règle.
     ctx.textAlign = 'center';
     ctx.font = '700 15px system-ui, sans-serif';
-    ctx.fillStyle = ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.8)';
-    ctx.shadowColor = 'rgba(8,8,14,0.9)';
-    ctx.shadowBlur = 6;
-    ctx.fillText(ouverte ? 'ENTRE' : `${zone.sortie.ames} / ${zone.requis}`, 0, -R - 12);
-    ctx.font = '600 9px system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,233,168,0.42)';
-    if (!ouverte) ctx.fillText('ÂMES', 0, -R - 25);
+    texteCerne(ouverte ? 'ENTRE' : `${zone.sortie.ames} / ${zone.requis}`, 0, -R - 12,
+               ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.82)');
+    if (!ouverte) {
+      ctx.font = '600 9px system-ui, sans-serif';
+      texteCerne('ÂMES', 0, -R - 25, 'rgba(255,233,168,0.42)', 2.5);
+    }
     ctx.restore();
 
     // --- lueurs ---
@@ -3140,6 +3179,21 @@
       const recharge = p.emotion === EMOTIONS.COLERE ? 0
         : p.calme ? 1 : clamp((p.compteCalme || 0) / DUREE_CALME, 0, 1);
       dessinerTete(p, couleur, D.taille, p.eclaire || p.calme || repere, 1, p.humeur, temps, recharge);
+    }
+
+    // --- ce qu'un Guet a entendu ---
+    // Un point d'interrogation au-dessus de la tête. Sans ça on lance un caillou
+    // et on ne sait jamais s'il a servi : la seule arme du début n'avait aucune
+    // réponse visible.
+    for (const p of zone.persos) {
+      if (p.emotion !== EMOTIONS.COLERE || p.livre || p.curieuxT <= 0) continue;
+      const k = clamp(p.curieuxT / 4.5, 0, 1);
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = '700 23px Georgia, serif';
+      texteCerne('?', p.x - cam.x, p.y - cam.y - D.taille * 1.5 + Math.sin(temps * 6) * 3,
+                 `rgba(255,214,132,${0.45 + k * 0.5})`, 3.5);
+      ctx.restore();
     }
 
     // --- le joueur : exactement la règle des âmes, pas une autre ---
@@ -3229,18 +3283,16 @@
       if (p.calme) percerDisque(lctx, p.x - cam.x, p.y - cam.y, D.taille * 2.1, 0.95);
       // Une sentinelle qui t'a repéré se montre en entier : c'est le signal le
       // plus important du jeu, il ne doit pas rester caché dans le noir.
-      else if (p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04)) {
+      // Un Guet qui a entendu quelque chose se montre aussi : c'est la réponse
+      // à un caillou, et elle ne doit pas rester dans le noir.
+      else if (p.emotion === EMOTIONS.COLERE && (p.alerte > 0 || p.charge > 0.04 || p.curieuxT > 0)) {
         percerDisque(lctx, p.x - cam.x, p.y - cam.y, D.taille * 1.7, 0.95);
       }
     }
-    // Un mur fêlé laisse passer un filet de ce qu'il y a derrière : juste de quoi
-    // repérer la fente en passant, pas de quoi éclairer. Sans ça la fissure
-    // n'existait que pour qui savait déjà où regarder — le halo du Peureux
-    // s'arrête avant elle.
-    for (const f of zone.fissures) {
-      if (f.casse > 0) continue;
-      percerDisque(lctx, f.x - cam.x, f.y - cam.y, CASE * 0.66, 0.45);
-    }
+    // Une fissure ne s'éclaire PAS toute seule. Elle en avait le droit un temps,
+    // parce qu'on ne la voyait pas ; mais une pierre qui brille dans le noir
+    // dans un jeu où l'on ne voit que ce qu'on éclaire, ça se remarque tout de
+    // suite. C'est le réseau de fractures qui la rend lisible, sous le halo.
     for (const t of zone.torches) {
       if (t.reste <= 0) continue;
       const k = clamp(t.reste / (t.duree * 0.35), 0, 1);       // elle faiblit en mourant
@@ -3368,9 +3420,6 @@
         // « claquer » à l'écran comme une notification.
         const a = clamp(Math.min(f.vie / 1.4, (f.max - f.vie) / 0.5), 0, 1) * 0.92;
         ctx.font = 'italic 400 14px Georgia, serif';
-        ctx.shadowColor = 'rgba(6,7,12,0.95)';
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = rgba(f.couleur, a);
         const lignes = decouper(f.texte, 30);
         // Le bloc se construit VERS LE HAUT depuis son point d'ancrage, et il
         // est ramené dans l'écran : une phrase dite au bord de la carte partait
@@ -3378,15 +3427,12 @@
         const sx = clamp(f.x - cam.x, 118, W - 118);
         const sy = f.y - cam.y;
         for (let i = 0; i < lignes.length; i++) {
-          ctx.fillText(lignes[i], sx, sy + (i - lignes.length + 1) * 19);
+          texteCerne(lignes[i], sx, sy + (i - lignes.length + 1) * 19, rgba(f.couleur, a), 3);
         }
       } else {
         const a = clamp(f.vie / f.max, 0, 1);
         ctx.font = '700 15px system-ui, sans-serif';
-        ctx.shadowColor = rgba(f.couleur, a * 0.9);
-        ctx.shadowBlur = 10;
-        ctx.fillStyle = rgba(f.couleur, a);
-        ctx.fillText(f.texte, f.x - cam.x, f.y - cam.y);
+        texteCerne(f.texte, f.x - cam.x, f.y - cam.y, rgba(f.couleur, a), 3);
       }
       ctx.restore();
     }
@@ -3525,6 +3571,19 @@
     dessinerVidange();
     dessinerManche();
     dessinerVisee();
+  }
+
+  // `shadowBlur` sur du texte est ce qui coûte le plus cher de toute l'image :
+  // mesuré, les deux lignes du portail à elles seules prenaient 11 ms sur 60
+  // (processeur étranglé six fois), et elles sont dessinées à CHAQUE image. Un
+  // liseré sombre donne la même lisibilité pour presque rien.
+  function texteCerne(txt, x, y, couleur, epaisseur) {
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = epaisseur || 3.5;
+    ctx.strokeStyle = 'rgba(6,7,12,0.92)';
+    ctx.strokeText(txt, x, y);
+    ctx.fillStyle = couleur;
+    ctx.fillText(txt, x, y);
   }
 
   function flecheVers(wx, wy, couleur, temps) {
@@ -3838,16 +3897,26 @@
   function surveillerCadence(dt) {
     if (palier >= PALIERS.length - 1) return;
     fenetre.push(dt);
-    if (fenetre.length < 90) return;
-    const median = [...fenetre].sort((a, b) => a - b)[45];
+    if (fenetre.length < 60) return;                 // une seconde, pas une et demie
+    const median = [...fenetre].sort((a, b) => a - b)[30];
     fenetre = [];
-    if (median > 0.022) { palier++; redimensionner(); }
+    if (median > 0.021) { palier++; redimensionner(); }
   }
 
+  // Le coût d'une image est proportionnel au NOMBRE DE PIXELS à remplir, pas à
+  // la finesse de l'écran. Plafonner la densité ne suffit donc pas : sur une
+  // tablette, 1,5 fois 1024x1366 fait encore trois millions de pixels, et on
+  // mesurait 108 images sur 300 au-dessus de 20 ms alors que le même jeu sur
+  // téléphone en ratait une. On se donne un budget en pixels et on en déduit la
+  // densité : un téléphone garde toute sa finesse, un grand écran rend un peu
+  // moins fin plutôt que de saccader.
+  const BUDGET_PIXELS = 2.1e6;
+
   function redimensionner() {
-    DPR = Math.min(window.devicePixelRatio || 1, PALIERS[palier]);
     W = window.innerWidth;
     H = window.innerHeight;
+    const tenable = Math.sqrt(BUDGET_PIXELS / Math.max(1, W * H));
+    DPR = clamp(Math.min(window.devicePixelRatio || 1, PALIERS[palier], tenable), 0.75, 3);
     canvas.width = Math.round(W * DPR);
     canvas.height = Math.round(H * DPR);
     lum.width = Math.ceil(canvas.width * QLUM);
@@ -3858,14 +3927,30 @@
 
   let dernier = performance.now();
 
+  // Coût réel du corps de la boucle, sur les deux cent quarante dernières
+  // images. L'écart entre deux images ne dit rien tant qu'on est calé sur les
+  // 60 Hz : il vaut 16,7 ms qu'on ait trois fois trop de marge ou pas assez.
+  // Ce que ça coûte VRAIMENT de dessiner une image, c'est ça.
+  const coutsImage = [];
   function boucle(maintenant) {
     requestAnimationFrame(boucle);
+    const _t0 = performance.now();
+    try { corpsBoucle(maintenant); } finally {
+      coutsImage.push(performance.now() - _t0);
+      if (coutsImage.length > 240) coutsImage.shift();
+    }
+  }
+
+  function corpsBoucle(maintenant) {
     const dt = Math.min((maintenant - dernier) / 1000, 1 / 30);
     dernier = maintenant;
     const temps = maintenant / 1000;
     if (!zone) return;
 
-    if (manche.actif) surveillerCadence(dt);
+    // La cadence se surveille TOUT LE TEMPS. Elle ne l'était qu'avec le doigt sur
+    // le joystick : au clavier, ou pendant qu'on vise, une machine qui peine ne
+    // se rattrapait jamais.
+    surveillerCadence(dt);
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) elToast.classList.remove('on'); }
 
     if (vidange) {
@@ -4099,6 +4184,7 @@
     // l'écran-titre au passage. Sans ça le monde reste gelé derrière lui et
     // plus rien ne bouge — ce qui a fait passer deux mesures au rouge sans que
     // le jeu ait le moindre problème.
+    couts: () => coutsImage.slice(),
     charger: (n) => { elTitre.classList.remove('on'); flashEnCours = false; chargerZone(n); },
     // La graine ne décide plus du premier étage — il est écrit à la main — mais
     // de tous les suivants. On repart donc du premier étage PROCÉDURAL.

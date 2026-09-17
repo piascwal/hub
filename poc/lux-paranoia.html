@@ -93,23 +93,36 @@
   .jauge {
     margin-left: auto;
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
   }
 
+  .jauge-mots { display: flex; align-items: baseline; gap: 0.4rem; }
+
   .forme {
-    font-size: 0.72rem;
+    font-size: 0.82rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 700;
     transition: color 0.4s ease;
   }
 
+  /* la forme suivante, en creux : c'est elle qui donne un sens à la barre */
+  .suite {
+    font-style: normal;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(232, 232, 240, 0.32);
+  }
+
   .barre {
-    width: 80px;
-    height: 7px;
+    width: 148px;
+    height: 11px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.13);
     overflow: hidden;
   }
 
@@ -118,8 +131,19 @@
     height: 100%;
     width: 0;
     border-radius: 999px;
+    box-shadow: inset 0 0 7px rgba(255, 255, 255, 0.45);
     transition: width 0.18s linear, background 0.4s ease;
   }
+
+  /* toute la jauge encaisse le gain, pas seulement la barre : sur un grand
+     écran le léger sursaut d'un trait de 7 px passait complètement inaperçu */
+  @keyframes jaugeSursaut {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.07); }
+    100% { transform: scale(1); }
+  }
+
+  .jauge.pulse { animation: jaugeSursaut 0.45s ease-out; transform-origin: right center; }
 
   /* la barre encaisse le gain : sans ça on ne fait pas le lien entre la lueur
      ramassée en bas de l'écran et la jauge en haut */
@@ -423,8 +447,14 @@
   <a class="back" href="../index.html" aria-label="Retour au hub">←</a>
   <span class="zone" id="zone">ZONE 1</span>
   <span class="ames" id="ames" aria-label="âmes livrées"></span>
-  <span class="jauge">
-    <span class="forme" id="forme">Peureux</span>
+  <!-- La jauge de confiance. Elle était un trait de 80 px sans légende : sur un
+       grand écran on ramassait des lueurs sans voir qu'on remplissait quoi que
+       ce soit, ni vers quoi. Elle dit maintenant d'où l'on part et où l'on va. -->
+  <span class="jauge" id="jauge">
+    <span class="jauge-mots">
+      <b class="forme" id="forme">Peureux</b>
+      <em class="suite" id="forme-suite"></em>
+    </span>
     <span class="barre"><i id="barre"></i></span>
   </span>
 </div>
@@ -441,7 +471,8 @@
 <p class="hint" id="hint">
   Pose le doigt n'importe où : un joystick apparaît sous lui.<br>
   Ou joue aux flèches du clavier.<br>
-  Glisse depuis CAILLOU pour viser, lâche pour lancer.
+  Glisse depuis CAILLOU pour viser, lâche pour lancer — ou ESPACE au clavier.<br>
+  Un caillou ne brille pas : là où il tombe, les regards vont voir.
 </p>
 
 <div class="toast" id="toast"></div>
@@ -1005,7 +1036,7 @@
         '#########################',   //  0
         '##############.........##',   //  1   la salle de la torche
         '##...#########.........##',   //  2
-        '##.@..o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
+        '##.@.6o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
         '##...#########.........##',   //  4
         '##############.........##',   //  5
         '##############..2T.....##',   //  6
@@ -1022,10 +1053,10 @@
         '######......3|.*.......##',   // 17   le couloir calme, et sa porte
         '######=##################',   // 18
         '##....*.########......###',   // 19
-        '##......##5T####...b..###',   // 20   l'alcôve de la torche, sur le trajet de l'escorte
+        '##......##5T####......###',   // 20   l'alcôve de la torche, sur le trajet de l'escorte
         '##..S...|o.o.or|*.....###',   // 21   le Seuil, les fragments, le Guet de l'escorte
-        '##....4.########...b..###',   // 22
-        '##......########......###',   // 23
+        '##....4.####..##....b.###',   // 22   le renfoncement de la première âme, sous le nez du Guet
+        '##......####.b##......###',   // 23
         '#########################',   // 24
       ],
       // Une ronde par « r », dans l'ordre de lecture de la carte. Écrites et non
@@ -1036,11 +1067,12 @@
         [[9, 21], [13, 21]],           // celui de l'escorte fait l'aller-retour du couloir
       ],
       murmures: {
-        '1': 'Quelqu\'un a fixé une lampe ici jusqu\'à ce qu\'elle renonce. Le regard est resté.',
+        '1': 'Un regard suit ce qui bouge. Lance ton caillou loin de toi : il ira voir là-bas.',
         '2': 'D\'autres sont passés avant toi. Quelques-unes de leurs lampes brûlent encore.',
         '3': 'Un regard va tout droit, et n\'a pas de mains.',
-        '4': 'Tomber est facile. Sortir, c\'est monter.',
+        '4': 'Sortir, c\'est monter. Mais un Seuil ne s\'ouvre pas avec une clé : il cède quand assez d\'âmes se tiennent dedans.',
         '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
+        '6': 'Tu as gardé un caillou dans la main. C\'est la seule chose ici qui ne brille pas.',
       },
       // Deux âmes, et les deux sont dans la même salle, au bout du couloir des
       // fragments. Elles ont d'abord été posées aux deux bouts du niveau : il
@@ -1197,11 +1229,14 @@
   const elZone = el('zone'), elForme = el('forme'), elBarre = el('barre');
   const elAmes = el('ames');
   const elBarreBoite = document.querySelector('.barre');
+  const elJauge = el('jauge'), elFormeSuite = el('forme-suite');
 
   function pulserJauge() {
     elBarreBoite.classList.remove('pulse');
+    elJauge.classList.remove('pulse');
     void elBarreBoite.offsetWidth;              // pour rejouer l'animation
     elBarreBoite.classList.add('pulse');
+    elJauge.classList.add('pulse');
   }
   const elHint = el('hint'), elToast = el('toast');
   const elCaillou = el('caillou'), elCaillouN = el('caillou-n');
@@ -1878,6 +1913,8 @@
   let premiereLueur = true;
   let premiereReprise = true;
   let premiereMort = true;
+  let seuilDit = false;              // le Seuil a-t-il déjà dit ce qu'il attend ?
+  let nudgeCaillou = 0, nudgeArme = false;
   // La règle attachée à une espèce ne se dit qu'une fois : répétée à chaque
   // âme, elle redevient la modale intrusive qu'on a retirée.
   const regleDite = {};
@@ -1892,7 +1929,7 @@
       pulserJauge();
       if (premiereLueur) {
         premiereLueur = false;
-        montrerToast('Les lueurs te rendent confiance — ce sont elles qui ouvrent tes formes', b.couleur);
+        montrerToast('Les lueurs remplissent ta confiance, en haut à droite — pleine, tu changes de forme', b.couleur);
       }
       gagnerEclat(4);
       return;
@@ -1960,6 +1997,14 @@
       if (!l.vue && estEclaire(l.x, l.y)) l.vue = true;
     }
     if (!zone.sortie.vue && estEclaire(zone.sortie.x, zone.sortie.y)) zone.sortie.vue = true;
+
+    // Arriver sur un portail fermé sans savoir ce qu'il attend, c'est rester
+    // planté devant. On le dit une fois, la première fois qu'on s'en approche.
+    if (!seuilDit && zone.sortie.ames < zone.requis
+        && Math.hypot(zone.sortie.x - joueur.x, zone.sortie.y - joueur.y) < CASE * 2.4) {
+      seuilDit = true;
+      montrerToast(`Le Seuil est vide — il s'ouvre quand ${zone.requis} âmes s'y tiennent`, '#ffe9a8');
+    }
 
     for (const t of zone.torches) {
       if (t.reste > 0) t.reste -= dt;
@@ -2099,6 +2144,17 @@
     // Le halo suit la jauge la plus pleine : la lumière rétrécit à mesure qu'une
     // sentinelle te verrouille, et revient quand tu lui échappes. Une seule
     // idée, deux lectures.
+    // Le caillou ne sert que si on se souvient qu'il existe au moment où il
+    // servirait. Quand un regard commence à nous tenir, le bouton se signale —
+    // trois fois par partie au plus, et jamais deux fois sans être ressorti du
+    // danger entre-temps.
+    if (pire > 0.28 && !nudgeArme && nudgeCaillou < 3) {
+      nudgeArme = true; nudgeCaillou++;
+      elCaillou.classList.remove('evolue');
+      void elCaillou.offsetWidth;
+      elCaillou.classList.add('evolue');
+    } else if (pire < 0.05) nudgeArme = false;
+
     joueur.souffle = 1 - pire;
     joueur.vu += ((traque ? 1 : 0) - joueur.vu) * Math.min(1, 6 * dt);
     // Ce que TOUT LE MONDE ressent : être dans un faisceau, ou simplement
@@ -2833,6 +2889,18 @@
     }
     ctx.fillStyle = ouverte ? 'rgba(255,233,168,0.34)' : `rgba(255,233,168,${0.05 + part * 0.16})`;
     ctx.beginPath(); ctx.arc(0, 0, zone.sortie.r * 0.5, 0, TAU); ctx.fill();
+    // Le compte, écrit SUR le portail. L'anneau dit déjà « il en manque », mais
+    // il ne dit pas de quoi : on peut rester devant sans comprendre qu'on le
+    // charge avec des âmes. Deux chiffres suffisent à nommer la règle.
+    ctx.textAlign = 'center';
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillStyle = ouverte ? '#ffe9a8' : 'rgba(255,233,168,0.8)';
+    ctx.shadowColor = 'rgba(8,8,14,0.9)';
+    ctx.shadowBlur = 6;
+    ctx.fillText(ouverte ? 'ENTRE' : `${zone.sortie.ames} / ${zone.requis}`, 0, -R - 12);
+    ctx.font = '600 9px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,233,168,0.42)';
+    if (!ouverte) ctx.fillText('ÂMES', 0, -R - 25);
     ctx.restore();
 
     // --- lueurs ---
@@ -3330,6 +3398,8 @@
     const haut = suivant ? suivant.seuil : f.seuil + 60;
     elForme.textContent = f.nom;
     elForme.style.color = f.couleur;
+    // vers quoi cette barre mène : sans ça elle se remplit sans rien promettre
+    elFormeSuite.textContent = suivant ? `→ ${suivant.nom}` : '';
     elBarre.style.width = `${clamp((joueur.eclat - bas) / (haut - bas), 0, 1) * 100}%`;
     elBarre.style.background = f.couleur;
     elZone.textContent = `ZONE ${zone.numero}`;
@@ -3372,6 +3442,7 @@
     if (numero === 1) montee = [];   // nouvelle aventure, nouvelle cage
     numeroZone = numero;
     priseCount = 0;
+    seuilDit = false;                // chaque Seuil redit ce qu'il attend
     particules = [];
     ondes = [];
     cailloux = [];

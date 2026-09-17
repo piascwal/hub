@@ -277,7 +277,7 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 #########################
 ##############.........##     1  la salle de la torche
 ##...#########.........##
-##.@..o.o.o.o.*........##     3  le réveil, puis le couloir des lueurs
+##.@.6o.o.o.o.*........##     3  le réveil, le caillou, puis le couloir des lueurs
 ##...#########.........##
 ##############.........##
 ##############..2T.....##
@@ -294,10 +294,10 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 ######......3|.*.......##    17  le couloir calme, et sa porte
 ######=##################
 ##....*.########......###
-##......##5T####...b..###    20  l'alcôve de la torche, sur le trajet de l'escorte
+##......##5T####......###    20  l'alcôve de la torche, sur le trajet de l'escorte
 ##..S...|o.o.or|*.....###    21  le Seuil, les fragments, le Guet de l'escorte
-##....4.########...b..###    22
-##......########......###
+##....4.####..##....b.###    22  le renfoncement de la première âme
+##......####.b##......###    23  la seconde âme, au fond de la dernière salle
 #########################
 ```
 
@@ -307,18 +307,24 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 **Le parcours.** Réveil, couloir des lueurs, salle de la torche, galerie du
 premier Guet, salle d'un Frileux — qu'on ne peut pas encore sauver —, couloir
 calme, Seuil qui réclame deux âmes. Puis le couloir des fragments, gardé par le
-second Guet, et au bout la salle du fond : **les deux âmes y sont, côte à
-côte**. On les rallume, on les ramène, et le retour repasse devant le même Guet
-— seul à l'aller, avec deux suiveurs au retour. C'est l'examen, et il tombe au
-même endroit que la leçon.
+second Guet. La première âme est dans un renfoncement **sur ce couloir même**,
+sous le nez du Guet ; la seconde au fond de la dernière salle. On ramène la
+première, **le portail affiche 1/2**, et c'est là seulement qu'on comprend qu'il
+se charge. On repart chercher l'autre, et le retour repasse devant le même
+Guet.
 
-> **Corrigé après essai.** Les deux âmes étaient d'abord aux deux bouts du
-> niveau, pour que le Seuil oblige à revenir chercher la première. À la manette
-> ce demi-tour **ne se devine pas** : rien sur le chemin ne le demande, et on
-> retraverse la moitié de l'étage sans savoir pourquoi. Le Frileux du début
-> reste donc ce qu'il est — la démonstration qu'il te manque quelque chose — et
-> on n'est plus jamais obligé d'y retourner. Qui le veut peut, une fois le
-> faisceau ouvert ; le Seuil accepte les âmes en trop.
+> **Corrigé deux fois, après essai à la manette.** Les deux âmes étaient
+> d'abord aux deux bouts du niveau, pour que le Seuil oblige à revenir chercher
+> la première : à la manette ce demi-tour **ne se devine pas**, rien sur le
+> chemin ne le demande. Elles ont donc été mises côte à côte dans la dernière
+> salle — et là elles étaient trop proches : on les rallumait toutes les deux
+> d'un même geste et **on ne voyait jamais le portail se charger**. Elles sont
+> maintenant à deux endroits distincts du même secteur : assez écartées pour
+> qu'on livre, qu'on lise « 1/2 » et qu'on reparte, assez proches pour que le
+> retour ne coûte pas la traversée de l'étage.
+>
+> Le Frileux de la salle 5 reste ce qu'il est — la démonstration qu'il te
+> manque quelque chose — et on n'est jamais obligé d'y retourner.
 
 **L'alcôve** s'est déplacée avec le Guet : elle est maintenant sur le trajet de
 l'escorte, et un murmure y dit enfin la règle à voix haute — *« Tant que la
@@ -359,17 +365,28 @@ niveau.
 | Galerie du Guet traversée | 7,7 s |
 | Seuil atteint, vide | 17,9 s |
 | Fragments ramassés (forme Curieux) | 21,0 s |
-| Les deux âmes du fond suivent | 23,0 s |
-| Livraison, le Seuil s'ouvre, étage 2 chargé | 37,3 s |
+| **Première livraison — le portail affiche 1/2** | 28,5 s |
+| Seconde livraison, le Seuil s'ouvre, étage 2 chargé | 42,5 s |
 
-**37 secondes de marche pure**, contre 49 quand les deux âmes étaient aux deux
-bouts du niveau. Le reste du temps de jeu, c'est ce qui fait le jeu — attendre
-qu'un regard passe, se mettre à l'abri, mourir une fois ou deux.
+**42 secondes de marche pure.** Le reste du temps de jeu, c'est ce qui fait le
+jeu — attendre qu'un regard passe, se mettre à l'abri, mourir une fois ou deux.
 
 Une précision honnête : ce pilote ne sait ni lancer un caillou ni se mettre à
 l'abri. Guets actifs, il ne franchit pas un couloir gardé — ce qui dit que le
 couloir est un vrai obstacle, et rien du temps qu'y mettra quelqu'un qui a
 compris. Ce chiffre-là se mesure à la main.
+
+### Ce que le joueur ne comprenait pas
+
+Quatre choses, relevées à la manette. Aucune n'était un bug : toutes étaient
+des règles que le jeu appliquait sans jamais les dire.
+
+| Ce qui manquait | Ce qui a été fait |
+|---|---|
+| À quoi sert le caillou, et qu'on en a un | Un murmure dès la sortie de la première salle (*« la seule chose ici qui ne brille pas »*), un autre juste avant la galerie du Guet (*« lance-le loin de toi : il ira voir là-bas »*), et le bouton qui se met à battre **quand un regard commence à te tenir** — trois fois par partie au plus |
+| Qu'on charge le portail avec des âmes | Le compte est écrit **sur le portail** (« ÂMES — 1 / 2 », « ENTRE » quand il cède), une phrase le dit à la première approche, et le murmure du Seuil ne se contente plus de « sortir c'est monter » |
+| Qu'on remplit une jauge qui change de forme | La barre passe de 80 à 148 px, gagne un contour, et surtout une légende : **PEUREUX → CURIEUX**. Toute la jauge sursaute au ramassage, pas seulement le trait |
+| Que le portail se charge à plusieurs âmes | Les deux âmes sont séparées : on en livre une, on lit « 1/2 », on repart |
 
 ### Passer le prologue
 

@@ -56,6 +56,10 @@ Quand on fixe une lumière assez longtemps pour qu'elle renonce, le regard ne
 part pas avec elle. Il reste. Il continue de chercher. **Il n'y a personne
 derrière.**
 
+Et il ne sait pas ce qu'il cherche. Il ne voit pas les corps — il ne distingue
+qu'une lueur du noir autour d'elle, et il attend **la forme de ce qui est tombé
+avant lui** : une petite lumière seule. Voir *Les deux lumières*, plus bas.
+
 On ne tue donc pas un Guet : il n'y a rien à tuer. On peut seulement l'aveugler
 un instant, ou lui donner quelque chose de mieux à regarder. Et une porte fermée
 l'arrête net, parce qu'un regard voyage en ligne droite et n'a pas de mains :
@@ -109,6 +113,50 @@ Et ce qu'il a retrouvé, il le donne au Seuil. Tout. C'est le prix du passage.
 > Il ne monte pas. Il se vide, il recommence, et il ne se souvient pas assez
 > pour s'en lasser.
 
+## Les deux lumières — pourquoi une torche protège et ton halo te trahit
+
+C'est le trou le plus voyant de la première version : ton halo, ton faisceau et
+celui de chaque âme qui te suit te font repérer, alors qu'une torche au mur ou
+une braise posée t'effacent. Deux lumières, deux effets contraires, et aucune
+raison donnée.
+
+La raison tient en une phrase. **Un Guet ne voit pas les corps. Il ne voit que
+des lampes.**
+
+C'est un regard sans yeux : il ne distingue pas une silhouette, il distingue une
+lueur du noir qui l'entoure. Et ce qu'il attend depuis qu'il a été abandonné là,
+c'est **une petite lumière seule dans le noir** — la forme exacte de ce qui est
+tombé avant lui. La forme exacte de Falot.
+
+De là, tout découle :
+
+- **Ce que tu portes te trahit.** Ton halo, ton faisceau, une âme rallumée
+  derrière toi : chacun est une petite lumière isolée de plus. Plus tu en
+  traînes, plus vite il comprend ce qu'il regarde — c'est la jauge d'escorte,
+  et elle n'a jamais eu d'autre explication.
+- **Ce qui est posé t'efface.** Une torche accrochée à un mur, une braise
+  couvant au sol : ça ne ressemble pas à une lampe tombée, ça ressemble à la
+  pièce. Il ne la regarde pas. Et il ne voit plus non plus ce qui se tient
+  dedans : **on ne repère pas une bougie dans un brasier.** Tu n'es pas caché,
+  tu n'as simplement plus la forme qu'il cherche.
+- **Et ça vaut pour qui se serre contre toi.** L'abri n'est pas un statut, c'est
+  une place : chaque âme qui dépasse du halo redevient une petite lumière seule.
+- **Le caillou n'est ni l'un ni l'autre.** Il ne brille pas du tout. C'est la
+  seule chose ici qui puisse déplacer un regard sans le nourrir.
+- **Trop d'un coup l'aveugle.** L'éclat du Solaire ne l'éclaire pas : il efface
+  d'un seul coup toute différence entre la lumière et le noir. Il n'a plus rien
+  à distinguer.
+
+> Il ne te cherche pas, toi. Il cherche ce qu'il a perdu, et tu lui ressembles.
+
+### Les torches, et qui les allume
+
+Corollaire à corriger : le jeu fait **rallumer** les torches par le joueur, donc
+elles ne peuvent pas « brûler encore un peu » en l'attendant. Ce sont des
+**brandons morts**, accrochés là par ceux qui sont passés avant. Il suffit
+d'approcher : ce qu'il reste de lumière à Falot suffit à les reprendre — et ce
+qu'il donne là, il ne l'a plus sur lui.
+
 ## L'objet — pourquoi un caillou
 
 Dans les Dessous, tout est lumière ou noir. Un caillou n'est ni l'un ni l'autre :
@@ -147,8 +195,9 @@ peut pas ouvrir un mur avec de la lumière.
 | Mourir se dit « éteint », on repart du seuil | On ne meurt pas ici ; se rallumer coûte du temps, pas la vie |
 | Les âmes livrées restent, le convoi se disperse | Ce qui a franchi le Seuil est hors d'atteinte ; ce qu'il portait encore tombe avec lui |
 | Un fil marque le chemin déjà parcouru | Il ne connaît pas les Dessous, seulement ce qu'il a déjà traversé |
-| Des torches fixées aux murs, rallumables | D'autres lampes sont passées avant lui ; certaines brûlent encore un peu |
-| Une torche allumée met à l'abri | Un Guet cherche une lumière isolée dans le noir. Dans une lumière plus grande que lui, Falot n'en est plus une |
+| Des brandons morts au mur, qu'on rallume en passant | Laissés par ceux qui sont passés avant. Ils ne brûlent plus : c'est Falot qui les reprend, avec ce qu'il lui reste |
+| Une torche allumée met à l'abri | Un Guet cherche une petite lumière seule dans le noir. Dans une plus grande, Falot n'a plus cette forme-là |
+| Ton halo et ton faisceau te trahissent | Ce sont précisément la forme qu'il guette : une lampe isolée qui se déplace |
 | Des murs fêlés qu'un caillou ouvre | Personne n'a bâti les Dessous : on y a entassé. Ça tient mal, et la lumière ne perce pas la pierre — seule la chose qui ne brille pas le peut |
 | On repart Peureux à chaque nouvelle zone | Il a tout donné au Seuil, et il le paie à chaque fois |
 | On le voit se vider avant de passer | La lumière quitte son corps par filets et rejoint le portail ; le halo se referme jusqu'à presque rien |

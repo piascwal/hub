@@ -595,7 +595,7 @@
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
     { nom: 'Veilleur', couleur: '#a8f0c8', seuil: 55, halo: 1.45, portee: 6.0, cone: 0.32,
       verbe: 'Le caillou couve',
-      texte: "Ton caillou ne retombe plus éteint : là où il tombe, il se met à brûler pour toujours. Les rouges ne supportent pas cette lumière — tu poses tes abris à distance." },
+      texte: "Ton caillou ne retombe plus éteint : là où il tombe, il se met à brûler pour toujours. Dans cette lumière-là tu n'as plus la forme qu'un regard cherche — tu poses tes abris à distance." },
     { nom: 'Ardent', couleur: '#ff9a6b', seuil: 88, halo: 1.62, portee: 7.0, cone: 0.30,
       verbe: 'Le caillou frappe',
       texte: "Vise un rouge, touche-le : il est étourdi et perd ta trace. Ce n'est plus seulement un leurre, c'est de quoi ouvrir un passage à ton convoi." },
@@ -1085,10 +1085,10 @@
         '#########################',   //  0
         '##############.........##',   //  1   la salle de la torche
         '##...#########.........##',   //  2
-        '##.@..o.o.o.o.*........##',   //  3   le réveil, puis le couloir des lueurs
+        '##.@..o.o.o.o.*8.......##',   //  3   le réveil, puis le couloir des lueurs
         '##.6.#########.........##',   //  4
         '###%##########.........##',   //  5   la pierre fendue, sous la salle du réveil
-        '##.g.#########..2T.....##',   //  6   la niche, et la poche de cailloux qu'on y trouve
+        '##.g.#########...T2....##',   //  6   la niche, et la poche de cailloux qu'on y trouve
         '##################*######',   //  7
         '##################=######',   //  8
         '##################1######',   //  9
@@ -1117,11 +1117,12 @@
       ],
       murmures: {
         '1': 'Un regard suit ce qui bouge. Lance ton caillou loin de toi : il ira voir là-bas.',
-        '2': 'Quelqu\'un est passé avant toi, et a laissé ça allumé. Tant que la flamme tient, les regards glissent sur toi.',
+        '2': 'Un regard cherche une petite lumière seule dans le noir. Dans une plus grande que lui, il ne distingue plus rien.',
         '3': 'Un regard va tout droit, et n\'a pas de mains.',
         '4': 'Sortir, c\'est monter. Mais un Seuil ne s\'ouvre pas avec une clé : il cède quand assez d\'âmes se tiennent dedans.',
         '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
         '6': 'Tu as gardé un caillou — la seule chose ici qui ne brille pas. Et cette pierre, juste en dessous, est déjà fendue.',
+        '8': 'Un brandon mort au mur, laissé par qui passait avant toi. Ce qu\'il te reste de lumière suffit à le reprendre.',
       },
       // Deux âmes, et les deux sont dans la même salle, au bout du couloir des
       // fragments. Elles ont d'abord été posées aux deux bouts du niveau : il
@@ -1492,6 +1493,9 @@
   // C'est le canal de fond du récit — celui de Dark Souls, pas celui du panneau
   // à valider.
   function murmurer(x, y, texte, couleur) {
+    // Un seul à la fois. Deux phrases de la même voix qui se chevauchent, on ne
+    // lit plus ni l'une ni l'autre : celle d'avant s'efface en un clin d'œil.
+    for (const f of flottants) if (f.murmure) f.vie = Math.min(f.vie, 0.4);
     flottants.push({ x, y, texte, couleur: couleur || '#98a0ad', vie: 5.2, max: 5.2, murmure: true });
   }
 
@@ -2069,7 +2073,10 @@
 
     for (const t of zone.torches) {
       if (t.reste > 0) t.reste -= dt;
-      if (Math.hypot(t.x - joueur.x, t.y - joueur.y) < CASE * 0.75 && t.reste < t.duree * 0.6) {
+      // Une case et demie, pas trois quarts de case : le brandon est décalé vers
+      // sa paroi, et à 0,75 il fallait lui rentrer dedans au pixel près. On
+      // passait à côté d'un abri sans le reprendre, sans jamais savoir pourquoi.
+      if (Math.hypot(t.x - joueur.x, t.y - joueur.y) < CASE * 1.15 && t.reste < t.duree * 0.6) {
         if (t.reste <= 0) emettre(t.x, t.y, '#ffb45c', 8, 55);
         t.reste = t.duree;
       }
@@ -3461,8 +3468,10 @@
      + 'qu\'elles montrent. Personne n\'a construit cet endroit. On y a entassé '
      + 'ce qui ne servait plus, jusqu\'à ce que ça ressemble à une prison.',
     4: 'Les regards rouges ne montent pas derrière toi. Ils n\'ont nulle part '
-     + 'où aller : ils sont ce qui reste quand une lampe a renoncé, et ils '
-     + 'attendent la suivante.',
+     + 'où aller : ils sont ce qui reste quand une lampe a renoncé, et c\'est une '
+     + 'lampe qu\'ils attendent — pas un corps. Une petite lumière seule dans le '
+     + 'noir, exactement la forme que tu as. C\'est pour ça qu\'une flamme posée '
+     + 'les désarme : dedans, tu n\'as plus cette forme-là.',
   };
   const RECIT_PLUS_HAUT = [
     'Tu ne comptes plus les étages. Elles, si.',

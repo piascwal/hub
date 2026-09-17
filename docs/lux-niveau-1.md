@@ -277,10 +277,10 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 #########################
 ##############.........##     1  la salle de la torche
 ##...#########.........##
-##.@..o.o.o.o.*........##     3  le réveil, puis le couloir des lueurs
+##.@..o.o.o.o.*8.......##     3  le réveil, puis le couloir des lueurs
 ##.6.#########.........##     4
 ###%##########.........##     5  la pierre fendue, sous la salle du réveil
-##.g.#########..2T.....##     6  la niche, et la poche de cailloux qu'on y trouve
+##.g.#########...T2....##     6  la niche ; le brandon, et la règle des deux lumières
 ##################*######
 ##################=######
 ##################1######
@@ -427,64 +427,36 @@ total, pour un raccourci moyen de **8,6 cases** (de 6 à 28) — et **0 zone
 devenue infinissable**, puisque la zone reste entièrement parcourable sans
 casser quoi que ce soit.
 
+### Les deux lumières
+
+Trou de fiction relevé à la manette, et il était énorme : **pourquoi ton halo et
+ton faisceau te font-ils repérer, alors qu'une torche au mur t'efface ?** Deux
+lumières, deux effets contraires, aucune raison donnée.
+
+La règle est dans `docs/lux-falot.md` : *un Guet ne voit pas les corps, il ne
+voit que des lampes* — et ce qu'il attend, c'est **une petite lumière seule dans
+le noir**, la forme de ce qui est tombé avant lui. Ce que tu portes a exactement
+cette forme. Une flamme posée n'en a pas : c'est un morceau de la pièce, et
+dedans tu n'es plus qu'une tache un peu plus sombre. *On ne repère pas une
+bougie dans un brasier.*
+
+L'étage 1 l'enseigne en deux murmures, dans la salle de la torche : le brandon à
+l'entrée, la règle à la flamme. Le texte de la forme Veilleur et le récit du
+quatrième étage disent la même chose avec d'autres mots.
+
+**Et le brandon n'est plus « laissé allumé » par quelqu'un** — c'est le joueur
+qui le rallume, la première version se contredisait. Ce sont des brandons morts,
+accrochés là par ceux qui sont passés avant ; ce qu'il reste de lumière à Falot
+suffit à les reprendre.
+
+> **Un réglage au passage.** Le rayon de rallumage était de 0,75 case, et le
+> brandon est décalé vers sa paroi : il fallait lui rentrer dedans au pixel
+> près. On passait à côté d'un abri sans le reprendre. Il est à 1,15 case, et
+> le trajet naturel vers la sortie de la salle l'allume désormais.
+>
+> C'est ce réglage qui a fait rougir le test de l'abri : le joueur y rallumait
+> une torche à 0,66 case de l'âme qu'on voulait laisser dehors, et l'abri
+> couvrait tout — correctement. Le jeu avait raison, c'est la mesure qui
+> était devenue fausse.
+
 ### Passer le prologue
-
-Le bouton **« Passer le prologue — reprendre à l'étage 2 »** est visible en
-permanence sur l'écran-titre. La règle prévue — ne le débloquer qu'après une
-première fin — est la bonne pour un jeu publié, mais elle rend l'étage 1
-obligatoire à chaque essai pendant qu'on le construit. Une ligne suffit à la
-rétablir le jour venu (`hidden = !prologueFini()`).
-
-Et depuis la console, `__lux.charger(4)` ou `__lux.graine('LUX-7001')` referment
-l'écran-titre au passage : sans ça le monde reste gelé derrière lui.
-
----
-
-## Ce que ça demande côté technique
-
-L'étage 1 étant écrit à la main, il faut un **format de niveau**. Le plus simple
-et le plus modifiable est une carte en texte, une ligne par rangée de cases,
-avec des lettres pour le mobilier :
-
-```
-#########
-#....T..#     #  mur          T  torche
-#..@....#     @  départ       o  lueur
-#...o...#     r  Guet         b  Frileux
-#########     S  Seuil
-```
-
-`chargerZone` lit cette carte au lieu d'appeler le générateur dès qu'un étage
-écrit existe pour ce numéro ; tout le reste du jeu — lumière, portes, détection,
-convoi — fonctionne sans modification, puisqu'il ne lit qu'une grille de murs et
-une liste de personnages. Une seule chose a dû bouger dans le générateur : la
-fabrication d'un personnage, extraite dans `nouveauPerso` pour que les PNJ
-écrits à la main soient rigoureusement les mêmes que les autres. L'ordre des
-tirages y est préservé au tirage près — le changer aurait regeneré un autre
-monde pour chaque graine.
-
-Les rondes des Guets, elles, sont **écrites** et non tirées : un premier étage
-doit se relire à l'identique d'une partie sur l'autre, sinon il n'est ni
-équilibrable ni débogable.
-
-C'est aussi ce qui rend le niveau amendable sans toucher au code : on déplace
-une lettre, on rejoue.
-
----
-
-## Résumé des désaccords
-
-| Proposition initiale | Contre-proposition | Pourquoi |
-|---|---|---|
-| Un tutoriel optionnel | L'étage 1 du vrai jeu | Le tutoriel séparé a disparu des jeux modernes ; et la fiction offre déjà la place |
-| Un menu « faire le tuto ? » | Un bouton « Descendre » | Le joueur n'a pas de quoi répondre ; la question avoue la faiblesse |
-| Saut proposé d'emblée | Saut débloqué après une première fin | Traitement standard d'un prologue |
-| Panneaux de texte entre zones | Bandeau passager + cage d'escalier | Même faute que les modales d'évolution, en plus gros |
-| Porte bloquée jusqu'au PNJ | Le Seuil réclame une âme | Même détour, mais avec une règle qui sert toute la partie |
-| Fragments découverts en 5ᵉ | Fragments en 2ᵉ | Il faut savoir ce qu'ils sont avant qu'on demande d'arbitrer |
-| Deux rouges à l'examen | Un seul | Un premier test doit se réussir du premier coup |
-
-Et ce qui est repris tel quel du croquis, parce que c'est juste : la découverte
-du halo en premier, la torche, le rouge qui amène le caillou, le PNJ qu'on ne
-peut pas encore sauver, la zone d'entraînement, l'examen, le portail en
-récompense. La colonne vertébrale est la bonne.

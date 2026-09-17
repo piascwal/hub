@@ -589,7 +589,7 @@
   const FORMES = [
     { nom: 'Peureux', couleur: '#8fd0ff', seuil: 0, halo: 1.00, portee: 0, cone: 0,
       verbe: 'Le caillou',
-      texte: "Tu n'as qu'un halo minuscule — mais tu peux lancer un caillou devant toi. Là où il tombe, les sentinelles vont voir. C'est toute ton arme : les détourner." },
+      texte: "Tu n'as qu'un halo minuscule — mais tu peux lancer un caillou devant toi. La pierre ne brille pas ; ce que tu as laissé dessus, si. Là où elle tombe, une autre petite lumière apparaît, et les Guets vont la voir. C'est toute ton arme." },
     { nom: 'Curieux', couleur: '#ffd479', seuil: 26, halo: 1.28, portee: 5.2, cone: 0.34,
       verbe: 'Le faisceau',
       texte: "Un faisceau s'ouvre devant toi. Il porte loin, et il réveille les autres : un bonhomme éclairé relaie ta lumière avec son regard." },
@@ -601,7 +601,7 @@
       texte: "Vise un rouge, touche-le : il est étourdi et perd ta trace. Ce n'est plus seulement un leurre, c'est de quoi ouvrir un passage à ton convoi." },
     { nom: 'Solaire', couleur: '#fff2c4', seuil: 128, halo: 1.9, portee: 8.2, cone: 0.30,
       verbe: 'Le caillou éclate',
-      texte: "À l'impact, le caillou se brise en un éclat qui aveugle tous les rouges autour du point de chute. Un seul lancer, et toute une salle cesse de te chercher." },
+      texte: "À l'impact, le caillou se brise en un éclat qui aveugle tous les Guets autour du point de chute : plus rien à distinguer, ni lumière ni noir. Un seul lancer, et toute une salle cesse de te chercher." },
   ];
 
   // Tout le jeu tient sur UN bouton. Chaque forme ne donne pas un nouveau verbe
@@ -1099,7 +1099,7 @@
         '##############....*....##',   // 14   la salle du Frileux qu'on ne peut pas aider
         '##############.......b.##',   // 15
         '##############.........##',   // 16
-        '######......3|.*.......##',   // 17   le couloir calme, et sa porte
+        '######.......|.*.......##',   // 17   le couloir calme, et sa porte
         '######=##################',   // 18
         '##....*.########......###',   // 19
         '##......##5T####......###',   // 20   l'alcôve de la torche, sur le trajet de l'escorte
@@ -1116,9 +1116,8 @@
         [[9, 21], [13, 21]],           // celui de l'escorte fait l'aller-retour du couloir
       ],
       murmures: {
-        '1': 'Un regard suit ce qui bouge. Lance ton caillou loin de toi : il ira voir là-bas.',
-        '2': 'Un regard cherche une petite lumière seule dans le noir. Dans une plus grande que lui, il ne distingue plus rien.',
-        '3': 'Un regard va tout droit, et n\'a pas de mains.',
+        '1': 'En bas, un Guet. Ton caillou garde un peu de toi : là où il tombe, il fait une autre petite lumière — et c\'est elle qu\'il ira voir.',
+        '2': 'Un Guet ne voit pas les corps. Il cherche une petite lumière seule dans le noir. Dans une plus grande que lui, il ne distingue plus rien.',
         '4': 'Sortir, c\'est monter. Mais un Seuil ne s\'ouvre pas avec une clé : il cède quand assez d\'âmes se tiennent dedans.',
         '5': 'Tant que la flamme tient, il ne te voit pas. Ni toi, ni ceux qui se serrent contre toi.',
         '6': 'Tu as gardé un caillou — la seule chose ici qui ne brille pas. Et cette pierre, juste en dessous, est déjà fendue.',
@@ -1247,6 +1246,12 @@
   let particules = [];
   let ondes = [];                  // ondes de choc de la charge et de l'éclat
   let cailloux = [];               // les cailloux en vol
+  // Ce que Falot laisse sur le caillou. La pierre ne brille pas — c'est la
+  // règle — mais il la tient dans la main, et un peu de lui reste dessus. En
+  // vol ça se voit à peine ; là où elle tombe, ça fait pendant quelques secondes
+  // une petite lumière seule dans le noir, c'est-à-dire exactement ce qu'un Guet
+  // passe son existence à attendre. Le leurre n'a jamais eu d'autre mécanique.
+  let traces = [];                 // { x, y, t, duree }
   let fil = [];                    // la trace du joueur : sa seule mémoire du terrain
   let flottants = [];              // les « +4 » qui montent d'une lueur ramassée
   // La vidange au Seuil : Falot donne au portail tout ce qu'il a retrouvé. On
@@ -1492,11 +1497,25 @@
   // elle monte lentement et s'efface seule pendant qu'on continue de jouer.
   // C'est le canal de fond du récit — celui de Dark Souls, pas celui du panneau
   // à valider.
-  function murmurer(x, y, texte, couleur) {
-    // Un seul à la fois. Deux phrases de la même voix qui se chevauchent, on ne
-    // lit plus ni l'une ni l'autre : celle d'avant s'efface en un clin d'œil.
-    for (const f of flottants) if (f.murmure) f.vie = Math.min(f.vie, 0.4);
-    flottants.push({ x, y, texte, couleur: couleur || '#98a0ad', vie: 5.2, max: 5.2, murmure: true });
+  // Un seul à la fois, et les autres ATTENDENT leur tour. Couper la phrase
+  // précédente ne valait pas mieux que les empiler : quand on rallume deux âmes
+  // coup sur coup, chacune a quelque chose à dire et on n'en lisait aucune.
+  let filMurmures = [];
+  function murmurer(x, y, texte, couleur, sujet) {
+    const m = { x, y, texte, couleur, sujet, duree: sujet ? 3.4 : 5 };
+    if (flottants.some((f) => f.murmure && f.vie > 0.2)) {
+      if (filMurmures.length < 3) filMurmures.push(m);   // au-delà, tant pis
+      return;
+    }
+    poserMurmure(m);
+  }
+  function poserMurmure(m) {
+    // Une phrase attachée à quelqu'un le suit : une réplique figée pendant que
+    // celui qui parle s'éloigne, on ne sait plus qui a parlé.
+    flottants.push({
+      x: m.x, y: m.y, texte: m.texte, couleur: m.couleur || '#98a0ad',
+      vie: m.duree, max: m.duree, murmure: true, sujet: m.sujet,
+    });
   }
 
   // Ce que disent les âmes qu'on rallume. Le meilleur canal possible : il est
@@ -1524,8 +1543,17 @@
     for (let i = flottants.length - 1; i >= 0; i--) {
       const f = flottants[i];
       f.vie -= dt;
-      f.y -= (f.murmure ? 5 : 34) * dt;
+      if (f.sujet && !f.sujet.livre) {
+        f.x = f.sujet.x;
+        f.y = f.sujet.y - D.taille * 1.9 - (f.max - f.vie) * 5;
+      } else {
+        f.y -= (f.murmure ? 5 : 34) * dt;
+      }
       if (f.vie <= 0) flottants.splice(i, 1);
+    }
+    // la suivante ne part que quand la précédente a fini de s'effacer
+    if (filMurmures.length && !flottants.some((f) => f.murmure && f.vie > 0.2)) {
+      poserMurmure(filMurmures.shift());
     }
   }
 
@@ -2134,7 +2162,7 @@
             : 'Il te suit et éclaire devant lui', '#a8f0c8');
         }
         const pool = REPLIQUES[p.emotion];
-        if (pool) murmurer(p.x, p.y - D.taille * 1.9, pool[numReplique++ % pool.length], '#a8f0c8');
+        if (pool) murmurer(p.x, p.y - D.taille * 1.9, pool[numReplique++ % pool.length], '#a8f0c8', p);
       }
     }
 
@@ -2351,6 +2379,10 @@
   }
 
   function majCailloux(dt) {
+    for (let i = traces.length - 1; i >= 0; i--) {
+      traces[i].t += dt;
+      if (traces[i].t >= traces[i].duree) traces.splice(i, 1);
+    }
     for (let i = cailloux.length - 1; i >= 0; i--) {
       const c = cailloux[i];
       c.t += dt;
@@ -2371,6 +2403,11 @@
     const teinte = r.eclate ? '#fff2c4' : r.couve ? '#ffc478' : '#b2bacc';
     ondes.push({ x: c.x1, y: c.y1, r: 0, max: CASE * (r.eclate ? 6 : 3.2), couleur: teinte });
     emettre(c.x1, c.y1, teinte, r.eclate ? 26 : 7, r.eclate ? 200 : 45);
+
+    // Ce que Falot avait laissé dessus reste là un moment : une petite lueur
+    // posée, qu'on voit de loin. C'est ce qui rend le jet lisible quand on lance
+    // dans le noir, et c'est ce qui attire le regard.
+    traces.push({ x: c.x1, y: c.y1, t: 0, duree: r.couve ? 1.2 : 3.4 });
 
     // il se met à brûler : c'est l'abri du Veilleur, posé à distance
     if (r.couve) zone.braises.push({ x: c.x1, y: c.y1, r: CASE * 2.3, phase: Math.random() * TAU });
@@ -2393,7 +2430,7 @@
       p.route = null;
       emettre(p.x, p.y - D.taille * 0.8, '#b2bacc', 3, 40);
     }
-    if (r.eclate) montrerToast('Éclat — les rouges sont aveuglés');
+    if (r.eclate) montrerToast('Éclat — les Guets n\'ont plus rien à distinguer');
   }
 
   /* ==================================================== rendu ============ */
@@ -2848,23 +2885,59 @@
       ctx.beginPath();
       ctx.rect(x + 2, y + 2, CASE - 4, CASE - 4);
       ctx.clip();
-      const o = Math.sin(f.phase) * CASE * 0.18;
+      // Une vraie toile de fractures, pas deux traits : trois fentes qui
+      // traversent la case de haut en bas, leurs branches, et les éclats
+      // détachés autour. Deux traits ressemblaient à une décoration ; ça, ça
+      // ressemble à de la pierre qui a déjà renoncé.
+      const o = Math.sin(f.phase), o2 = Math.cos(f.phase * 1.7);
+      const X = (u) => x + CASE * u, Y = (v) => y + CASE * v;
       ctx.beginPath();
-      ctx.moveTo(x + CASE * 0.18, y - 2);
-      ctx.lineTo(x + CASE * 0.44 + o, y + CASE * 0.38);
-      ctx.lineTo(x + CASE * 0.26, y + CASE * 0.62);
-      ctx.lineTo(x + CASE * 0.55 + o, y + CASE + 2);
-      ctx.moveTo(x + CASE * 0.82, y - 2);
-      ctx.lineTo(x + CASE * 0.58 + o, y + CASE * 0.45);
-      ctx.lineTo(x + CASE * 0.86, y + CASE + 2);
+      ctx.moveTo(X(0.13), Y(-0.04));
+      ctx.lineTo(X(0.31 + o * 0.05), Y(0.25));
+      ctx.lineTo(X(0.18), Y(0.52));
+      ctx.lineTo(X(0.35 + o2 * 0.05), Y(0.77));
+      ctx.lineTo(X(0.24), Y(1.04));
+      ctx.moveTo(X(0.53 + o * 0.04), Y(-0.04));
+      ctx.lineTo(X(0.43), Y(0.21));
+      ctx.lineTo(X(0.61 + o2 * 0.04), Y(0.46));
+      ctx.lineTo(X(0.46), Y(0.73));
+      ctx.lineTo(X(0.59), Y(1.04));
+      ctx.moveTo(X(0.87), Y(-0.04));
+      ctx.lineTo(X(0.73 + o * 0.05), Y(0.29));
+      ctx.lineTo(X(0.89), Y(0.57));
+      ctx.lineTo(X(0.77 + o2 * 0.04), Y(1.04));
+      // les branches : c'est elles qui font le réseau
+      ctx.moveTo(X(0.31), Y(0.25)); ctx.lineTo(X(0.47), Y(0.14));
+      ctx.moveTo(X(0.18), Y(0.52)); ctx.lineTo(X(-0.04), Y(0.61));
+      ctx.moveTo(X(0.61), Y(0.46)); ctx.lineTo(X(0.74), Y(0.40));
+      ctx.moveTo(X(0.46), Y(0.73)); ctx.lineTo(X(0.29), Y(0.87));
+      ctx.moveTo(X(0.89), Y(0.57)); ctx.lineTo(X(1.04), Y(0.65));
+      ctx.moveTo(X(0.35), Y(0.77)); ctx.lineTo(X(0.52), Y(0.90));
       // l'ombre de la fente d'abord, le bord éclairé par-dessus : c'est ce qui
       // donne du relief à deux traits
       ctx.strokeStyle = 'rgba(6,6,11,0.85)';
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 4.5;
       ctx.stroke();
       ctx.strokeStyle = 'rgba(214,220,234,0.5)';
-      ctx.lineWidth = 1.8;
+      ctx.lineWidth = 1.7;
       ctx.stroke();
+      // les éclats détachés : de petits morceaux qui ne tiennent plus à rien
+      const eclats = [[0.24, 0.38, 0.07], [0.68, 0.19, 0.055], [0.40, 0.60, 0.05],
+                      [0.80, 0.80, 0.065], [0.12, 0.82, 0.045], [0.63, 0.66, 0.04]];
+      for (let i = 0; i < eclats.length; i++) {
+        const [u, v, t] = eclats[i];
+        const a0 = f.phase + i * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(X(u + Math.cos(a0) * t), Y(v + Math.sin(a0) * t));
+        ctx.lineTo(X(u + Math.cos(a0 + 2.2) * t), Y(v + Math.sin(a0 + 2.2) * t));
+        ctx.lineTo(X(u + Math.cos(a0 + 4.3) * t), Y(v + Math.sin(a0 + 4.3) * t));
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(8,8,14,0.7)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(214,220,234,0.32)';
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -3080,12 +3153,33 @@
     const opac = aBonus('souffle') ? 0.5 : 1;
     dessinerTete(joueur, teinte, D.taille * 1.06, true, opac, humeurJoueur, temps, 0);
 
-    // --- cailloux en vol : une ombre au sol et le caillou en l'air ---
+    // --- ce que le caillou a laissé là où il est tombé ---
+    // La pierre ne brille pas. Ce qui brille, c'est ce que Falot y a laissé en
+    // la tenant — et ça fait, quelques secondes, une petite lumière seule dans
+    // le noir : le leurre est exactement ça.
+    for (const t of traces) {
+      const k = 1 - t.t / t.duree;
+      const R = CASE * (0.3 + k * 0.55);
+      const g = ctx.createRadialGradient(t.x - cam.x, t.y - cam.y, 0, t.x - cam.x, t.y - cam.y, R);
+      g.addColorStop(0, rgba(f.couleur, 0.55 * k));
+      g.addColorStop(0.5, rgba(f.couleur, 0.2 * k));
+      g.addColorStop(1, rgba(f.couleur, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(t.x - cam.x, t.y - cam.y, R, 0, TAU); ctx.fill();
+    }
+
+    // --- cailloux en vol : une ombre au sol, le caillou en l'air, et sa lueur ---
     for (const c of cailloux) {
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.beginPath(); ctx.ellipse(c.x - cam.x, c.y - cam.y, 4, 2, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#cdd3e0';
-      ctx.beginPath(); ctx.arc(c.x - cam.x, c.y - cam.y - c.hauteur, 3.4, 0, TAU); ctx.fill();
+      const hx = c.x - cam.x, hy = c.y - cam.y - c.hauteur;
+      const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, CASE * 0.42);
+      g.addColorStop(0, rgba(f.couleur, 0.4));
+      g.addColorStop(1, rgba(f.couleur, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(hx, hy, CASE * 0.42, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#e4e9f5';
+      ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, TAU); ctx.fill();
     }
 
     // --- ondes de choc ---
@@ -3120,6 +3214,15 @@
     for (const p of eclaires) percerCone(lctx, p.x, p.y, p.regard, D.portee * 5, D.cone + 0.05, 0.85, p.rayonsRelais);
     for (const b of zone.braises)
       percerRond(lctx, b.x - cam.x, b.y - cam.y, b.r, 0.92, rayonsSource(b, b.r));
+    // Le caillou en vol et sa trace. Sans ça on lance dans le noir et on ne
+    // sait jamais où c'est retombé — or c'est précisément l'information dont on
+    // a besoin pour décider par où passer.
+    for (const c of cailloux)
+      percerDisque(lctx, c.x - cam.x, c.y - cam.y - c.hauteur, CASE * 0.5, 0.7);
+    for (const t of traces) {
+      const k = 1 - t.t / t.duree;
+      percerDisque(lctx, t.x - cam.x, t.y - cam.y, CASE * (0.45 + k * 0.65), 0.45 + k * 0.45);
+    }
     // Un calmé n'est pas qu'un faisceau : son corps et un petit halo restent
     // éclairés, sinon on ne voit qu'un cône sortir du néant.
     for (const p of zone.persos) {
@@ -3467,7 +3570,7 @@
     3: 'Il n\'y a pas de jour dans les Dessous, seulement des lampes et ce '
      + 'qu\'elles montrent. Personne n\'a construit cet endroit. On y a entassé '
      + 'ce qui ne servait plus, jusqu\'à ce que ça ressemble à une prison.',
-    4: 'Les regards rouges ne montent pas derrière toi. Ils n\'ont nulle part '
+    4: 'Les Guets ne montent pas derrière toi. Ils n\'ont nulle part '
      + 'où aller : ils sont ce qui reste quand une lampe a renoncé, et c\'est une '
      + 'lampe qu\'ils attendent — pas un corps. Une petite lumière seule dans le '
      + 'noir, exactement la forme que tu as. C\'est pour ça qu\'une flamme posée '
@@ -3585,7 +3688,9 @@
     particules = [];
     ondes = [];
     cailloux = [];
+    traces = [];
     flottants = [];
+    filMurmures = [];
     fil = [];
     // On redevient peureux à chaque nouvelle zone : tout se regagne sur place.
     joueur.eclat = 0; joueur.sommet = 0; joueur.niveau = 0;
@@ -4052,6 +4157,8 @@
     regarder: (a) => { joueur.regard = a; },
     cheminInterne: (x0, y0, x1, y1) => routeVers(x0, y0, x1, y1),
     fil: () => fil,
+    traces: () => traces,
+    flottants: () => flottants,
     estEclaire,
     // pour chaque PNJ à portée d'écran : ses yeux sont-ils dessinés, et sinon pourquoi
     // le même filtre que le rendu des yeux, pour pouvoir le mesurer

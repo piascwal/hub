@@ -283,7 +283,7 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 ##.g.#########...T2....##     6  la niche ; le brandon, et la règle des deux lumières
 ##################*######
 ##################=######
-##################1######
+##################1######     9  le Guet nommé, et ce que fait le caillou
 ############..r........##    10  la galerie du premier Guet
 ##################.######
 ##################=######
@@ -291,7 +291,7 @@ Elle vit dans `poc/lux-paranoia.html`, sous `ETAGES_ECRITS`.
 ##############....*....##    14  le Frileux qu'on ne peut pas encore aider
 ##############.......b.##
 ##############.........##
-######......3|.*.......##    17  le couloir calme, et sa porte
+######.......|.*.......##    17  le couloir calme, et sa porte
 ######=##################
 ##....*.########......###
 ##......##5T####......###    20  l'alcôve de la torche, sur le trajet de l'escorte
@@ -458,5 +458,46 @@ suffit à les reprendre.
 > une torche à 0,66 case de l'âme qu'on voulait laisser dehors, et l'abri
 > couvrait tout — correctement. Le jeu avait raison, c'est la mesure qui
 > était devenue fausse.
+
+### Ce que le caillou laisse derrière lui
+
+On lançait dans le noir sans jamais voir où ça tombait — or c'est précisément
+l'information dont on a besoin pour décider par où passer. Le caillou porte
+désormais une petite lueur en vol, et il en laisse une où il tombe, trois
+secondes et demie.
+
+Et ça ne contredit pas *« la seule chose ici qui ne brille pas »* : **la pierre
+ne brille toujours pas, c'est ce que Falot a laissé dessus qui brille.** Il la
+tient dans la main ; un peu de lui reste dedans. Là où elle tombe, ça fait une
+**autre petite lumière seule dans le noir** — exactement la chose qu'un Guet
+passe son existence à attendre.
+
+Le leurre n'a donc plus besoin d'une règle à lui : c'est la règle des deux
+lumières, prise par l'autre bout. Un Guet ne se détourne pas d'un bruit, il se
+détourne d'un leurre qui lui ressemble plus que toi.
+
+### Les paroles font la queue
+
+Deux âmes rallumées coup sur coup avaient chacune quelque chose à dire, et on
+n'en lisait aucune. Une seule phrase tient l'écran à la fois ; les autres
+attendent leur tour (trois au plus, au-delà tant pis). Une réplique **suit
+celui qui parle** au lieu de rester figée où il était — sans ça, quand le convoi
+avance, on ne sait plus qui a dit quoi. Mesuré : au pire **1** phrase affichée
+en même temps.
+
+### Ce qui a été retiré
+
+Le murmure *« Un regard va tout droit, et n'a pas de mains »* justifiait le fait
+qu'un Guet ne franchit pas les portes. Cette règle-là est une **commodité de
+jeu**, pas une règle du monde : elle donne un abri qui ne coûte pas de lumière,
+et on pourra la lever le jour où l'on voudra durcir. Elle n'avait donc rien à
+faire dans la bouche du décor. La bible le dit maintenant comme tel.
+
+### Les Guets ont enfin un nom à l'écran
+
+Il était dans la bible depuis le début et **nulle part ailleurs** : on pouvait
+jouer des heures sans que les rouges soient nommés. Les deux murmures de la
+salle de la torche et de la galerie, les textes des formes Peureux et Solaire,
+le bandeau de l'éclat et le récit du quatrième étage disent « un Guet ».
 
 ### Passer le prologue

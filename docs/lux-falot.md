@@ -52,6 +52,11 @@ aussi.
 
 ### Les Guets (rouges) — un regard resté sur place
 
+> **Le nom se dit dans le jeu.** Il était écrit ici et nulle part ailleurs : on
+> pouvait jouer des heures sans que les rouges aient un nom. Les murmures de
+> l'étage 1, les textes de formes et la cage d'escalier disent désormais
+> « un Guet ».
+
 Quand on fixe une lumière assez longtemps pour qu'elle renonce, le regard ne
 part pas avec elle. Il reste. Il continue de chercher. **Il n'y a personne
 derrière.**
@@ -61,9 +66,11 @@ qu'une lueur du noir autour d'elle, et il attend **la forme de ce qui est tombé
 avant lui** : une petite lumière seule. Voir *Les deux lumières*, plus bas.
 
 On ne tue donc pas un Guet : il n'y a rien à tuer. On peut seulement l'aveugler
-un instant, ou lui donner quelque chose de mieux à regarder. Et une porte fermée
-l'arrête net, parce qu'un regard voyage en ligne droite et n'a pas de mains :
-coupez la ligne, il n'a plus de chemin — et il ne sait pas ouvrir.
+un instant, ou lui donner quelque chose de mieux à regarder.
+
+*Aujourd'hui une porte fermée l'arrête net. C'est une commodité de jeu — un abri
+qui ne coûte pas de lumière — et pas une règle du monde : on pourra la lever
+pour durcir la difficulté sans rien contredire ici.*
 
 ## Le héros — pourquoi lui, et pas un héros
 
@@ -161,7 +168,17 @@ qu'il donne là, il ne l'a plus sur lui.
 
 Dans les Dessous, tout est lumière ou noir. Un caillou n'est ni l'un ni l'autre :
 **c'est la seule chose ici qui ne brille pas.** C'est exactement pour ça qu'il
-fonctionne. Un Guet suit ce qui bouge ; lancez-lui un caillou, il ira voir.
+fonctionne — mais pas de la façon qu'on croit.
+
+**La pierre ne brille pas ; ce que Falot y laisse, si.** Il la tient dans la
+main, et un peu de lui reste dessus. Là où elle tombe, ça fait pendant quelques
+secondes **une autre petite lumière seule dans le noir** — c'est-à-dire
+exactement la chose qu'un Guet passe son existence à attendre. Il ne se
+détourne pas d'un bruit : il se détourne d'un leurre qui lui ressemble plus que
+toi.
+
+C'est la même règle que tout le reste, prise par l'autre bout ; et c'est
+pourquoi le jet se voit dans le noir, alors qu'on lance sans rien voir.
 
 À mesure que Falot se souvient, il met un peu plus de lui-même dans chaque jet.
 Le geste ne change jamais — ce qu'il emporte, si.
@@ -190,7 +207,7 @@ peut pas ouvrir un mur avec de la lumière.
 | Les bleus n'avancent que dans la lumière | Éteints par la peur, ils n'ont plus de lumière à eux pour voir où poser le pied |
 | Les dorés suivent partout et éclairent devant | Ils ont gardé un filet. Précieux, et très voyant |
 | Un rouge ne se tue pas, il s'aveugle | Il n'y a personne derrière ; un regard ne meurt pas, il se détourne |
-| Un rouge ne franchit jamais une porte | Un regard va tout droit, et n'a pas de mains |
+| Un Guet ne franchit jamais une porte | Commodité de jeu, pas règle du monde : ça donne un abri qui ne coûte pas de lumière. À lever le jour où l'on voudra durcir — rien dans la fiction ne l'interdit |
 | Sa jauge monte plus vite si le convoi est gros | Plus il y a à regarder, plus vite il comprend ce qu'il regarde |
 | Mourir se dit « éteint », on repart du seuil | On ne meurt pas ici ; se rallumer coûte du temps, pas la vie |
 | Les âmes livrées restent, le convoi se disperse | Ce qui a franchi le Seuil est hors d'atteinte ; ce qu'il portait encore tombe avec lui |

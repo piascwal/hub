@@ -1,5 +1,8 @@
 # Étage 1 — « Le bas du puits »
 
+> **Version vivante : [`piascwal/falot`](https://github.com/piascwal/falot/blob/main/docs/lux-niveau-1.md).**
+> Cette copie-ci est celle du prototype et n'est plus tenue à jour.
+
 Conception du premier niveau, à la main, non procédural.
 Annexe à `docs/lux-falot.md`.
 

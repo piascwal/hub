@@ -1,5 +1,8 @@
 # Falot et les Dessous
 
+> **Version vivante : [`piascwal/falot`](https://github.com/piascwal/falot/blob/main/docs/lux-falot.md).**
+> Cette copie-ci est celle du prototype et n'est plus tenue à jour.
+
 Bible narrative de *Lux & Paranoïa*, première version.
 Écrite à partir des mécaniques existantes du prototype, pas l'inverse : chaque
 règle déjà codée dans `poc/lux-paranoia.html` doit trouver ici sa raison d'être.

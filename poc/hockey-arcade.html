@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Face-Off — Hockey arcade</title>
+<meta name="description" content="Hockey arcade en pixel art, joueur contre ordinateur, jouable en mode paysage sur téléphone.">
+<meta name="theme-color" content="#070914">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #070914;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: block;
+    touch-action: none;
+    image-rendering: pixelated;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="ecran"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  /* ================================================================
+     Tout le jeu est dessiné dans un petit canvas basse résolution
+     (~200 px de haut), puis agrandi d'un facteur entier sans lissage :
+     chaque pixel logique devient un bloc net. La patinoire s'adapte à
+     la largeur de l'écran, les tribunes remplissent le reste.
+     ================================================================ */
+
+  const ecran = document.getElementById('ecran');
+  const ctx = ecran.getContext('2d');
+  const bas = document.createElement('canvas');
+  const g = bas.getContext('2d');
+
+  let W = 400, H = 200, ECHELLE = 1;
+  let rink = null;
+  let portrait = false;
+
+  const PAS = 1 / 120;
+  const BUT_DEMI = 15;     // demi-largeur de l'ouverture des cages
+  const BUT_PROF = 9;      // profondeur des filets
+  const VMAX = 100;        // vitesse de patinage de base (px/s)
+  const ACCEL = 640;
+
+  /* ---------------------------------------------------- réglages ---- */
+
+  const NIVEAUX = [
+    { nom: 'FACILE', vit: 0.80, reac: 0.40, err: 0.085, poke: 0.45, check: 0.5, gk: 1.5, antic: 0.1, portee: 115 },
+    { nom: 'NORMAL', vit: 0.93, reac: 0.24, err: 0.05, poke: 0.85, check: 1.1, gk: 1.9, antic: 0.25, portee: 135 },
+    { nom: 'PRO',    vit: 1.03, reac: 0.11, err: 0.028, poke: 1.35, check: 1.9, gk: 2.4, antic: 0.4, portee: 155 },
+  ];
+  const DUREES = [120, 180, 300];
+
+  const CLE = 'hockey-arcade-v1';
+  const pref = { niveau: 1, duree: 1, son: true, victoires: [0, 0, 0], matchs: [0, 0, 0] };
+  try { Object.assign(pref, JSON.parse(localStorage.getItem(CLE) || '{}')); } catch (e) { /* stockage indisponible */ }
+  const sauve = () => { try { localStorage.setItem(CLE, JSON.stringify(pref)); } catch (e) { /* tant pis */ } };
+
+  /* ---------------------------------------------------- palette ---- */
+
+  const EQUIPES = [
+    { nom: 'VOUS', maillot: '#2ec8f5', fonce: '#155f9e', clair: '#b6f0ff', casque: '#155f9e' },
+    { nom: 'CPU',  maillot: '#f5415e', fonce: '#8c1b3a', clair: '#ffc2cc', casque: '#8c1b3a' },
+  ];
+  const C = {
+    nuit: '#070914', contour: '#0b0e1d', rouge: '#d8344d', bleu: '#2f6fdb',
+    zone: '#8cc8f2', planche: '#f3f5fb', plancheOmbre: '#c9cfe0', plinthe: '#e7b53c',
+    blanc: '#ffffff', or: '#ffd35c', gris: '#8a93b0',
+  };
+
+  /* ================================================= police pixel ==== */
+
+  const GLYPHES = {
+    A: '01110 10001 10001 11111 10001 10001 10001', B: '11110 10001 10001 11110 10001 10001 11110',
+    C: '01110 10001 10000 10000 10000 10001 01110', D: '11110 10001 10001 10001 10001 10001 11110',
+    E: '11111 10000 10000 11110 10000 10000 11111', F: '11111 10000 10000 11110 10000 10000 10000',
+    G: '01110 10001 10000 10111 10001 10001 01111', H: '10001 10001 10001 11111 10001 10001 10001',
+    I: '01110 00100 00100 00100 00100 00100 01110', J: '00111 00010 00010 00010 00010 10010 01100',
+    K: '10001 10010 10100 11000 10100 10010 10001', L: '10000 10000 10000 10000 10000 10000 11111',
+    M: '10001 11011 10101 10101 10001 10001 10001', N: '10001 10001 11001 10101 10011 10001 10001',
+    O: '01110 10001 10001 10001 10001 10001 01110', P: '11110 10001 10001 11110 10000 10000 10000',
+    Q: '01110 10001 10001 10001 10101 10010 01101', R: '11110 10001 10001 11110 10100 10010 10001',
+    S: '01111 10000 10000 01110 00001 00001 11110', T: '11111 00100 00100 00100 00100 00100 00100',
+    U: '10001 10001 10001 10001 10001 10001 01110', V: '10001 10001 10001 10001 10001 01010 00100',
+    W: '10001 10001 10001 10101 10101 10101 01010', X: '10001 10001 01010 00100 01010 10001 10001',
+    Y: '10001 10001 01010 00100 00100 00100 00100', Z: '11111 00001 00010 00100 01000 10000 11111',
+    'É': '00010 00100 11111 10000 11110 10000 11111', 'È': '01000 00100 11111 10000 11110 10000 11111',
+    0: '01110 10001 10011 10101 11001 10001 01110', 1: '00100 01100 00100 00100 00100 00100 01110',
+    2: '01110 10001 00001 00010 00100 01000 11111', 3: '11111 00010 00100 00010 00001 10001 01110',
+    4: '00010 00110 01010 10010 11111 00010 00010', 5: '11111 10000 11110 00001 00001 10001 01110',
+    6: '00110 01000 10000 11110 10001 10001 01110', 7: '11111 00001 00010 00100 01000 01000 01000',
+    8: '01110 10001 10001 01110 10001 10001 01110', 9: '01110 10001 10001 01111 00001 00010 01100',
+    ':': '00000 01100 01100 00000 01100 01100 00000', '!': '00100 00100 00100 00100 00100 00000 00100',
+    '?': '01110 10001 00001 00010 00100 00000 00100', '.': '00000 00000 00000 00000 00000 01100 01100',
+    '-': '00000 00000 00000 11111 00000 00000 00000', '+': '00000 00100 00100 11111 00100 00100 00000',
+    '/': '00000 00001 00010 00100 01000 10000 00000', "'": '00100 00100 01000 00000 00000 00000 00000',
+    '<': '00010 00100 01000 10000 01000 00100 00010', '>': '01000 00100 00010 00001 00010 00100 01000',
+    '|': '00000 11011 11011 11011 11011 11011 00000',
+  };
+  for (const k in GLYPHES) GLYPHES[k] = GLYPHES[k].split(' ');
+
+  const cacheTexte = new Map();
+  const largeurTexte = (s, e = 1) => (s.length ? s.length * 6 - 1 : 0) * e;
+
+  // Rend un texte (avec contour sombre d'un pixel) dans un petit canvas mis en cache.
+  function texteCanvas(s, couleur, e, contour) {
+    const cle = s + '|' + couleur + '|' + e + '|' + contour;
+    let c = cacheTexte.get(cle);
+    if (c) return c;
+    if (cacheTexte.size > 400) cacheTexte.clear();
+    const lw = largeurTexte(s, e), lh = 7 * e;
+    c = document.createElement('canvas');
+    c.width = lw + 2 * e + 2; c.height = lh + 2 * e + 3;
+    const x = c.getContext('2d');
+    const trace = (ox, oy, col) => {
+      x.fillStyle = col;
+      for (let i = 0; i < s.length; i++) {
+        const gl = GLYPHES[s[i]];
+        if (!gl) continue;
+        for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) {
+          if (gl[r][q] === '1') x.fillRect(ox + (i * 6 + q) * e, oy + r * e, e, e);
+        }
+      }
+    };
+    if (contour) {
+      const o = Math.max(1, e >> 1);
+      trace(e + 1, e + 1 + o + 1, contour);  // ombre portée
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [1, -1], [-1, 1]]) {
+        trace(e + 1 + dx * o, e + 1 + dy * o, contour);
+      }
+    }
+    trace(e + 1, e + 1, couleur);
+    cacheTexte.set(cle, c);
+    return c;
+  }
+
+  function texte(s, x, y, couleur = C.blanc, e = 1, align = 'c', contour = C.contour) {
+    s = String(s).toUpperCase();
+    const c = texteCanvas(s, couleur, e, contour);
+    const lw = largeurTexte(s, e);
+    let ox = x;
+    if (align === 'c') ox = x - lw / 2;
+    else if (align === 'd') ox = x - lw;
+    g.drawImage(c, Math.round(ox - e - 1), Math.round(y - e - 1));
+  }
+
+  /* ============================================== primitives pixel == */
+
+  function px(x, y, w, h, col) { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), w, h); }
+
+  function ligne(x0, y0, x1, y1, col) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    g.fillStyle = col;
+    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    for (let n = 0; n < 200; n++) {
+      g.fillRect(x0, y0, 1, 1);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+
+  function disque(cx, cy, r, col) {
+    g.fillStyle = col;
+    cx = Math.round(cx); cy = Math.round(cy);
+    for (let dy = -r; dy <= r; dy++) {
+      const w = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8));
+      g.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    }
+  }
+
+  function anneau(cx, cy, r, col, part = 1, epais = 1) {
+    g.fillStyle = col;
+    cx = Math.round(cx); cy = Math.round(cy);
+    const n = Math.ceil(r * 8);
+    for (let i = 0; i < n * part; i++) {
+      const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+      for (let k = 0; k < epais; k++) {
+        g.fillRect(Math.round(cx + Math.cos(a) * (r - k)), Math.round(cy + Math.sin(a) * (r - k)), 1, 1);
+      }
+    }
+  }
+
+  function ellipseOmbre(cx, cy, rx, ry, alpha) {
+    g.fillStyle = `rgba(20,40,80,${alpha})`;
+    cx = Math.round(cx); cy = Math.round(cy);
+    for (let dy = -ry; dy <= ry; dy++) {
+      const w = Math.round(rx * Math.sqrt(1 - (dy * dy) / ((ry + 0.5) * (ry + 0.5))));
+      g.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    }
+  }
+
+  /* ================================================== sprites ======= */
+
+  // Silhouettes tournées vers la droite ; le contour sombre est ajouté
+  // automatiquement autour de chaque pixel opaque, puis on retourne pour
+  // la gauche. H casque, V visière, S peau, J maillot, L bande claire,
+  // G gants, P culotte, K patin, B lame, M chaussettes.
+  const PATINEUR = [
+    [
+      '..HHHH...', '.HHHHHH..', '.HHHSVV..', '..HSSS...', '..JJJJ...', '.JJJJJJG.',
+      'JJLLLLJG.', 'JJJJJJJ..', '.JJJJJ...', '.PPPPP...', '.PP.PP...', '.MM..MM..',
+      '.KK..KK..', 'BBB..BBB.',
+    ],
+    [
+      '..HHHH...', '.HHHHHH..', '.HHHSVV..', '..HSSS...', '..JJJJ...', '.JJJJJJG.',
+      'JJLLLLJG.', 'JJJJJJJ..', '.JJJJJ...', '.PPPPP...', 'PP...PP..', 'MM....MM.',
+      'KK.....KK', 'BB....BBB',
+    ],
+    [
+      '..HHHH...', '.HHHHHH..', '.HHHSVV..', '..HSSS...', '..JJJJ...', '.JJJJJJG.',
+      'JJLLLLJG.', 'JJJJJJJ..', '.JJJJJ...', '..PPPP...', '..PPP....', '..MMM....',
+      '..KKK....', '.BBBBB...',
+    ],
+  ];
+  const GARDIEN = [
+    '...HHHH....', '..HHHHHH...', '..HHHWWW...', '...WWWW....', '.JJJJJJJJ..',
+    'GJJLLLLJJC.', 'GJJJJJJJJC.', '.JJJJJJJJ..', '.PPPPPPPP..', 'DDDD..DDDD.',
+    'DEDD..DEDD.', 'DDDD..DDDD.', 'DEDD..DEDD.', 'KKKK..KKKK.',
+  ];
+
+  function fabriqueSprite(motif, eq) {
+    const pal = {
+      H: eq.casque, V: '#bfe9ff', S: '#f1c7a0', J: eq.maillot, L: C.blanc, G: eq.fonce,
+      P: '#1d2340', K: '#23262e', B: '#e6edf5', M: eq.maillot, W: '#eef2f8', C: C.blanc,
+      D: C.blanc, E: eq.maillot,
+    };
+    const h = motif.length, w = motif[0].length;
+    const c = document.createElement('canvas');
+    c.width = w + 2; c.height = h + 2;
+    const x = c.getContext('2d');
+    const plein = (i, j) => j >= 0 && j < h && i >= 0 && i < w && motif[j][i] !== '.';
+    x.fillStyle = C.contour;
+    for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) {
+      if (!plein(i, j) && (plein(i - 1, j) || plein(i + 1, j) || plein(i, j - 1) || plein(i, j + 1))) {
+        x.fillRect(i + 1, j + 1, 1, 1);
+      }
+    }
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const k = motif[j][i];
+      if (k === '.') continue;
+      x.fillStyle = pal[k];
+      x.fillRect(i + 1, j + 1, 1, 1);
+    }
+    // une touche de lumière sur le haut du casque
+    x.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < w; i++) { if (motif[0][i] === 'H') { x.fillRect(i + 1, 1, 1, 1); break; } }
+    const r = document.createElement('canvas');
+    r.width = c.width; r.height = c.height;
+    const rx = r.getContext('2d');
+    rx.translate(r.width, 0); rx.scale(-1, 1); rx.drawImage(c, 0, 0);
+    return [c, r];
+  }
+
+  const SPR = EQUIPES.map((eq) => PATINEUR.map((m) => fabriqueSprite(m, eq)));
+  const SPR_GK = EQUIPES.map((eq) => fabriqueSprite(GARDIEN, eq));
+
+  /* ================================================== audio ========= */
+
+  const Son = {
+    ac: null, sortie: null, foule: null, bruit: null,
+    init() {
+      if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ac = this.ac = new AC();
+      const comp = ac.createDynamicsCompressor();
+      this.sortie = ac.createGain();
+      this.sortie.gain.value = pref.son ? 0.7 : 0;
+      this.sortie.connect(comp); comp.connect(ac.destination);
+      const n = ac.sampleRate * 1.5;
+      this.bruit = ac.createBuffer(1, n, ac.sampleRate);
+      const d = this.bruit.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      // la rumeur de la foule : du bruit filtré en boucle
+      const src = ac.createBufferSource();
+      src.buffer = this.bruit; src.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.5;
+      this.foule = ac.createGain(); this.foule.gain.value = 0.03;
+      src.connect(bp); bp.connect(this.foule); this.foule.connect(this.sortie);
+      src.start();
+    },
+    actif() { return this.ac && pref.son; },
+    muet(m) { if (this.sortie) this.sortie.gain.value = m ? 0 : 0.7; },
+    souffle(dur, type, freq, q, vol, delai = 0) {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime + delai;
+      const s = ac.createBufferSource(); s.buffer = this.bruit;
+      const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      s.connect(f); f.connect(gn); gn.connect(this.sortie);
+      s.start(t, Math.random()); s.stop(t + dur + 0.02);
+    },
+    ton(freq, dur, type, vol, vers, delai = 0) {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime + delai;
+      const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (vers) o.frequency.exponentialRampToValueAtTime(vers, t + dur);
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(0.0001, t);
+      gn.gain.exponentialRampToValueAtTime(vol, t + 0.005);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(gn); gn.connect(this.sortie);
+      o.start(t); o.stop(t + dur + 0.02);
+    },
+    frappe(p) { this.souffle(0.05, 'bandpass', 2200 + p * 1800, 1.3, 0.3 + 0.5 * p); this.ton(200 + 90 * p, 0.07, 'triangle', 0.25); },
+    touche() { this.souffle(0.03, 'bandpass', 3200, 2, 0.12); },
+    bande(p) { this.souffle(0.14, 'lowpass', 520, 0.8, Math.min(0.7, 0.15 + p)); this.ton(90, 0.12, 'sine', 0.3 * Math.min(1, p + 0.2)); },
+    poteau() { this.ton(1240, 0.55, 'sine', 0.22); this.ton(2490, 0.35, 'sine', 0.1); this.ton(3710, 0.2, 'sine', 0.05); },
+    jambiere() { this.souffle(0.09, 'lowpass', 1100, 1, 0.55); this.ton(140, 0.08, 'sine', 0.3); },
+    charge() { this.souffle(0.22, 'lowpass', 320, 0.7, 0.9); this.ton(70, 0.2, 'sine', 0.5, 40); },
+    elan() { this.souffle(0.16, 'highpass', 2600, 0.7, 0.12); },
+    raclement() { this.souffle(0.14, 'highpass', 4200, 0.8, 0.07); },
+    clic() { this.ton(700, 0.04, 'square', 0.06); },
+    sifflet(long) {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime, d = long ? 0.9 : 0.35;
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = 2850;
+      const lfo = ac.createOscillator(); lfo.frequency.value = 32;
+      const lg = ac.createGain(); lg.gain.value = 140;
+      lfo.connect(lg); lg.connect(o.frequency);
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.13, t + 0.02);
+      gn.gain.setValueAtTime(0.13, t + d - 0.08); gn.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(gn); gn.connect(this.sortie);
+      o.start(t); lfo.start(t); o.stop(t + d + 0.05); lfo.stop(t + d + 0.05);
+    },
+    klaxon() {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1300;
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.2, t + 0.06);
+      gn.gain.setValueAtTime(0.2, t + 1.5); gn.gain.exponentialRampToValueAtTime(0.0001, t + 2.1);
+      lp.connect(gn); gn.connect(this.sortie);
+      for (const f of [146.8, 185, 220, 293.6]) {
+        const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+        o.connect(lp); o.start(t); o.stop(t + 2.2);
+      }
+    },
+    ovation(niveau) {
+      if (!this.actif() || !this.foule) return;
+      const gn = this.foule.gain, t = this.ac.currentTime;
+      gn.cancelScheduledValues(t);
+      gn.setValueAtTime(gn.value, t);
+      gn.linearRampToValueAtTime(0.03 + 0.3 * niveau, t + 0.25);
+      gn.linearRampToValueAtTime(0.03, t + 3.5);
+    },
+  };
+
+  const vibre = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* non supporté */ } };
+
+  /* ================================================== patinoire ===== */
+
+  function dispose() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const dw = Math.round(window.innerWidth * dpr), dh = Math.round(window.innerHeight * dpr);
+    ecran.width = dw; ecran.height = dh;
+    portrait = window.innerHeight > window.innerWidth * 1.05;
+    ECHELLE = Math.max(1, Math.floor(portrait ? Math.min(dh / 360, dw / 180) : Math.min(dh / 196, dw / 360)));
+    W = Math.ceil(dw / ECHELLE); H = Math.ceil(dh / ECHELLE);
+    bas.width = W; bas.height = H;
+    g.imageSmoothingEnabled = false;
+    if (!portrait) placePatinoire();
+  }
+
+  function placePatinoire() {
+    const haut = 25, marge = 5;
+    const h = Math.max(120, H - haut - marge);
+    const w = Math.max(240, Math.min(W - 14, Math.round(h * 2.25)));
+    const ancien = rink;
+    rink = { x: Math.round((W - w) / 2), y: haut, w, h, r: Math.round(h * 0.24) };
+    rink.cx = rink.x + w / 2; rink.cy = rink.y + Math.round(h / 2);
+    const recul = Math.round(Math.max(26, w * 0.075));
+    rink.butG = rink.x + recul; rink.butD = rink.x + w - recul;
+    rink.bleueG = Math.round(rink.x + w * 0.35); rink.bleueD = Math.round(rink.x + w * 0.65);
+    if (ancien && jeu) {
+      const map = (o) => {
+        o.x = rink.x + (o.x - ancien.x) * rink.w / ancien.w;
+        o.y = rink.y + (o.y - ancien.y) * rink.h / ancien.h;
+      };
+      jeu.patineurs.forEach(map); map(jeu.palet);
+    }
+    construitGlace();
+    construitFoule();
+    rayures = document.createElement('canvas');
+    rayures.width = W; rayures.height = H;
+  }
+
+  // distance signée au bord intérieur des bandes (négative sur la glace)
+  function distBande(x, y) {
+    const ix0 = rink.x + rink.r, ix1 = rink.x + rink.w - rink.r;
+    const iy0 = rink.y + rink.r, iy1 = rink.y + rink.h - rink.r;
+    const qx = Math.min(Math.max(x, ix0), ix1), qy = Math.min(Math.max(y, iy0), iy1);
+    return Math.hypot(x - qx, y - qy) - rink.r;
+  }
+
+  let glace = null, foule = [null, null], rayures = null;
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const TEINTES_GLACE = ['#93b8d6', '#afd0e9', '#c9e4f5', '#e1f2fc', '#f4fbff', '#ffffff'].map(hex);
+
+  function marquage(x, y) {
+    const { cx, cy } = rink;
+    const fx = x + 0.5, fy = y + 0.5;
+    // zones de but (demi-disques devant chaque cage)
+    for (const [gx, dir] of [[rink.butG, 1], [rink.butD, -1]]) {
+      const dx = (fx - gx) * dir, dy = fy - cy;
+      if (dx >= 0) {
+        const rr = Math.hypot(dx, dy);
+        if (rr < 17 && rr >= 16) return C.rouge;
+        if (rr < 16) return C.zone;
+      }
+    }
+    if (x === rink.butG || x === rink.butD) return C.rouge;
+    if (Math.abs(fx - rink.cx) <= 1) return (Math.floor(fy / 3) % 3 === 0) ? '#f3c7cf' : C.rouge;
+    if (x === rink.bleueG || x === rink.bleueG + 1 || x === rink.bleueD || x === rink.bleueD - 1) return C.bleu;
+    const dc = Math.hypot(fx - cx, fy - cy);
+    if (Math.abs(dc - 19) < 0.55) return C.bleu;
+    if (dc < 2) return C.bleu;
+    const oy = Math.round(rink.h * 0.27);
+    for (const gx of [rink.butG + 40, rink.butD - 40]) {
+      for (const sy of [-1, 1]) {
+        const d = Math.hypot(fx - gx, fy - (cy + sy * oy));
+        if (Math.abs(d - 15) < 0.55 && d > 0) return C.rouge;
+        if (d < 1.9) return C.rouge;
+        // petits traits de mise au jeu
+        if (Math.abs(fy - (cy + sy * oy)) > 2 && Math.abs(fy - (cy + sy * oy)) < 4.5 && Math.abs(Math.abs(fx - gx) - 3.5) < 0.6) return C.rouge;
+      }
+    }
+    for (const gx of [rink.bleueG + 12, rink.bleueD - 12]) {
+      for (const sy of [-1, 1]) if (Math.hypot(fx - gx, fy - (cy + sy * oy)) < 1.9) return C.rouge;
+    }
+    return null;
+  }
+
+  function construitGlace() {
+    glace = document.createElement('canvas');
+    glace.width = W; glace.height = H;
+    const gc = glace.getContext('2d');
+    const img = gc.createImageData(W, H);
+    const d = img.data;
+    const lumieres = [];
+    for (let i = 0; i < 4; i++) lumieres.push([rink.x + rink.w * (0.16 + i * 0.227), rink.y + rink.h * 0.32]);
+    const pose = (i, c, a = 255) => { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = a; };
+    const PL = hex(C.planche), PLO = hex(C.plancheOmbre), PLI = hex(C.plinthe), CT = hex(C.contour);
+    const PUB = [hex('#2b4c9b'), hex('#b9314d'), hex('#1c8f7a'), hex('#e0a526')];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const db = distBande(x + 0.5, y + 0.5);
+      if (db > 6.5) continue;
+      if (db > 0) {
+        if (db <= 1.2) pose(i, PLI);
+        else if (db <= 5) {
+          // bande blanche, avec des panneaux publicitaires sur les longs côtés
+          const droit = x > rink.x + rink.r && x < rink.x + rink.w - rink.r;
+          if (droit && db > 2 && db <= 4.2 && ((x - rink.x) % 44) > 3) {
+            const k = Math.floor((x - rink.x) / 44) + (y < rink.cy ? 0 : 2);
+            pose(i, PUB[k % PUB.length]);
+          } else pose(i, y < rink.cy || db < 3 ? PL : PLO);
+        } else pose(i, CT);
+        continue;
+      }
+      const m = marquage(x, y);
+      if (m) {
+        const c = hex(m);
+        const eclat = (BAYER[(y & 3) * 4 + (x & 3)] < 3) ? 22 : 0;
+        pose(i, [Math.min(255, c[0] + eclat), Math.min(255, c[1] + eclat), Math.min(255, c[2] + eclat)]);
+        continue;
+      }
+      let t = 0.5 + 0.18 * (1 - (y - rink.y) / rink.h);
+      for (const [lx, ly] of lumieres) {
+        const ex = (x - lx) / 26, ey = (y - ly) / 11;
+        t += 0.28 * Math.exp(-(ex * ex + ey * ey));
+      }
+      if (db > -7) t -= (1 + db / 7) * 0.22;
+      const hsh = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      t += ((hsh - Math.floor(hsh)) - 0.5) * 0.07;
+      const v = Math.max(0, Math.min(0.999, t)) * (TEINTES_GLACE.length - 1);
+      const k = Math.floor(v);
+      const seuil = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+      pose(i, TEINTES_GLACE[Math.min(TEINTES_GLACE.length - 1, (v - k) > seuil ? k + 1 : k)]);
+    }
+    gc.putImageData(img, 0, 0);
+  }
+
+  // Les tribunes : deux images légèrement différentes, alternées quand la foule saute.
+  function construitFoule() {
+    const couleurs = [EQUIPES[0].maillot, EQUIPES[0].fonce, EQUIPES[1].maillot, EQUIPES[1].fonce, '#e8e8f0', '#f2c14e', '#5b6b8c', '#3b3f5c'];
+    const peaux = ['#f1c7a0', '#d9a07a', '#a86b4a', '#7a4a33', '#f6d7bd'];
+    const gens = [];
+    for (let y = 1; y < H; y += 5) {
+      for (let x = 1 + ((y / 5) & 1) * 2; x < W; x += 4) {
+        if (distBande(x + 1, y + 2) < 9) continue;
+        if (Math.random() < 0.12) continue;
+        gens.push({ x: x + ((Math.random() * 2) | 0) - 1, y, c: couleurs[(Math.random() * couleurs.length) | 0], p: peaux[(Math.random() * peaux.length) | 0], s: Math.random() });
+      }
+    }
+    for (let f = 0; f < 2; f++) {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const x = c.getContext('2d');
+      x.fillStyle = '#0d1126'; x.fillRect(0, 0, W, H);
+      // gradins
+      x.fillStyle = '#141a36';
+      for (let y = 0; y < H; y += 5) x.fillRect(0, y + 4, W, 1);
+      for (const p of gens) {
+        const saute = f === 1 && p.s > 0.35 ? -1 : 0;
+        x.fillStyle = p.c; x.fillRect(p.x, p.y + 2 + saute, 3, 3);
+        x.fillStyle = p.p; x.fillRect(p.x + 1, p.y + saute, 2, 2);
+        if (f === 1 && p.s > 0.8) { x.fillStyle = p.p; x.fillRect(p.x - 1, p.y - 1 + saute, 1, 2); x.fillRect(p.x + 3, p.y - 1 + saute, 1, 2); }
+      }
+      // pénombre de l'aréna
+      x.fillStyle = 'rgba(6,8,22,0.42)'; x.fillRect(0, 0, W, H);
+      foule[f] = c;
+    }
+  }
+
+  /* ================================================== entités ======= */
+
+  function nouveauPatineur(eq) {
+    return {
+      eq, x: 0, y: 0, vx: 0, vy: 0, face: eq === 0 ? 0 : Math.PI, r: 5,
+      tient: false, recupCd: 0, elanT: 0, elanCd: 0, sonne: 0, charge: 0, arme: false,
+      pokeT: 0, anim: 0, humain: false, ex: 0, ey: 0, vit: 1, grince: 0,
+      ia: { t: 0, tx: 0, ty: 0, but: 0.5 },
+    };
+  }
+  function nouveauGardien(eq) { return { eq, a: 0, x: 0, y: 0, r: 4, tient: 0, cd: 0, vit: 3, antic: 0.4, secoue: 0 }; }
+
+  let jeu = null;
+
+  function nouvellePartie(mode) {
+    const niv = mode === 'demo' ? NIVEAUX[1] : NIVEAUX[pref.niveau];
+    jeu = {
+      mode, niv,
+      patineurs: [nouveauPatineur(0), nouveauPatineur(1)],
+      gardiens: [nouveauGardien(0), nouveauGardien(1)],
+      palet: { x: 0, y: 0, vx: 0, vy: 0, r: 2.2, porteur: null, dernier: null, tireur: null, trace: [] },
+      score: [0, 0], tirs: [0, 0], arrets: [0, 0],
+      horloge: mode === 'demo' ? 0 : DUREES[pref.duree], prolong: false,
+      phase: 'engagement', phaseT: 1.6, temps: 0,
+      lampe: [0, 0], excite: 0, marqueur: null,
+    };
+    const [a, b] = jeu.patineurs;
+    a.humain = mode === 'match';
+    a.vit = mode === 'match' ? 1 : niv.vit;
+    b.vit = niv.vit;
+    jeu.gardiens[0].vit = mode === 'match' ? 2.0 : niv.gk;
+    jeu.gardiens[0].antic = mode === 'match' ? 0.3 : niv.antic;
+    jeu.gardiens[1].vit = niv.gk;
+    jeu.gardiens[1].antic = niv.antic;
+    engagement(1.6);
+  }
+
+  function engagement(duree) {
+    const [a, b] = jeu.patineurs;
+    const p = jeu.palet;
+    p.x = rink.cx; p.y = rink.cy; p.vx = p.vy = 0; p.porteur = null; p.trace.length = 0;
+    a.x = rink.cx - 24; a.y = rink.cy + 2; b.x = rink.cx + 24; b.y = rink.cy - 2;
+    for (const s of jeu.patineurs) {
+      s.vx = s.vy = 0; s.tient = false; s.arme = false; s.charge = 0; s.sonne = 0; s.elanT = 0;
+      s.face = s.eq === 0 ? 0 : Math.PI; s.recupCd = 0;
+    }
+    for (const gk of jeu.gardiens) { gk.a = 0; gk.tient = 0; gk.cd = 0; }
+    jeu.phase = 'engagement'; jeu.phaseT = duree;
+  }
+
+  const butAttaque = (eq) => (eq === 0 ? rink.butD : rink.butG);
+  const butDefendu = (eq) => (eq === 0 ? rink.butG : rink.butD);
+  const sensAttaque = (eq) => (eq === 0 ? 1 : -1);
+  const pointCrosse = (s) => ({ x: s.x + Math.cos(s.face) * 8, y: s.y + Math.sin(s.face) * 8 + 1 });
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+  const alea = (a, b) => a + Math.random() * (b - a);
+
+  /* ============================================== effets visuels ==== */
+
+  let particules = [], bulles = [], secousse = 0, flash = 0, banniere = null;
+
+  function neige(x, y, n, vx = 0, vy = 0) {
+    for (let i = 0; i < n; i++) {
+      particules.push({ x, y, vx: vx * 0.4 + alea(-40, 40), vy: vy * 0.4 + alea(-40, 20), vie: alea(0.2, 0.5), max: 0.5, c: Math.random() < 0.5 ? '#ffffff' : '#cfeaff', t: 1 });
+    }
+  }
+  function etincelles(x, y, n, c = '#ffe07a') {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = alea(40, 140);
+      particules.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vie: alea(0.15, 0.4), max: 0.4, c, t: 1, lum: true });
+    }
+  }
+  function confettis(x, y, eq) {
+    const cs = [EQUIPES[eq].maillot, EQUIPES[eq].clair, C.or, C.blanc];
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2, v = alea(30, 190);
+      particules.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, vie: alea(0.8, 2.0), max: 2, c: cs[i % cs.length], t: Math.random() < 0.3 ? 2 : 1, frot: 2.2, lum: i % 4 === 0 });
+    }
+  }
+  function bulle(txt, x, y, c) { bulles.push({ txt, x, y, c, vie: 1.1 }); }
+  function annonce(txt, sous, c, duree = 1.6) { banniere = { txt, sous, c, vie: duree, max: duree }; }
+
+  function majEffets(dt) {
+    for (const p of particules) {
+      p.vie -= dt;
+      const f = Math.exp(-(p.frot || 4) * dt);
+      p.vx *= f; p.vy *= f;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+    }
+    particules = particules.filter((p) => p.vie > 0);
+    if (particules.length > 600) particules.splice(0, particules.length - 600);
+    for (const b of bulles) { b.vie -= dt; b.y -= 14 * dt; }
+    bulles = bulles.filter((b) => b.vie > 0);
+    secousse = Math.max(0, secousse - dt * 14);
+    flash = Math.max(0, flash - dt * 2.5);
+    if (banniere) { banniere.vie -= dt; if (banniere.vie <= 0) banniere = null; }
+    if (jeu) {
+      jeu.lampe[0] = Math.max(0, jeu.lampe[0] - dt / 3);
+      jeu.lampe[1] = Math.max(0, jeu.lampe[1] - dt / 3);
+      jeu.excite = Math.max(0, jeu.excite - dt / 3.5);
+    }
+  }
+
+  /* ============================================== physique ========== */
+
+  function heurteBande(o, rad, rest) {
+    const ix0 = rink.x + rink.r, ix1 = rink.x + rink.w - rink.r;
+    const iy0 = rink.y + rink.r, iy1 = rink.y + rink.h - rink.r;
+    const qx = clamp(o.x, ix0, ix1), qy = clamp(o.y, iy0, iy1);
+    const dx = o.x - qx, dy = o.y - qy, d = Math.hypot(dx, dy);
+    const lim = rink.r - rad;
+    if (d > lim && d > 0) {
+      const nx = dx / d, ny = dy / d;
+      o.x = qx + nx * lim; o.y = qy + ny * lim;
+      if (o.vx === undefined) return 0;
+      const vn = o.vx * nx + o.vy * ny;
+      if (vn > 0) { o.vx -= (1 + rest) * vn * nx; o.vy -= (1 + rest) * vn * ny; return vn; }
+    }
+    return 0;
+  }
+
+  // segments des cages ; les patineurs bloquent aussi sur l'ouverture
+  function segmentsCage(avecFace) {
+    const segs = [];
+    const m = BUT_DEMI, cy = rink.cy;
+    for (const [gx, dir] of [[rink.butG, 1], [rink.butD, -1]]) {
+      const fond = gx - dir * BUT_PROF;
+      segs.push([fond, cy - m, fond, cy + m, false]);
+      segs.push([fond, cy - m, gx, cy - m, true]);
+      segs.push([fond, cy + m, gx, cy + m, true]);
+      if (avecFace) segs.push([gx, cy - m, gx, cy + m, false]);
+    }
+    return segs;
+  }
+
+  function heurteSegment(o, rad, s, rest) {
+    const [ax, ay, bx, by] = s;
+    const abx = bx - ax, aby = by - ay;
+    const t = clamp(((o.x - ax) * abx + (o.y - ay) * aby) / (abx * abx + aby * aby), 0, 1);
+    const qx = ax + abx * t, qy = ay + aby * t;
+    const dx = o.x - qx, dy = o.y - qy, d = Math.hypot(dx, dy);
+    if (d < rad && d > 1e-4) {
+      const nx = dx / d, ny = dy / d;
+      o.x = qx + nx * rad; o.y = qy + ny * rad;
+      if (o.vx === undefined) return { vn: 0, t };
+      const vn = o.vx * nx + o.vy * ny;
+      if (vn < 0) { o.vx -= (1 + rest) * vn * nx; o.vy -= (1 + rest) * vn * ny; return { vn: -vn, t }; }
+      return { vn: 0, t };
+    }
+    return null;
+  }
+
+  function prendPalet(qui) {
+    const p = jeu.palet;
+    p.porteur = qui; p.dernier = qui;
+    if (qui.face !== undefined) { qui.tient = true; Son.touche(); }
+  }
+  function lachePalet(s, cd) {
+    const p = jeu.palet;
+    if (p.porteur === s) p.porteur = null;
+    s.tient = false; s.arme = false; s.charge = 0; s.recupCd = cd;
+  }
+
+  function tir(s, ang, puissance) {
+    const p = jeu.palet;
+    const v = 150 + 290 * puissance;
+    lachePalet(s, 0.3);
+    const sp = pointCrosse(s);
+    p.x = sp.x; p.y = sp.y;
+    p.vx = Math.cos(ang) * v + s.vx * 0.1;
+    p.vy = Math.sin(ang) * v + s.vy * 0.1;
+    p.tireur = s.eq; p.dernier = s;
+    Son.frappe(puissance);
+    etincelles(p.x, p.y, 3 + Math.round(puissance * 8));
+    if (puissance > 0.7) secousse = Math.max(secousse, 1.5);
+  }
+
+  function elan(s, dirx, diry) {
+    if (s.elanCd > 0 || s.sonne > 0) return;
+    const m = Math.hypot(dirx, diry);
+    let a = s.face;
+    if (m > 0.2) a = Math.atan2(diry, dirx);
+    const boost = s.tient ? 85 : 150;
+    s.vx += Math.cos(a) * boost; s.vy += Math.sin(a) * boost;
+    s.face = a;
+    s.elanT = 0.3; s.elanCd = s.tient ? 1.4 : 1.0;
+    neige(s.x, s.y + 3, 6, -s.vx, -s.vy);
+    Son.elan();
+  }
+
+  function bougePatineur(s, dt) {
+    s.recupCd -= dt; s.elanCd -= dt; s.elanT -= dt; s.pokeT -= dt;
+    if (s.sonne > 0) s.sonne -= dt;
+    let ix = s.ex, iy = s.ey;
+    if (s.sonne > 0 || jeu.phase === 'engagement' || jeu.phase === 'fin') ix = iy = 0;
+    const m = Math.min(1, Math.hypot(ix, iy));
+    const vmax = VMAX * s.vit * (s.tient ? 0.93 : 1) * (s.arme ? 1 - 0.35 * s.charge : 1);
+    if (m > 0.08) {
+      const ux = ix / Math.hypot(ix, iy), uy = iy / Math.hypot(ix, iy);
+      s.vx += ux * ACCEL * m * dt;
+      s.vy += uy * ACCEL * m * dt;
+      // prise de carre : on grignote la vitesse latérale pour garder du contrôle
+      const lat = -s.vx * uy + s.vy * ux;
+      const k = Math.min(1, 3.2 * dt);
+      s.vx -= -uy * lat * k; s.vy -= ux * lat * k;
+      const cible = Math.atan2(uy, ux);
+      const dA = angDiff(s.face, cible);
+      s.face += clamp(dA, -13 * dt, 13 * dt);
+      // freinage en chasse-neige : jolie gerbe de glace
+      const sp = Math.hypot(s.vx, s.vy);
+      if (sp > 70 && (s.vx * ux + s.vy * uy) / sp < -0.35) {
+        s.grince += dt;
+        if (Math.random() < 0.5) neige(s.x, s.y + 3, 1, s.vx, s.vy);
+        if (s.grince > 0.12) { Son.raclement(); s.grince = -0.3; }
+      }
+    }
+    const fr = m > 0.08 ? 1.1 : 2.4;
+    s.vx *= Math.exp(-fr * dt); s.vy *= Math.exp(-fr * dt);
+    const sp = Math.hypot(s.vx, s.vy);
+    const lim = vmax * (s.elanT > 0 ? 1.9 : 1);
+    if (sp > lim) { const k = Math.max(lim / sp, Math.exp(-5 * dt)); s.vx *= k; s.vy *= k; }
+    if (s.sonne > 0) s.face += 14 * dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    const vn = heurteBande(s, s.r, 0.35);
+    if (vn > 90) { Son.bande(vn / 300); secousse = Math.max(secousse, 1); }
+    for (const sg of segmentsCage(true)) heurteSegment(s, s.r + 0.5, sg, 0.2);
+    for (const gk of jeu.gardiens) {
+      const dx = s.x - gk.x, dy = s.y - gk.y, d = Math.hypot(dx, dy), min = s.r + gk.r;
+      if (d < min && d > 0) { s.x = gk.x + dx / d * min; s.y = gk.y + dy / d * min; }
+    }
+    s.anim += sp * dt;
+  }
+
+  function collisionsPatineurs() {
+    const [a, b] = jeu.patineurs;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    const min = a.r + b.r;
+    if (d < min && d > 0) {
+      const nx = dx / d, ny = dy / d, rec = (min - d) / 2;
+      a.x -= nx * rec; a.y -= ny * rec; b.x += nx * rec; b.y += ny * rec;
+      const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+      if (rv < 0) {
+        const j = -rv * 0.8;
+        a.vx -= nx * j / 2; a.vy -= ny * j / 2; b.vx += nx * j / 2; b.vy += ny * j / 2;
+      }
+    }
+    // mise en échec : un élan qui percute le porteur lui fait perdre le palet
+    if (jeu.phase !== 'jeu') return;
+    for (const [s, o] of [[a, b], [b, a]]) {
+      if (s.elanT <= 0 || o.sonne > 0) continue;
+      if (Math.hypot(o.x - s.x, o.y - s.y) > 12) continue;
+      const nx = (o.x - s.x) / (Math.hypot(o.x - s.x, o.y - s.y) || 1), ny = (o.y - s.y) / (Math.hypot(o.x - s.x, o.y - s.y) || 1);
+      const p = jeu.palet;
+      if (o.tient) {
+        lachePalet(o, 0.9);
+        p.vx = nx * 110 + o.vx * 0.4 + alea(-30, 30); p.vy = ny * 110 + o.vy * 0.4 + alea(-30, 30);
+        p.dernier = s;
+      }
+      o.sonne = o.tient ? 0.8 : 0.45;
+      o.vx += nx * 130; o.vy += ny * 130;
+      s.vx *= 0.4; s.vy *= 0.4;
+      s.elanT = 0;
+      secousse = 3; Son.charge();
+      etincelles((s.x + o.x) / 2, (s.y + o.y) / 2 - 4, 10, '#ffffff');
+      bulle('CHECK!', (s.x + o.x) / 2, o.y - 18, C.or);
+      if (s.humain || o.humain) vibre(35);
+    }
+  }
+
+  function majGardien(gk, dt) {
+    const p = jeu.palet;
+    const gx = gk.eq === 0 ? rink.butG : rink.butD, dir = gk.eq === 0 ? 1 : -1;
+    gk.cd -= dt; gk.secoue = Math.max(0, gk.secoue - dt * 4);
+    let tx = p.x, ty = p.y;
+    // anticipation : le gardien projette un peu la trajectoire vers sa ligne
+    if (!p.porteur && p.vx * dir < -60) {
+      const t = (gx + dir * 6 - p.x) / p.vx;
+      if (t > 0 && t < 0.8) ty = p.y + (p.vy * t) * gk.antic;
+    }
+    const cible = clamp(Math.atan2(ty - rink.cy, Math.max(-2, (tx - gx) * dir)), -1.3, 1.3);
+    gk.a += clamp(cible - gk.a, -gk.vit * dt, gk.vit * dt);
+    const sortie = Math.hypot(p.x - gx, p.y - rink.cy) < 90 ? 6 : 5;
+    gk.x = gx + dir * (2.5 + Math.cos(gk.a) * sortie);
+    gk.y = rink.cy + Math.sin(gk.a) * (BUT_DEMI - 1);
+
+    if (p.porteur === gk) {
+      p.x = gk.x + dir * 5; p.y = gk.y + 2; p.vx = p.vy = 0;
+      gk.tient -= dt;
+      if (gk.tient <= 0) degage(gk, dir);
+    }
+  }
+
+  function degage(gk, dir) {
+    const p = jeu.palet;
+    const coéquipier = jeu.patineurs[gk.eq];
+    let ang;
+    const dx = coéquipier.x - gk.x, dy = coéquipier.y - gk.y;
+    if (dx * dir > 15 && Math.hypot(dx, dy) > 25) {
+      ang = Math.atan2(dy + coéquipier.vy * 0.3, dx + coéquipier.vx * 0.3) + alea(-0.12, 0.12);
+    } else {
+      ang = Math.atan2(gk.y < rink.cy ? -0.7 : 0.7, dir);
+    }
+    p.porteur = null; p.dernier = gk; p.tireur = null;
+    p.x = gk.x + Math.cos(ang) * 8; p.y = gk.y + Math.sin(ang) * 8;
+    p.vx = Math.cos(ang) * 200; p.vy = Math.sin(ang) * 200;
+    gk.cd = 0.7;
+    Son.frappe(0.3);
+  }
+
+  function majPalet(dt) {
+    const p = jeu.palet;
+    const px0 = p.x;
+    if (p.porteur && p.porteur.face !== undefined) {
+      const s = p.porteur;
+      const sp = pointCrosse(s);
+      const t = jeu.temps * 13;
+      const perp = Math.sin(t) * 1.3;
+      const tx = sp.x - Math.sin(s.face) * perp, ty = sp.y + Math.cos(s.face) * perp;
+      const k = Math.min(1, 30 * dt);
+      p.x += (tx - p.x) * k; p.y += (ty - p.y) * k;
+      p.vx = s.vx; p.vy = s.vy;
+      heurteBande(p, p.r, 0);
+      for (const sg of segmentsCage(false)) heurteSegment(p, p.r, sg, 0);
+    } else if (!p.porteur) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const f = Math.exp(-0.45 * dt);
+      p.vx *= f; p.vy *= f;
+      const v = Math.hypot(p.vx, p.vy);
+      if (v < 6) { p.vx *= 0.96; p.vy *= 0.96; }
+      const vn = heurteBande(p, p.r, 0.72);
+      if (vn > 25) { Son.bande(vn / 400); if (vn > 200) secousse = Math.max(secousse, 1.2); neige(p.x, p.y, 2); }
+      for (const sg of segmentsCage(false)) {
+        const r = heurteSegment(p, p.r, sg, 0.35);
+        if (r && r.vn > 40) {
+          const extremite = sg[4] && (r.t > 0.85);
+          if (extremite && r.vn > 120) {
+            Son.poteau(); bulle('POTEAU!', p.x, p.y - 12, C.blanc); secousse = Math.max(secousse, 2);
+          } else Son.bande(r.vn / 600);
+        }
+      }
+      // contact avec les corps des patineurs (sauf s'ils le récupèrent)
+      for (const s of jeu.patineurs) {
+        const dx = p.x - s.x, dy = p.y - s.y, d = Math.hypot(dx, dy), min = s.r + p.r - 1;
+        if (d < min && d > 0) {
+          const nx = dx / d, ny = dy / d;
+          p.x = s.x + nx * min; p.y = s.y + ny * min;
+          const vn2 = (p.vx - s.vx) * nx + (p.vy - s.vy) * ny;
+          if (vn2 < 0) { p.vx -= 1.3 * vn2 * nx; p.vy -= 1.3 * vn2 * ny; }
+        }
+      }
+      // arrêts des gardiens
+      for (const gk of jeu.gardiens) {
+        const dx = p.x - gk.x, dy = p.y - gk.y, d = Math.hypot(dx, dy), min = gk.r + p.r;
+        if (d < min && d > 0) {
+          const nx = dx / d, ny = dy / d;
+          p.x = gk.x + nx * min; p.y = gk.y + ny * min;
+          const vit = Math.hypot(p.vx, p.vy);
+          const versBut = p.tireur !== null && p.tireur !== gk.eq;
+          if (vit < 115 && gk.cd <= 0 && jeu.phase === 'jeu') {
+            prendPalet(gk); gk.tient = 0.75;
+            if (versBut && vit > 60) { jeu.arrets[gk.eq]++; jeu.tirs[1 - gk.eq]++; bulle('ARRET!', gk.x, gk.y - 18, C.blanc); }
+            p.tireur = null;
+          } else {
+            const vn2 = p.vx * nx + p.vy * ny;
+            if (vn2 < 0) {
+              p.vx -= 1.45 * vn2 * nx; p.vy -= 1.45 * vn2 * ny;
+              const tg = alea(-50, 50);
+              p.vx += -ny * tg; p.vy += nx * tg;
+            }
+            gk.secoue = 1;
+            Son.jambiere();
+            if (versBut && vit > 115 && jeu.phase === 'jeu') {
+              jeu.arrets[gk.eq]++; jeu.tirs[1 - gk.eq]++;
+              bulle('ARRET!', gk.x, gk.y - 18, C.blanc);
+              etincelles(p.x, p.y, 6, '#ffffff');
+              if (jeu.mode === 'match' && gk.eq === 1) jeu.excite = Math.max(jeu.excite, 0.3);
+              Son.ovation(0.25);
+            }
+            p.tireur = null;
+          }
+        }
+      }
+    }
+
+    // but ! (on franchit la ligne par l'avant, entre les poteaux)
+    if (jeu.phase === 'jeu' && Math.abs(p.y - rink.cy) < BUT_DEMI - 0.6) {
+      if (px0 >= rink.butG && p.x < rink.butG) marque(1);
+      else if (px0 <= rink.butD && p.x > rink.butD) marque(0);
+    }
+  }
+
+  function recuperations(dt) {
+    const p = jeu.palet;
+    if (jeu.phase !== 'jeu' && jeu.phase !== 'but') return;
+    if (!p.porteur && jeu.phase === 'jeu') {
+      let meilleur = null, dmin = 7;
+      for (const s of jeu.patineurs) {
+        if (s.recupCd > 0 || s.sonne > 0) continue;
+        const sp = pointCrosse(s);
+        // à la crosse, ou dans les patins : on contrôle aussi un palet qui arrive dans les pieds
+        const d = Math.min(Math.hypot(p.x - sp.x, p.y - sp.y), Math.hypot(p.x - s.x, p.y - s.y) - s.r + 1);
+        const rel = Math.hypot(p.vx - s.vx, p.vy - s.vy);
+        if (d < dmin && rel < 320) { dmin = d; meilleur = s; }
+      }
+      if (meilleur) prendPalet(meilleur);
+    }
+    // harponnage : la crosse adverse qui traîne près du palet peut le chiper
+    if (p.porteur && p.porteur.face !== undefined && jeu.phase === 'jeu') {
+      const c = p.porteur;
+      const o = jeu.patineurs[1 - c.eq];
+      if (o.sonne <= 0 && o.recupCd <= 0) {
+        const sp = pointCrosse(o);
+        const d = Math.hypot(p.x - sp.x, p.y - sp.y);
+        const portee = o.pokeT > 0 ? 10 : 6.5;
+        const taux = o.humain ? (o.pokeT > 0 ? 7 : 0.7) : jeu.niv.poke;
+        if (d < portee && Math.random() < taux * dt) {
+          lachePalet(c, 0.4);
+          const a = o.face + alea(-0.8, 0.8);
+          p.vx = Math.cos(a) * 80 + c.vx * 0.3; p.vy = Math.sin(a) * 80 + c.vy * 0.3;
+          p.dernier = o;
+          o.recupCd = 0.06;
+          Son.frappe(0.1);
+          bulle('VOLE!', p.x, p.y - 14, EQUIPES[o.eq].clair);
+        }
+      }
+    }
+  }
+
+  function marque(eq) {
+    jeu.score[eq]++;
+    jeu.tirs[eq]++;
+    jeu.phase = 'but'; jeu.phaseT = 2.6;
+    jeu.lampe[1 - eq] = 1;
+    jeu.excite = 1;
+    jeu.marqueur = eq;
+    const p = jeu.palet;
+    confettis(eq === 0 ? rink.butD : rink.butG, rink.cy, eq);
+    etincelles(p.x, p.y, 20, C.or);
+    secousse = 5; flash = 0.7;
+    const txt = jeu.mode === 'match' ? (eq === 0 ? 'BUT !' : 'BUT CPU') : 'BUT !';
+    annonce(txt, jeu.score[0] + ' - ' + jeu.score[1], EQUIPES[eq].maillot, 2.4);
+    Son.klaxon(); Son.ovation(1);
+    if (jeu.mode === 'match') vibre(eq === 0 ? [60, 40, 120] : 80);
+    for (const s of jeu.patineurs) { s.arme = false; s.charge = 0; }
+    if (jeu.mode === 'demo' && Math.max(...jeu.score) >= 9) { jeu.score = [0, 0]; }
+  }
+
+  /* ============================================== intelligence ====== */
+
+  function pointSegDist(px_, py_, ax, ay, bx, by) {
+    const abx = bx - ax, aby = by - ay;
+    const t = clamp(((px_ - ax) * abx + (py_ - ay) * aby) / (abx * abx + aby * aby || 1), 0, 1);
+    return Math.hypot(px_ - (ax + abx * t), py_ - (ay + aby * t));
+  }
+
+  // choisit le coin le plus éloigné du gardien, vu depuis le tireur
+  function angleCoin(s, err) {
+    const gx = butAttaque(s.eq), dir = sensAttaque(s.eq);
+    const gk = jeu.gardiens[1 - s.eq];
+    const aGk = Math.atan2(gk.y - s.y, gk.x - s.x);
+    let meilleur = 0, ecart = -1;
+    for (const sy of [-1, 1]) {
+      const a = Math.atan2(rink.cy + sy * (BUT_DEMI - 3.5) - s.y, gx - dir * 1 - s.x);
+      const e = Math.abs(angDiff(a, aGk));
+      if (e > ecart) { ecart = e; meilleur = a; }
+    }
+    return meilleur + (Math.random() + Math.random() - 1) * err;
+  }
+
+  function planIA(s) {
+    const p = jeu.palet, o = jeu.patineurs[1 - s.eq], niv = jeu.niv;
+    const atk = butAttaque(s.eq), def = butDefendu(s.eq), dir = sensAttaque(s.eq);
+    const ia = s.ia;
+    if (s.tient) {
+      const dx = atk - s.x, dy = rink.cy - s.y, d = Math.hypot(dx, dy);
+      const devant = (atk - s.x) * dir > 14;
+      const angleOk = Math.abs(dy) < Math.abs(dx) * 1.7;
+      const bouche = pointSegDist(o.x, o.y, s.x, s.y, atk, rink.cy) < 9 && Math.hypot(o.x - s.x, o.y - s.y) < d;
+      if (!s.arme && devant && angleOk && d < niv.portee && (!bouche || d < 55 || Math.random() < 0.2)) {
+        s.arme = true; s.charge = 0;
+        ia.but = clamp(0.2 + (d / niv.portee) * 0.65 + alea(-0.1, 0.2), 0.15, 1);
+      }
+      if (!devant) {
+        ia.tx = atk - dir * 55; ia.ty = s.y < rink.cy ? rink.cy - 42 : rink.cy + 42;
+      } else {
+        ia.tx = atk - dir * 50;
+        ia.ty = rink.cy + (s.y < rink.cy ? -18 : 18);
+        const oDevant = (o.x - s.x) * dir > 0 && Math.hypot(o.x - s.x, o.y - s.y) < 40;
+        if (oDevant) {
+          ia.ty = clamp(s.y + (s.y > o.y ? 38 : -38), rink.y + 16, rink.y + rink.h - 16);
+          ia.tx = s.x + dir * 40;
+          if (s.elanCd <= 0 && Math.random() < 0.35) { s.ex = dir; s.ey = (s.y > o.y ? 0.6 : -0.6); elan(s, s.ex, s.ey); }
+        }
+      }
+    } else if (p.porteur && p.porteur.eq !== s.eq) {
+      if (p.porteur.face === undefined) {
+        ia.tx = def + dir * rink.w * 0.3; ia.ty = rink.cy;
+      } else {
+        const c = p.porteur;
+        const dDef = Math.abs(c.x - def);
+        if (dDef < rink.w * 0.62 || Math.random() < 0.4) {
+          ia.tx = c.x + c.vx * 0.22 + Math.cos(c.face) * 6; ia.ty = c.y + c.vy * 0.22 + Math.sin(c.face) * 6;
+        } else {
+          ia.tx = c.x + (def - c.x) * 0.3; ia.ty = c.y + (rink.cy - c.y) * 0.3;
+        }
+        const dc = Math.hypot(c.x - s.x, c.y - s.y);
+        if (dc < 26 && s.elanCd <= 0 && Math.random() < niv.check * niv.reac * 1.2) {
+          elan(s, c.x + c.vx * 0.1 - s.x, c.y + c.vy * 0.1 - s.y);
+        }
+      }
+    } else if (p.porteur && p.porteur.eq === s.eq) {
+      ia.tx = def + dir * rink.w * 0.32; ia.ty = rink.cy + (s.y < rink.cy ? -30 : 30);
+    } else {
+      const d = Math.hypot(p.x - s.x, p.y - s.y);
+      const t = Math.min(0.6, d / 160);
+      ia.tx = p.x + p.vx * t; ia.ty = p.y + p.vy * t;
+      // on vise derrière le palet pour l'attaquer du bon côté
+      ia.tx -= dir * 4;
+    }
+    ia.tx = clamp(ia.tx, rink.x + 8, rink.x + rink.w - 8);
+    ia.ty = clamp(ia.ty, rink.y + 8, rink.y + rink.h - 8);
+  }
+
+  function pilotageIA(s, dt) {
+    const ia = s.ia;
+    ia.t -= dt;
+    if (ia.t <= 0) { ia.t = jeu.niv.reac * alea(0.7, 1.3); planIA(s); }
+    // si on perd le palet en armant, on oublie le tir
+    if (s.arme && !s.tient) { s.arme = false; s.charge = 0; }
+    if (s.arme) {
+      s.charge = Math.min(1, s.charge + dt / 0.85);
+      if (s.charge >= ia.but) tir(s, angleCoin(s, jeu.niv.err), s.charge);
+    }
+    // pilotage : vitesse désirée moins vitesse actuelle
+    const dx = ia.tx - s.x, dy = ia.ty - s.y, d = Math.hypot(dx, dy);
+    const vmax = VMAX * s.vit;
+    const vd = Math.min(1, d / 26) * vmax;
+    const dvx = (d > 0 ? dx / d * vd : 0) - s.vx, dvy = (d > 0 ? dy / d * vd : 0) - s.vy;
+    const m = Math.hypot(dvx, dvy);
+    const k = Math.min(1, m / (vmax * 0.35));
+    s.ex = m > 0 ? dvx / m * k : 0; s.ey = m > 0 ? dvy / m * k : 0;
+    if (d < 3 && Math.hypot(s.vx, s.vy) < 15) { s.ex = s.ey = 0; }
+    // tourner la crosse vers le but quand on porte le palet
+    if (s.tient && s.arme) {
+      const a = Math.atan2(rink.cy - s.y, butAttaque(s.eq) - s.x);
+      s.face += clamp(angDiff(s.face, a), -8 * dt, 8 * dt);
+    }
+  }
+
+  /* ============================================== entrées =========== */
+
+  const touches = new Set();
+  const cmd = {
+    joy: null,           // { id, bx, by, x, y }
+    tirId: null, elanId: null,
+    tirAppui: false, tirRelache: false, elanAppui: false, tirTenu: false,
+  };
+  let tactile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  let boutons = [];      // zones cliquables de l'interface, reconstruites à chaque image
+  let ecranUI = 'menu';  // menu | jeu | pause | fin
+  let enPause = false;
+
+  const RAYON_JOY = 22;
+  const zoneTir = () => ({ x: W - 34, y: H - 32, r: 20 });
+  const zoneElan = () => ({ x: W - 78, y: H - 22, r: 14 });
+  const zonePause = () => ({ x: W - 22, y: 4, w: 16, h: 14 });
+
+  function versLogique(e) {
+    const r = ecran.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * (ecran.width / ECHELLE), y: (e.clientY - r.top) / r.height * (ecran.height / ECHELLE) };
+  }
+
+  ecran.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (e.pointerType === 'touch') tactile = true;
+    Son.init();
+    const p = versLogique(e);
+    if (portrait) return;
+    if (ecranUI === 'jeu' && !enPause) {
+      const zp = zonePause();
+      if (p.x >= zp.x - 4 && p.y <= zp.y + zp.h + 4 && p.y >= 0) { pause(true); return; }
+      if (p.x < W * 0.45) {
+        const bx = clamp(p.x, RAYON_JOY + 4, W * 0.45), by = clamp(p.y, RAYON_JOY + 30, H - RAYON_JOY - 4);
+        cmd.joy = { id: e.pointerId, bx, by, x: p.x, y: p.y };
+      } else {
+        const ze = zoneElan();
+        if (Math.hypot(p.x - ze.x, p.y - ze.y) < ze.r + 7) { cmd.elanId = e.pointerId; cmd.elanAppui = true; }
+        else { cmd.tirId = e.pointerId; cmd.tirAppui = true; cmd.tirTenu = true; }
+      }
+      try { ecran.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      return;
+    }
+    for (const b of boutons) {
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { Son.clic(); b.act(); return; }
+    }
+  }, { passive: false });
+
+  ecran.addEventListener('pointermove', (e) => {
+    if (cmd.joy && e.pointerId === cmd.joy.id) {
+      const p = versLogique(e);
+      cmd.joy.x = p.x; cmd.joy.y = p.y;
+      // la base suit le doigt s'il s'éloigne trop : pas besoin de revenir au centre
+      const dx = p.x - cmd.joy.bx, dy = p.y - cmd.joy.by, d = Math.hypot(dx, dy);
+      if (d > RAYON_JOY * 1.6) { cmd.joy.bx = p.x - dx / d * RAYON_JOY * 1.6; cmd.joy.by = p.y - dy / d * RAYON_JOY * 1.6; }
+    }
+  });
+
+  const relache = (e) => {
+    if (cmd.joy && e.pointerId === cmd.joy.id) cmd.joy = null;
+    if (e.pointerId === cmd.tirId) { cmd.tirId = null; cmd.tirRelache = true; cmd.tirTenu = false; }
+    if (e.pointerId === cmd.elanId) cmd.elanId = null;
+  };
+  ecran.addEventListener('pointerup', relache);
+  ecran.addEventListener('pointercancel', relache);
+  ecran.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const TIR_TOUCHES = ['Space', 'KeyJ', 'KeyX'], ELAN_TOUCHES = ['ShiftLeft', 'ShiftRight', 'KeyK', 'KeyC'];
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    Son.init();
+    touches.add(e.code);
+    if (TIR_TOUCHES.includes(e.code)) { cmd.tirAppui = true; cmd.tirTenu = true; e.preventDefault(); }
+    if (ELAN_TOUCHES.includes(e.code)) cmd.elanAppui = true;
+    if (e.code === 'Escape' || e.code === 'KeyP') {
+      if (ecranUI === 'jeu') pause(!enPause);
+    }
+    if (e.code === 'Enter') {
+      if (ecranUI === 'menu') lanceMatch();
+      else if (ecranUI === 'fin') lanceMatch();
+      else if (enPause) pause(false);
+    }
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => {
+    touches.delete(e.code);
+    if (TIR_TOUCHES.includes(e.code) && !TIR_TOUCHES.some((k) => touches.has(k))) { cmd.tirRelache = true; cmd.tirTenu = false; }
+  });
+
+  function lireJoueur(s, dt) {
+    let ix = 0, iy = 0;
+    if (touches.has('ArrowLeft') || touches.has('KeyA') || touches.has('KeyQ')) ix -= 1;
+    if (touches.has('ArrowRight') || touches.has('KeyD')) ix += 1;
+    if (touches.has('ArrowUp') || touches.has('KeyW') || touches.has('KeyZ')) iy -= 1;
+    if (touches.has('ArrowDown') || touches.has('KeyS')) iy += 1;
+    if (ix || iy) { const m = Math.hypot(ix, iy); ix /= m; iy /= m; }
+    if (cmd.joy) {
+      const dx = (cmd.joy.x - cmd.joy.bx) / RAYON_JOY, dy = (cmd.joy.y - cmd.joy.by) / RAYON_JOY;
+      const m = Math.hypot(dx, dy);
+      if (m > 0.12) { const k = Math.min(1, m) / m; ix = dx * k; iy = dy * k; }
+    }
+    s.ex = ix; s.ey = iy;
+
+    const actif = jeu.phase === 'jeu';
+    if (cmd.tirAppui) {
+      cmd.tirAppui = false;
+      if (actif && !s.tient) { s.pokeT = 0.3; Son.elan(); }
+    }
+    if (cmd.tirTenu && s.tient && !s.arme && actif) { s.arme = true; s.charge = 0; }
+    if (s.arme) {
+      if (!s.tient) { s.arme = false; s.charge = 0; }
+      else s.charge = Math.min(1, s.charge + dt / 0.85);
+    }
+    if (cmd.tirRelache) {
+      cmd.tirRelache = false;
+      if (s.arme && s.tient && actif) {
+        const m = Math.hypot(ix, iy);
+        let a = m > 0.35 ? Math.atan2(iy, ix) : s.face;
+        a = assistance(s, a, m > 0.35);
+        tir(s, a, s.charge);
+      }
+      s.arme = false;
+    }
+    if (cmd.elanAppui) { cmd.elanAppui = false; if (actif) elan(s, ix, iy); }
+  }
+
+  // Aide à la visée : un tir à peu près vers la cage part vers un coin.
+  function assistance(s, a, oriente) {
+    const gx = butAttaque(s.eq);
+    const aCentre = Math.atan2(rink.cy - s.y, gx - s.x);
+    const dA = angDiff(aCentre, a);
+    if (Math.abs(dA) > 0.75) return a;
+    let aCoin;
+    if (!oriente || Math.abs(dA) < 0.06) aCoin = angleCoin(s, 0.04);
+    else {
+      const sy = dA > 0 === (Math.cos(aCentre) > 0) ? 1 : -1;
+      aCoin = Math.atan2(rink.cy + sy * (BUT_DEMI - 3.5) - s.y, gx - s.x);
+    }
+    return a + angDiff(a, aCoin) * 0.7;
+  }
+
+  /* ============================================== déroulé =========== */
+
+  function pas(dt) {
+    jeu.temps += dt;
+    for (const s of jeu.patineurs) {
+      if (s.humain) lireJoueur(s, dt);
+      else if (jeu.phase === 'jeu') pilotageIA(s, dt);
+      else { s.ex = s.ey = 0; }
+    }
+    // pendant la célébration, le buteur fait un tour d'honneur
+    if (jeu.phase === 'but') {
+      for (const s of jeu.patineurs) {
+        if (s.humain) continue;
+        if (s.eq === jeu.marqueur) { const a = jeu.temps * 2.2; s.ex = Math.cos(a); s.ey = Math.sin(a); }
+        else { s.ex = s.ey = 0; }
+      }
+    }
+    for (const s of jeu.patineurs) bougePatineur(s, dt);
+    collisionsPatineurs();
+    for (const gk of jeu.gardiens) majGardien(gk, dt);
+    majPalet(dt / 2); majPalet(dt / 2);
+    recuperations(dt);
+
+    if (jeu.phase === 'engagement') {
+      jeu.phaseT -= dt;
+      const p = jeu.palet; p.x = rink.cx; p.y = rink.cy; p.vx = p.vy = 0;
+      if (jeu.phaseT <= 0) {
+        jeu.phase = 'jeu';
+        p.vx = alea(-25, 25); p.vy = alea(-25, 25);
+        Son.sifflet(false);
+      }
+    } else if (jeu.phase === 'jeu') {
+      if (jeu.mode === 'match' && !jeu.prolong) {
+        jeu.horloge -= dt;
+        if (jeu.horloge <= 0) { jeu.horloge = 0; finTempsReglementaire(); }
+      }
+    } else if (jeu.phase === 'but') {
+      jeu.phaseT -= dt;
+      if (jeu.phaseT <= 0) {
+        if (jeu.mode === 'match' && jeu.prolong) finMatch();
+        else { engagement(1.3); annonce('PRETS ?', '', C.blanc, 1.1); }
+      }
+    }
+  }
+
+  function finTempsReglementaire() {
+    Son.sifflet(true);
+    if (jeu.score[0] === jeu.score[1]) {
+      jeu.prolong = true;
+      engagement(2.4);
+      annonce('PROLONGATION', 'LE PROCHAIN BUT GAGNE', C.or, 2.4);
+    } else finMatch();
+  }
+
+  function finMatch() {
+    jeu.phase = 'fin';
+    ecranUI = 'fin';
+    cmd.joy = null; cmd.tirTenu = false;
+    const gagne = jeu.score[0] > jeu.score[1];
+    pref.matchs[pref.niveau] = (pref.matchs[pref.niveau] || 0) + 1;
+    if (gagne) pref.victoires[pref.niveau] = (pref.victoires[pref.niveau] || 0) + 1;
+    sauve();
+    if (gagne) { Son.ovation(1); confettis(rink.cx, rink.cy - 20, 0); }
+  }
+
+  function lanceMatch() {
+    Son.init();
+    pleinEcran();
+    nouvellePartie('match');
+    particules = []; bulles = [];
+    ecranUI = 'jeu'; enPause = false;
+    annonce('PRETS ?', NIVEAUX[pref.niveau].nom, C.blanc, 1.5);
+  }
+
+  function retourMenu() {
+    nouvellePartie('demo');
+    ecranUI = 'menu'; enPause = false;
+    banniere = null;
+  }
+
+  function pause(oui) {
+    if (ecranUI !== 'jeu' && ecranUI !== 'pause') return;
+    enPause = oui;
+    ecranUI = oui ? 'pause' : 'jeu';
+    cmd.joy = null; cmd.tirTenu = false; cmd.tirId = null; cmd.elanId = null;
+    touches.clear();
+  }
+
+  function pleinEcran() {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req || document.fullscreenElement || document.webkitFullscreenElement) return;
+    try {
+      const r = req.call(el, { navigationUI: 'hide' });
+      const verrou = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* ignore */ } };
+      if (r && r.then) r.then(verrou).catch(() => {}); else verrou();
+    } catch (e) { /* pas de plein écran (iPhone) : tant pis */ }
+  }
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden && ecranUI === 'jeu') pause(true); });
+
+  /* ============================================== rendu ============= */
+
+  function dessineCage(eq) {
+    const gx = eq === 0 ? rink.butG : rink.butD, dir = eq === 0 ? 1 : -1;
+    const m = BUT_DEMI, cy = rink.cy, h = 6;
+    const x0 = Math.min(gx, gx - dir * BUT_PROF), x1 = Math.max(gx, gx - dir * BUT_PROF);
+    // ombre
+    g.fillStyle = 'rgba(30,50,90,0.25)';
+    g.fillRect(x0, cy - m + 1, x1 - x0 + 1, 2 * m);
+    // filet (motif en damier)
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let y = cy - m - h; y <= cy + m; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (((x + y) & 1) === 0) g.fillRect(x, y, 1, 1);
+      }
+    }
+    // armature arrière
+    g.fillStyle = '#c9d2e3';
+    g.fillRect(gx - dir * BUT_PROF, cy - m - h + 2, 1, 2 * m + h - 2);
+    // poteaux et barre transversale rouges
+    g.fillStyle = C.rouge;
+    g.fillRect(gx, cy - m - h, 1, h + 1);
+    g.fillRect(gx, cy + m - h, 1, h + 1);
+    g.fillRect(gx, cy - m - h, 1, 2 * m + 1);
+    g.fillStyle = '#ff7a8c';
+    g.fillRect(gx, cy - m - h, 1, 1);
+    // haut du filet (lien entre barre et armature)
+    g.fillStyle = '#e8edf6';
+    for (let x = x0; x <= x1; x++) { g.fillRect(x, cy - m - h, 1, 1); g.fillRect(x, cy + m - h, 1, 1); }
+  }
+
+  function dessineLampe(eq) {
+    const niveau = jeu.lampe[eq];
+    const x = eq === 0 ? rink.x - 4 : rink.x + rink.w + 1, y = rink.cy - 22;
+    px(x, y, 3, 4, niveau > 0 && (Math.floor(jeu.temps * 8) & 1) ? '#ff3b4e' : '#5a1522');
+    if (niveau > 0) {
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = 0.35 * niveau;
+      disque(x + 1, y + 2, 9, '#ff2a40');
+      g.globalAlpha = 0.25 * niveau;
+      disque(x + 1, y + 2, 18, '#ff2a40');
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  function dessinePatineur(s) {
+    const gauche = Math.cos(s.face) < 0;
+    const v = Math.hypot(s.vx, s.vy);
+    const cycle = [0, 1, 0, 2];
+    const img = SPR[s.eq][v < 14 ? 0 : cycle[Math.floor(s.anim / 8) % 4]][gauche ? 1 : 0];
+    let bx = Math.round(s.x) - 5, by = Math.round(s.y) + 3 - 15;
+    if (s.sonne > 0) bx += Math.round(Math.sin(jeu.temps * 40));
+    const sp = pointCrosse(s);
+    const mainX = bx + (gauche ? 3 : 8), mainY = by + 7;
+    const crosse = () => {
+      ligne(mainX, mainY, sp.x, sp.y, '#5b3a22');
+      const lx = Math.round(sp.x), ly = Math.round(sp.y);
+      const dx = Math.cos(s.face) >= 0 ? 1 : -1;
+      g.fillStyle = '#111522';
+      g.fillRect(Math.min(lx, lx + dx * 2), ly, 3, 1);
+    };
+    if (sp.y < s.y) crosse();
+    g.drawImage(img, bx, by);
+    if (sp.y >= s.y) crosse();
+    if (s.sonne > 0) {
+      for (let i = 0; i < 3; i++) {
+        const a = jeu.temps * 6 + i * 2.1;
+        px(s.x + Math.cos(a) * 6, by - 2 + Math.sin(a) * 2, 1, 1, C.or);
+      }
+    }
+    if (s.elanT > 0) {
+      g.globalAlpha = 0.35;
+      g.drawImage(img, Math.round(bx - s.vx * 0.04), Math.round(by - s.vy * 0.04));
+      g.globalAlpha = 1;
+    }
+    if (s.humain) {
+      // flèche au-dessus du joueur, pour ne jamais le perdre de vue
+      const fy = by - 5 + Math.round(Math.sin(jeu.temps * 6));
+      g.fillStyle = C.contour;
+      g.fillRect(Math.round(s.x) - 3, fy - 1, 7, 1); g.fillRect(Math.round(s.x) - 2, fy + 2, 5, 1);
+      g.fillStyle = EQUIPES[0].clair;
+      g.fillRect(Math.round(s.x) - 2, fy, 5, 1); g.fillRect(Math.round(s.x) - 1, fy + 1, 3, 1); g.fillRect(Math.round(s.x), fy + 2, 1, 1);
+    }
+    if (s.arme) {
+      const w = 13, x = Math.round(s.x) - 6, y = by - (s.humain ? 11 : 5);
+      px(x - 1, y - 1, w + 2, 4, C.contour);
+      px(x, y, w, 2, '#2a2f4a');
+      const c = s.charge > 0.85 ? (Math.floor(jeu.temps * 20) & 1 ? '#ffffff' : '#ff5a4e') : s.charge > 0.5 ? '#ffb13b' : '#ffe27a';
+      px(x, y, Math.max(1, Math.round(w * s.charge)), 2, c);
+    }
+  }
+
+  function dessineGardien(gk) {
+    const gauche = gk.eq === 1;
+    const img = SPR_GK[gk.eq][gauche ? 1 : 0];
+    const bx = Math.round(gk.x) - 6 + Math.round(Math.sin(jeu.temps * 60) * gk.secoue), by = Math.round(gk.y) + 3 - 15;
+    g.drawImage(img, bx, by);
+    // crosse de gardien, posée sur la glace
+    const dir = gauche ? -1 : 1;
+    g.fillStyle = '#5b3a22';
+    g.fillRect(Math.round(gk.x) + dir * 3 - (dir < 0 ? 3 : 0), Math.round(gk.y) + 3, 4, 1);
+  }
+
+  function dessinePalet() {
+    const p = jeu.palet;
+    const v = Math.hypot(p.vx, p.vy);
+    if (!p.porteur && v > 170) {
+      g.globalCompositeOperation = 'lighter';
+      const n = p.trace.length;
+      for (let i = 0; i < n; i++) {
+        const t = p.trace[i];
+        g.globalAlpha = (i / n) * 0.6;
+        g.fillStyle = v > 330 ? '#ffb04a' : '#8fe3ff';
+        g.fillRect(Math.round(t.x) - 1, Math.round(t.y), 2, 1);
+      }
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+    }
+    const x = Math.round(p.x) - 2, y = Math.round(p.y) - 1;
+    g.fillStyle = 'rgba(20,40,80,0.35)'; g.fillRect(x, y + 2, 4, 1);
+    g.fillStyle = '#0c0e16'; g.fillRect(x, y, 4, 2);
+    g.fillStyle = '#4a5068'; g.fillRect(x + 1, y, 2, 1);
+  }
+
+  function dessineParticules() {
+    for (const p of particules) {
+      const a = Math.min(1, p.vie / (p.max * 0.5));
+      if (p.lum) g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = a;
+      g.fillStyle = p.c;
+      g.fillRect(Math.round(p.x), Math.round(p.y), p.t, p.t);
+      if (p.lum) g.globalCompositeOperation = 'source-over';
+    }
+    g.globalAlpha = 1;
+  }
+
+  function dessineRayures() {
+    const rc = rayures.getContext('2d');
+    if (jeu && Math.floor(jeu.temps * 2) !== Math.floor((jeu.temps - 1 / 60) * 2)) {
+      rc.globalCompositeOperation = 'destination-out';
+      rc.fillStyle = 'rgba(0,0,0,0.08)'; rc.fillRect(0, 0, W, H);
+      rc.globalCompositeOperation = 'source-over';
+    }
+    rc.fillStyle = 'rgba(120,160,195,0.22)';
+    for (const s of jeu.patineurs) {
+      if (Math.hypot(s.vx, s.vy) < 30) continue;
+      const pied = Math.floor(s.anim / 8) & 1;
+      rc.fillRect(Math.round(s.x) + (pied ? -2 : 1), Math.round(s.y) + 3, 1, 1);
+    }
+    g.drawImage(rayures, 0, 0);
+  }
+
+  function dessineScene() {
+    const p = jeu.palet;
+    p.trace.push({ x: p.x, y: p.y });
+    if (p.trace.length > 7) p.trace.shift();
+
+    const bond = jeu.excite > 0.05 ? (Math.floor(jeu.temps * 9) & 1) : (Math.floor(jeu.temps * 0.7) % 5 === 0 ? 1 : 0);
+    g.drawImage(foule[bond], 0, 0);
+    g.drawImage(glace, 0, 0);
+    dessineRayures();
+    dessineLampe(0); dessineLampe(1);
+    dessineCage(0); dessineCage(1);
+
+    // ombres puis entités triées par profondeur
+    for (const s of jeu.patineurs) ellipseOmbre(s.x, s.y + 3, 5, 1, 0.28);
+    for (const gk of jeu.gardiens) ellipseOmbre(gk.x, gk.y + 3, 6, 1, 0.28);
+    const liste = [
+      ...jeu.patineurs.map((s) => ({ y: s.y, f: () => dessinePatineur(s) })),
+      ...jeu.gardiens.map((gk) => ({ y: gk.y, f: () => dessineGardien(gk) })),
+      { y: p.y - 2, f: dessinePalet },
+    ];
+    liste.sort((a, b) => a.y - b.y);
+    for (const e of liste) e.f();
+
+    dessineParticules();
+    for (const b of bulles) {
+      g.globalAlpha = Math.min(1, b.vie * 3);
+      texte(b.txt, b.x, b.y, b.c);
+      g.globalAlpha = 1;
+    }
+  }
+
+  const format = (t) => { t = Math.ceil(t); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+
+  function dessineTableau() {
+    const cx = Math.round(W / 2);
+    const lw = 150;
+    const x = cx - lw / 2, y = 2;
+    px(x - 1, y - 1, lw + 2, 21, C.contour);
+    px(x, y, lw, 19, '#161b36');
+    px(x, y, lw, 1, '#2a3160');
+    px(x, y + 18, lw, 1, '#0f1328');
+    const e0 = jeu.mode === 'match' ? 'VOUS' : 'BLEUS', e1 = jeu.mode === 'match' ? 'CPU' : 'ROUGES';
+    px(x + 3, y + 3, 3, 13, EQUIPES[0].maillot);
+    px(x + lw - 6, y + 3, 3, 13, EQUIPES[1].maillot);
+    texte(e0, x + 9, y + 6, EQUIPES[0].clair, 1, 'g');
+    texte(e1, x + lw - 9, y + 6, EQUIPES[1].clair, 1, 'd');
+    texte(jeu.score[0], cx - 22, y + 3, C.blanc, 2, 'c');
+    texte(jeu.score[1], cx + 22, y + 3, C.blanc, 2, 'c');
+    // horloge
+    let h;
+    if (jeu.mode !== 'match') h = 'DEMO';
+    else if (jeu.prolong) h = 'PROL';
+    else h = format(jeu.horloge);
+    const presse = jeu.mode === 'match' && !jeu.prolong && jeu.horloge < 10 && jeu.phase === 'jeu';
+    px(cx - 13, y + 4, 26, 11, '#05060f');
+    texte(h, cx, y + 6, presse && (Math.floor(jeu.temps * 4) & 1) ? '#ff5a4e' : C.or, 1, 'c', null);
+
+    if (ecranUI === 'jeu') {
+      const zp = zonePause();
+      px(zp.x - 1, zp.y - 1, zp.w + 2, zp.h + 2, C.contour);
+      px(zp.x, zp.y, zp.w, zp.h, '#161b36');
+      px(zp.x + 5, zp.y + 3, 2, 8, C.blanc);
+      px(zp.x + 9, zp.y + 3, 2, 8, C.blanc);
+    }
+  }
+
+  function dessineCommandes() {
+    if (!tactile) return;
+    const s = jeu.patineurs[0];
+    // joystick flottant
+    if (cmd.joy) {
+      g.globalAlpha = 0.5;
+      anneau(cmd.joy.bx, cmd.joy.by, RAYON_JOY, C.blanc, 1, 2);
+      g.globalAlpha = 0.85;
+      let dx = cmd.joy.x - cmd.joy.bx, dy = cmd.joy.y - cmd.joy.by;
+      const d = Math.hypot(dx, dy);
+      if (d > RAYON_JOY) { dx *= RAYON_JOY / d; dy *= RAYON_JOY / d; }
+      disque(cmd.joy.bx + dx, cmd.joy.by + dy, 9, C.contour);
+      disque(cmd.joy.bx + dx, cmd.joy.by + dy, 8, '#dfe8ff');
+      disque(cmd.joy.bx + dx - 2, cmd.joy.by + dy - 2, 3, '#ffffff');
+      g.globalAlpha = 1;
+    } else if (jeu.temps < 25) {
+      g.globalAlpha = 0.28 + 0.12 * Math.sin(jeu.temps * 3);
+      anneau(40, H - 40, RAYON_JOY, C.blanc, 1, 2);
+      disque(40, H - 40, 8, C.blanc);
+      g.globalAlpha = 1;
+      texte('GLISSEZ', 40, H - 13, C.blanc, 1, 'c');
+    }
+    // bouton tir
+    const zt = zoneTir(), ze = zoneElan();
+    const tAppui = cmd.tirId !== null;
+    g.globalAlpha = tAppui ? 0.9 : 0.6;
+    disque(zt.x, zt.y, zt.r, C.contour);
+    disque(zt.x, zt.y + (tAppui ? 1 : 0), zt.r - 1, s.tient ? '#ff5470' : '#6b7295');
+    if (!tAppui) disque(zt.x, zt.y + 1, zt.r - 3, s.tient ? '#e03a58' : '#5a6082');
+    if (s.arme) anneau(zt.x, zt.y, zt.r + 2, C.or, s.charge, 2);
+    g.globalAlpha = 1;
+    texte(s.tient ? 'TIR' : 'CROSSE', zt.x, zt.y - 3 + (tAppui ? 1 : 0), C.blanc, 1, 'c');
+    // bouton élan / mise en échec
+    const eAppui = cmd.elanId !== null;
+    const pret = s.elanCd <= 0;
+    g.globalAlpha = eAppui ? 0.9 : 0.6;
+    disque(ze.x, ze.y, ze.r, C.contour);
+    disque(ze.x, ze.y + (eAppui ? 1 : 0), ze.r - 1, pret ? '#3fb4e8' : '#3a4060');
+    if (!pret) anneau(ze.x, ze.y, ze.r + 1, '#8fe3ff', 1 - Math.max(0, s.elanCd) / 1.4, 1);
+    g.globalAlpha = 1;
+    texte(s.tient ? 'SPRINT' : 'CHECK', ze.x, ze.y - 3, C.blanc, 1, 'c');
+  }
+
+  function bouton(label, x, y, w, h, act, opts = {}) {
+    const base = opts.couleur || '#1f2650';
+    px(x - 1, y - 1, w + 2, h + 2, C.contour);
+    px(x, y, w, h, base);
+    px(x, y, w, 1, opts.clair || '#3a4590');
+    px(x, y + h - 2, w, 2, opts.fonce || '#141939');
+    texte(label, x + w / 2, y + Math.round((h - 7 * (opts.e || 1)) / 2) - 1, opts.texte || C.blanc, opts.e || 1, 'c');
+    boutons.push({ x, y, w, h, act });
+  }
+
+  function panneau(x, y, w, h) {
+    g.fillStyle = 'rgba(7,9,20,0.78)';
+    g.fillRect(x, y, w, h);
+    px(x, y, w, 1, '#2a3160'); px(x, y + h - 1, w, 1, '#2a3160');
+    px(x, y, 1, h, '#2a3160'); px(x + w - 1, y, 1, h, '#2a3160');
+  }
+
+  function dessineMenu() {
+    g.fillStyle = 'rgba(7,9,20,0.45)';
+    g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2);
+    const t = performance.now() / 1000;
+    // titre
+    const titre = 'FACE-OFF';
+    const e = W > 300 ? 4 : 3;
+    const lw = largeurTexte(titre, e);
+    let ox = cx - lw / 2;
+    const ty = Math.max(8, Math.round(H * 0.08));
+    for (let i = 0; i < titre.length; i++) {
+      const dy = Math.round(Math.sin(t * 3 + i * 0.6) * 1.5);
+      const col = i < 4 ? EQUIPES[0].maillot : i === 4 ? C.blanc : EQUIPES[1].maillot;
+      texte(titre[i], ox + i * 6 * e + 2.5 * e, ty + dy, col, e, 'c');
+    }
+    texte('HOCKEY ARCADE', cx, ty + 7 * e + 5, C.or, 1, 'c');
+
+    const pw = 176, ph = 92;
+    const py = ty + 7 * e + 16;
+    panneau(cx - pw / 2, py, pw, ph);
+    const lignes = [
+      ['NIVEAU', NIVEAUX[pref.niveau].nom, () => { pref.niveau = (pref.niveau + 1) % NIVEAUX.length; sauve(); }],
+      ['DUREE', (DUREES[pref.duree] / 60) + ' MIN', () => { pref.duree = (pref.duree + 1) % DUREES.length; sauve(); }],
+      ['SON', pref.son ? 'OUI' : 'NON', () => { pref.son = !pref.son; Son.muet(!pref.son); sauve(); }],
+    ];
+    lignes.forEach(([k, v, act], i) => {
+      const y = py + 6 + i * 16;
+      texte(k, cx - pw / 2 + 10, y + 4, C.gris, 1, 'g');
+      bouton('< ' + v + ' >', cx - 4, y, 82, 13, act, { couleur: '#232a58' });
+    });
+    const jy = py + ph - 32;
+    const pulse = Math.sin(t * 5) > 0;
+    bouton('JOUER', cx - 50, jy, 100, 24, lanceMatch, { e: 2, couleur: pulse ? '#e63a58' : '#d12f4c', clair: '#ff7a90', fonce: '#8c1b3a' });
+    const v = pref.victoires[pref.niveau] || 0, mt = pref.matchs[pref.niveau] || 0;
+    const bas_ = py + ph + 6;
+    if (bas_ + 8 < H) texte(mt ? `VICTOIRES ${v} / ${mt}` : 'PREMIER MATCH ?', cx, bas_, C.gris, 1, 'c');
+    if (bas_ + 20 < H) {
+      texte(tactile ? 'GAUCHE : PATINER   DROITE : TIRER / CHECK' : 'FLECHES : PATINER  ESPACE : TIRER  MAJ : CHECK', cx, bas_ + 11, '#6f7aa6', 1, 'c');
+    }
+  }
+
+  function dessinePause() {
+    g.fillStyle = 'rgba(7,9,20,0.6)'; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    texte('PAUSE', cx, cy - 40, C.blanc, 3, 'c');
+    bouton('REPRENDRE', cx - 55, cy - 6, 110, 18, () => pause(false), { couleur: '#1f7fb3', clair: '#6fd0ff', fonce: '#0f4d73' });
+    bouton('ABANDONNER', cx - 55, cy + 18, 110, 18, retourMenu);
+  }
+
+  function dessineFin() {
+    g.fillStyle = 'rgba(7,9,20,0.62)'; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    const gagne = jeu.score[0] > jeu.score[1];
+    const t = performance.now() / 1000;
+    const titre = gagne ? 'VICTOIRE !' : 'DEFAITE';
+    texte(titre, cx, cy - 58 + Math.round(Math.sin(t * 4) * 1.5), gagne ? C.or : EQUIPES[1].maillot, 3, 'c');
+    texte(jeu.score[0] + ' - ' + jeu.score[1] + (jeu.prolong ? '  PROL.' : ''), cx, cy - 28, C.blanc, 2, 'c');
+    texte(`TIRS CADRES  ${jeu.tirs[0]} - ${jeu.tirs[1]}`, cx, cy - 8, C.gris, 1, 'c');
+    bouton('REJOUER', cx - 108, cy + 10, 100, 20, lanceMatch, { couleur: '#d12f4c', clair: '#ff7a90', fonce: '#8c1b3a' });
+    bouton('MENU', cx + 8, cy + 10, 100, 20, retourMenu);
+    texte('NIVEAU ' + NIVEAUX[pref.niveau].nom + '   VICTOIRES ' + (pref.victoires[pref.niveau] || 0) + ' / ' + (pref.matchs[pref.niveau] || 0), cx, cy + 40, '#6f7aa6', 1, 'c');
+  }
+
+  function dessineBanniere() {
+    if (!banniere || ecranUI === 'menu') return;
+    const b = banniere;
+    const age = b.max - b.vie;
+    const e = b.txt.length > 9 ? 2 : 3;
+    const entree = Math.min(1, age * 6);
+    const cx = Math.round(W / 2), cy = Math.round(rink.cy - 12);
+    const bandeH = 7 * e + (b.sous ? 18 : 10);
+    g.globalAlpha = Math.min(1, b.vie * 3) * 0.75;
+    g.fillStyle = '#070914';
+    const bw = Math.round(W * entree);
+    g.fillRect(cx - bw / 2, cy - 6, bw, bandeH);
+    g.fillStyle = b.c;
+    g.fillRect(cx - bw / 2, cy - 6, bw, 1);
+    g.fillRect(cx - bw / 2, cy - 7 + bandeH, bw, 1);
+    g.globalAlpha = Math.min(1, b.vie * 3);
+    const dx = Math.round((1 - entree) * 60);
+    texte(b.txt, cx - dx, cy, b.c, e, 'c');
+    if (b.sous) texte(b.sous, cx + dx, cy + 7 * e + 4, C.blanc, 1, 'c');
+    g.globalAlpha = 1;
+  }
+
+  function dessinePortrait() {
+    g.fillStyle = C.nuit; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    const t = performance.now() / 1000;
+    const a = (Math.sin(t * 2) * 0.5 + 0.5) * Math.PI / 2;
+    // un téléphone qui bascule
+    g.save();
+    g.translate(cx, cy - 30);
+    g.rotate(-a);
+    g.fillStyle = C.contour; g.fillRect(-15, -26, 30, 52);
+    g.fillStyle = '#b6c2e0'; g.fillRect(-14, -25, 28, 50);
+    g.fillStyle = '#3a8fd1'; g.fillRect(-12, -21, 24, 40);
+    g.fillStyle = '#e8f6ff'; g.fillRect(-10, -19, 20, 36);
+    g.fillStyle = C.rouge; g.fillRect(-1, -19, 2, 36);
+    g.restore();
+    texte('TOURNEZ', cx, cy + 20, C.blanc, 2, 'c');
+    texte('VOTRE TELEPHONE', cx, cy + 40, C.or, 1, 'c');
+    texte('LE MATCH SE JOUE', cx, cy + 58, C.gris, 1, 'c');
+    texte('EN PAYSAGE', cx, cy + 68, C.gris, 1, 'c');
+  }
+
+  function rendu() {
+    boutons = [];
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    if (portrait) {
+      dessinePortrait();
+    } else {
+      g.fillStyle = C.nuit; g.fillRect(0, 0, W, H);
+      const sx = secousse > 0.2 ? Math.round(alea(-secousse, secousse)) : 0;
+      const sy = secousse > 0.2 ? Math.round(alea(-secousse, secousse)) : 0;
+      g.setTransform(1, 0, 0, 1, sx, sy);
+      dessineScene();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      if (ecranUI !== 'menu') dessineTableau();
+      dessineBanniere();
+      if (ecranUI === 'jeu') dessineCommandes();
+      else if (ecranUI === 'menu') dessineMenu();
+      else if (ecranUI === 'pause') dessinePause();
+      else if (ecranUI === 'fin') dessineFin();
+      if (flash > 0) {
+        g.fillStyle = `rgba(255,255,255,${flash * 0.5})`;
+        g.fillRect(0, 0, W, H);
+      }
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bas, 0, 0, W * ECHELLE, H * ECHELLE);
+  }
+
+  /* ============================================== boucle ============ */
+
+  let dernier = performance.now(), cumul = 0;
+  function boucle(t) {
+    const dt = Math.min(0.05, (t - dernier) / 1000);
+    dernier = t;
+    if (!portrait && !enPause) {
+      cumul += dt;
+      while (cumul >= PAS) { pas(PAS); cumul -= PAS; }
+      majEffets(dt);
+    }
+    rendu();
+    requestAnimationFrame(boucle);
+  }
+
+  window.addEventListener('resize', dispose);
+  window.addEventListener('orientationchange', () => setTimeout(dispose, 120));
+
+  dispose();
+  if (portrait) {
+    // on prépare quand même une patinoire paysage pour la démo
+    const w = W, h = H;
+    W = Math.max(w, h); H = Math.min(w, h);
+    placePatinoire();
+    W = w; H = h;
+  }
+  nouvellePartie('demo');
+  requestAnimationFrame(boucle);
+
+  // petit crochet de test : simule une démo accélérée, sans rendu
+  window.__faceoff = {
+    simule(secondes) {
+      nouvellePartie('demo');
+      for (let i = 0; i < secondes / PAS; i++) pas(PAS);
+      const r = { score: [...jeu.score], tirs: [...jeu.tirs], arrets: [...jeu.arrets] };
+      particules = []; bulles = []; banniere = null;
+      nouvellePartie('demo');
+      return r;
+    },
+  };
+})();
+</script>
+</body>
+</html>

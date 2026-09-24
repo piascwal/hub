@@ -69,9 +69,10 @@
     { nom: 'PRO',    vit: 1.03, reac: 0.11, err: 0.028, poke: 1.35, check: 1.9, gk: 2.4, antic: 0.4, portee: 155 },
   ];
   const DUREES = [120, 180, 300];
+  const EFFECTIFS = [2, 3];
 
   const CLE = 'hockey-arcade-v1';
-  const pref = { niveau: 1, duree: 1, son: true, victoires: [0, 0, 0], matchs: [0, 0, 0] };
+  const pref = { niveau: 1, duree: 1, effectif: 1, son: true, victoires: [0, 0, 0], matchs: [0, 0, 0] };
   try { Object.assign(pref, JSON.parse(localStorage.getItem(CLE) || '{}')); } catch (e) { /* stockage indisponible */ }
   const sauve = () => { try { localStorage.setItem(CLE, JSON.stringify(pref)); } catch (e) { /* tant pis */ } };
 
@@ -541,11 +542,11 @@
 
   /* ================================================== entités ======= */
 
-  function nouveauPatineur(eq) {
+  function nouveauPatineur(eq, rang) {
     return {
-      eq, x: 0, y: 0, vx: 0, vy: 0, face: eq === 0 ? 0 : Math.PI, r: 5,
+      eq, rang, x: 0, y: 0, vx: 0, vy: 0, face: eq === 0 ? 0 : Math.PI, r: 5,
       tient: false, recupCd: 0, elanT: 0, elanCd: 0, sonne: 0, charge: 0, arme: false,
-      pokeT: 0, anim: 0, humain: false, ex: 0, ey: 0, vit: 1, grince: 0,
+      pokeT: 0, anim: 0, humain: false, ex: 0, ey: 0, vit: 1, grince: 0, vise: null,
       ia: { t: 0, tx: 0, ty: 0, but: 0.5 },
     };
   }
@@ -555,20 +556,26 @@
 
   function nouvellePartie(mode) {
     const niv = mode === 'demo' ? NIVEAUX[1] : NIVEAUX[pref.niveau];
+    const nb = mode === 'demo' ? 3 : EFFECTIFS[pref.effectif];
     jeu = {
-      mode, niv,
-      patineurs: [nouveauPatineur(0), nouveauPatineur(1)],
+      mode, niv, nb,
+      // vos coéquipiers jouent toujours au niveau normal ; le niveau choisi règle le CPU
+      nivEq: [mode === 'match' ? NIVEAUX[1] : niv, niv],
+      patineurs: [], controle: null,
       gardiens: [nouveauGardien(0), nouveauGardien(1)],
-      palet: { x: 0, y: 0, vx: 0, vy: 0, r: 2.2, porteur: null, dernier: null, tireur: null, trace: [] },
+      palet: { x: 0, y: 0, vx: 0, vy: 0, r: 2.2, porteur: null, dernier: null, tireur: null, passe: null, trace: [] },
       score: [0, 0], tirs: [0, 0], arrets: [0, 0],
       horloge: mode === 'demo' ? 0 : DUREES[pref.duree], prolong: false,
       phase: 'engagement', phaseT: 1.6, temps: 0,
-      lampe: [0, 0], excite: 0, marqueur: null,
+      lampe: [0, 0], excite: 0, marqueur: null, buteur: null,
     };
-    const [a, b] = jeu.patineurs;
-    a.humain = mode === 'match';
-    a.vit = mode === 'match' ? 1 : niv.vit;
-    b.vit = niv.vit;
+    for (let eq = 0; eq < 2; eq++) {
+      for (let i = 0; i < nb; i++) {
+        const s = nouveauPatineur(eq, i);
+        s.vit = mode === 'match' && eq === 0 ? 1 : jeu.nivEq[eq].vit;
+        jeu.patineurs.push(s);
+      }
+    }
     jeu.gardiens[0].vit = mode === 'match' ? 2.0 : niv.gk;
     jeu.gardiens[0].antic = mode === 'match' ? 0.3 : niv.antic;
     jeu.gardiens[1].vit = niv.gk;
@@ -576,16 +583,29 @@
     engagement(1.6);
   }
 
+  // le joueur humain pilote un seul patineur à la fois
+  function controle(s) {
+    if (!jeu || jeu.mode !== 'match' || s.eq !== 0 || jeu.controle === s) return;
+    if (jeu.controle) { const a = jeu.controle; a.humain = false; a.arme = false; a.charge = 0; a.vise = null; a.ia.t = 0; }
+    s.humain = true; s.arme = false; s.charge = 0;
+    jeu.controle = s;
+  }
+
+  const equipe = (eq) => jeu.patineurs.filter((m) => m.eq === eq);
+
   function engagement(duree) {
-    const [a, b] = jeu.patineurs;
     const p = jeu.palet;
-    p.x = rink.cx; p.y = rink.cy; p.vx = p.vy = 0; p.porteur = null; p.trace.length = 0;
-    a.x = rink.cx - 24; a.y = rink.cy + 2; b.x = rink.cx + 24; b.y = rink.cy - 2;
+    p.x = rink.cx; p.y = rink.cy; p.vx = p.vy = 0; p.porteur = null; p.passe = null; p.trace.length = 0;
+    const oy = Math.round(rink.h * 0.27);
     for (const s of jeu.patineurs) {
+      const cote = s.eq === 0 ? -1 : 1;
+      if (s.rang === 0) { s.x = rink.cx + cote * 20; s.y = rink.cy + cote * -2; }
+      else { s.x = rink.cx + cote * 44; s.y = rink.cy + (s.rang === 1 ? -oy : oy); }
       s.vx = s.vy = 0; s.tient = false; s.arme = false; s.charge = 0; s.sonne = 0; s.elanT = 0;
-      s.face = s.eq === 0 ? 0 : Math.PI; s.recupCd = 0;
+      s.face = s.eq === 0 ? 0 : Math.PI; s.recupCd = 0; s.vise = null;
     }
     for (const gk of jeu.gardiens) { gk.a = 0; gk.tient = 0; gk.cd = 0; }
+    if (jeu.mode === 'match') controle(jeu.patineurs[0]);
     jeu.phase = 'engagement'; jeu.phaseT = duree;
   }
 
@@ -694,8 +714,8 @@
 
   function prendPalet(qui) {
     const p = jeu.palet;
-    p.porteur = qui; p.dernier = qui;
-    if (qui.face !== undefined) { qui.tient = true; Son.touche(); }
+    p.porteur = qui; p.dernier = qui; p.passe = null;
+    if (qui.face !== undefined) { qui.tient = true; Son.touche(); controle(qui); }
   }
   function lachePalet(s, cd) {
     const p = jeu.palet;
@@ -711,10 +731,83 @@
     p.x = sp.x; p.y = sp.y;
     p.vx = Math.cos(ang) * v + s.vx * 0.1;
     p.vy = Math.sin(ang) * v + s.vy * 0.1;
-    p.tireur = s.eq; p.dernier = s;
+    p.tireur = s.eq; p.dernier = s; p.passe = null;
     Son.frappe(puissance);
     etincelles(p.x, p.y, 3 + Math.round(puissance * 8));
     if (puissance > 0.7) secousse = Math.max(secousse, 1.5);
+  }
+
+  // une ligne de passe est libre si aucun adversaire ne traîne dessus
+  function ligneLibre(eq, x0, y0, x1, y1) {
+    for (const o of jeu.patineurs) {
+      if (o.eq !== eq && pointSegDist(o.x, o.y, x0, y0, x1, y1) < 7) return false;
+    }
+    return true;
+  }
+
+  // Choisit le meilleur receveur. Avec une direction préférée (le joystick),
+  // on ne regarde que les coéquipiers à peu près dans cette direction.
+  function meilleurReceveur(s, eq, x, y, angPref) {
+    let best = null, bs = -1e9;
+    for (const m of jeu.patineurs) {
+      if (m.eq !== eq || m === s || m.sonne > 0) continue;
+      const dx = m.x - x, dy = m.y - y, d = Math.hypot(dx, dy);
+      if (d < 14) continue;
+      let sc = 0;
+      if (angPref !== null) {
+        const e = Math.abs(angDiff(angPref, Math.atan2(dy, dx)));
+        if (e > 1.1) continue;
+        sc -= e * 120;
+      }
+      sc += ligneLibre(eq, x, y, m.x, m.y) ? 40 : -40;
+      sc += (m.x - x) * sensAttaque(eq) * 0.3;
+      sc -= Math.abs(d - 70) * 0.2;
+      for (const o of jeu.patineurs) if (o.eq !== eq && Math.hypot(o.x - m.x, o.y - m.y) < 16) sc -= 25;
+      if (sc > bs) { bs = sc; best = m; }
+    }
+    return best ? { m: best, sc: bs } : null;
+  }
+
+  // envoie le palet vers un coéquipier, en visant là où il sera
+  function lancePasse(x, y, m, err) {
+    const p = jeu.palet;
+    const d = Math.hypot(m.x - x, m.y - y);
+    const v = clamp(150 + d * 0.9, 170, 310);
+    const t = d / v;
+    const tx = m.x + m.vx * t * 0.9, ty = m.y + m.vy * t * 0.9;
+    const a = Math.atan2(ty - y, tx - x) + (Math.random() + Math.random() - 1) * err;
+    p.x = x; p.y = y;
+    p.vx = Math.cos(a) * v; p.vy = Math.sin(a) * v;
+    p.passe = { vers: m, t: 1.3 }; p.tireur = null;
+    Son.frappe(0.25);
+    controle(m);
+  }
+
+  function passeVers(s, m, err = 0.03) {
+    lachePalet(s, 0.3);
+    const sp = pointCrosse(s);
+    jeu.palet.dernier = s;
+    lancePasse(sp.x, sp.y, m, err);
+  }
+
+  function passeJoueur(s, ix, iy) {
+    const pref = Math.hypot(ix, iy) > 0.3 ? Math.atan2(iy, ix) : null;
+    const r = meilleurReceveur(s, s.eq, s.x, s.y, pref) || (pref !== null ? meilleurReceveur(s, s.eq, s.x, s.y, null) : null);
+    if (!r) return false;
+    passeVers(s, r.m, 0.02);
+    return true;
+  }
+
+  // sans le palet, le bouton passe donne la main au coéquipier le plus proche du palet
+  function changeJoueur() {
+    const p = jeu.palet;
+    let best = null, dmin = 1e9;
+    for (const m of equipe(0)) {
+      if (m === jeu.controle) continue;
+      const d = Math.hypot(m.x - p.x, m.y - p.y);
+      if (d < dmin) { dmin = d; best = m; }
+    }
+    if (best) { controle(best); Son.clic(); }
   }
 
   function elan(s, dirx, diry) {
@@ -774,38 +867,48 @@
   }
 
   function collisionsPatineurs() {
-    const [a, b] = jeu.patineurs;
-    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-    const min = a.r + b.r;
-    if (d < min && d > 0) {
-      const nx = dx / d, ny = dy / d, rec = (min - d) / 2;
-      a.x -= nx * rec; a.y -= ny * rec; b.x += nx * rec; b.y += ny * rec;
-      const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-      if (rv < 0) {
-        const j = -rv * 0.8;
-        a.vx -= nx * j / 2; a.vy -= ny * j / 2; b.vx += nx * j / 2; b.vy += ny * j / 2;
+    const L = jeu.patineurs;
+    for (let i = 0; i < L.length; i++) {
+      for (let j = i + 1; j < L.length; j++) {
+        const a = L[i], b = L[j];
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+        const min = a.r + b.r;
+        if (d < min && d > 0) {
+          const nx = dx / d, ny = dy / d, rec = (min - d) / 2;
+          a.x -= nx * rec; a.y -= ny * rec; b.x += nx * rec; b.y += ny * rec;
+          const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+          if (rv < 0) {
+            const k = -rv * 0.8;
+            a.vx -= nx * k / 2; a.vy -= ny * k / 2; b.vx += nx * k / 2; b.vy += ny * k / 2;
+          }
+        }
       }
     }
-    // mise en échec : un élan qui percute le porteur lui fait perdre le palet
+    // mise en échec : un élan qui percute un adversaire ; le porteur perd le palet
     if (jeu.phase !== 'jeu') return;
-    for (const [s, o] of [[a, b], [b, a]]) {
-      if (s.elanT <= 0 || o.sonne > 0) continue;
-      if (Math.hypot(o.x - s.x, o.y - s.y) > 12) continue;
-      const nx = (o.x - s.x) / (Math.hypot(o.x - s.x, o.y - s.y) || 1), ny = (o.y - s.y) / (Math.hypot(o.x - s.x, o.y - s.y) || 1);
-      const p = jeu.palet;
-      if (o.tient) {
-        lachePalet(o, 0.9);
-        p.vx = nx * 110 + o.vx * 0.4 + alea(-30, 30); p.vy = ny * 110 + o.vy * 0.4 + alea(-30, 30);
-        p.dernier = s;
+    for (const s of L) {
+      if (s.elanT <= 0) continue;
+      for (const o of L) {
+        if (o.eq === s.eq || o.sonne > 0) continue;
+        const d = Math.hypot(o.x - s.x, o.y - s.y);
+        if (d > 12) continue;
+        const nx = (o.x - s.x) / (d || 1), ny = (o.y - s.y) / (d || 1);
+        const p = jeu.palet;
+        if (o.tient) {
+          lachePalet(o, 0.9);
+          p.vx = nx * 110 + o.vx * 0.4 + alea(-30, 30); p.vy = ny * 110 + o.vy * 0.4 + alea(-30, 30);
+          p.dernier = s;
+        }
+        o.sonne = o.tient ? 0.8 : 0.45;
+        o.vx += nx * 130; o.vy += ny * 130;
+        s.vx *= 0.4; s.vy *= 0.4;
+        s.elanT = 0;
+        secousse = 3; Son.charge();
+        etincelles((s.x + o.x) / 2, (s.y + o.y) / 2 - 4, 10, '#ffffff');
+        bulle('CHECK!', (s.x + o.x) / 2, o.y - 18, C.or);
+        if (s.humain || o.humain) vibre(35);
+        break;
       }
-      o.sonne = o.tient ? 0.8 : 0.45;
-      o.vx += nx * 130; o.vy += ny * 130;
-      s.vx *= 0.4; s.vy *= 0.4;
-      s.elanT = 0;
-      secousse = 3; Son.charge();
-      etincelles((s.x + o.x) / 2, (s.y + o.y) / 2 - 4, 10, '#ffffff');
-      bulle('CHECK!', (s.x + o.x) / 2, o.y - 18, C.or);
-      if (s.humain || o.humain) vibre(35);
     }
   }
 
@@ -834,18 +937,14 @@
 
   function degage(gk, dir) {
     const p = jeu.palet;
-    const coéquipier = jeu.patineurs[gk.eq];
-    let ang;
-    const dx = coéquipier.x - gk.x, dy = coéquipier.y - gk.y;
-    if (dx * dir > 15 && Math.hypot(dx, dy) > 25) {
-      ang = Math.atan2(dy + coéquipier.vy * 0.3, dx + coéquipier.vx * 0.3) + alea(-0.12, 0.12);
-    } else {
-      ang = Math.atan2(gk.y < rink.cy ? -0.7 : 0.7, dir);
-    }
     p.porteur = null; p.dernier = gk; p.tireur = null;
+    gk.cd = 0.7;
+    const ox = gk.x + dir * 6, oy = gk.y;
+    const r = meilleurReceveur(null, gk.eq, ox, oy, null);
+    if (r && (r.m.x - gk.x) * dir > 15) { lancePasse(ox, oy, r.m, 0.06); return; }
+    const ang = Math.atan2(gk.y < rink.cy ? -0.7 : 0.7, dir);
     p.x = gk.x + Math.cos(ang) * 8; p.y = gk.y + Math.sin(ang) * 8;
     p.vx = Math.cos(ang) * 200; p.vy = Math.sin(ang) * 200;
-    gk.cd = 0.7;
     Son.frappe(0.3);
   }
 
@@ -946,15 +1045,16 @@
       }
       if (meilleur) prendPalet(meilleur);
     }
-    // harponnage : la crosse adverse qui traîne près du palet peut le chiper
+    if (p.passe) { p.passe.t -= dt; if (p.passe.t <= 0 || p.porteur) p.passe = null; }
+    // harponnage : une crosse adverse qui traîne près du palet peut le chiper
     if (p.porteur && p.porteur.face !== undefined && jeu.phase === 'jeu') {
       const c = p.porteur;
-      const o = jeu.patineurs[1 - c.eq];
-      if (o.sonne <= 0 && o.recupCd <= 0) {
+      for (const o of jeu.patineurs) {
+        if (o.eq === c.eq || o.sonne > 0 || o.recupCd > 0) continue;
         const sp = pointCrosse(o);
         const d = Math.hypot(p.x - sp.x, p.y - sp.y);
         const portee = o.pokeT > 0 ? 10 : 6.5;
-        const taux = o.humain ? (o.pokeT > 0 ? 7 : 0.7) : jeu.niv.poke;
+        const taux = o.humain ? (o.pokeT > 0 ? 7 : 0.7) : jeu.nivEq[o.eq].poke;
         if (d < portee && Math.random() < taux * dt) {
           lachePalet(c, 0.4);
           const a = o.face + alea(-0.8, 0.8);
@@ -963,6 +1063,7 @@
           o.recupCd = 0.06;
           Son.frappe(0.1);
           bulle('VOLE!', p.x, p.y - 14, EQUIPES[o.eq].clair);
+          break;
         }
       }
     }
@@ -975,6 +1076,7 @@
     jeu.lampe[1 - eq] = 1;
     jeu.excite = 1;
     jeu.marqueur = eq;
+    jeu.buteur = jeu.palet.dernier;
     const p = jeu.palet;
     confettis(eq === 0 ? rink.butD : rink.butG, rink.cy, eq);
     etincelles(p.x, p.y, 20, C.or);
@@ -1009,55 +1111,113 @@
     return meilleur + (Math.random() + Math.random() - 1) * err;
   }
 
+  const plusProche = (liste, x, y) => {
+    let best = null, dmin = 1e9;
+    for (const m of liste) { const d = Math.hypot(m.x - x, m.y - y); if (d < dmin) { dmin = d; best = m; } }
+    return best;
+  };
+
   function planIA(s) {
-    const p = jeu.palet, o = jeu.patineurs[1 - s.eq], niv = jeu.niv;
+    const p = jeu.palet, niv = jeu.nivEq[s.eq];
     const atk = butAttaque(s.eq), def = butDefendu(s.eq), dir = sensAttaque(s.eq);
+    const cy = rink.cy;
     const ia = s.ia;
+    const nous = equipe(s.eq), eux = equipe(1 - s.eq);
     if (s.tient) {
-      const dx = atk - s.x, dy = rink.cy - s.y, d = Math.hypot(dx, dy);
+      const o = plusProche(eux, s.x, s.y);
+      const dx = atk - s.x, dy = cy - s.y, d = Math.hypot(dx, dy);
       const devant = (atk - s.x) * dir > 14;
       const angleOk = Math.abs(dy) < Math.abs(dx) * 1.7;
-      const bouche = pointSegDist(o.x, o.y, s.x, s.y, atk, rink.cy) < 9 && Math.hypot(o.x - s.x, o.y - s.y) < d;
-      if (!s.arme && devant && angleOk && d < niv.portee && (!bouche || d < 55 || Math.random() < 0.2)) {
+      const bouche = eux.some((e) => pointSegDist(e.x, e.y, s.x, s.y, atk, cy) < 9 && Math.hypot(e.x - s.x, e.y - s.y) < d);
+      const presse = eux.some((e) => Math.hypot(e.x - s.x, e.y - s.y) < 22);
+      const tirable = devant && angleOk && d < niv.portee;
+      // passer quand on est pressé ou qu'on n'a pas d'angle de tir
+      if (!s.arme && nous.length > 1 && ((presse && Math.random() < 0.5) || (!tirable && Math.random() < 0.25) || (bouche && Math.random() < 0.35))) {
+        const r = meilleurReceveur(s, s.eq, s.x, s.y, null);
+        if (r && r.sc > 0) { passeVers(s, r.m, niv.err * 0.8); return; }
+      }
+      if (!s.arme && tirable && (!bouche || d < 55 || Math.random() < 0.2)) {
         s.arme = true; s.charge = 0;
         ia.but = clamp(0.2 + (d / niv.portee) * 0.65 + alea(-0.1, 0.2), 0.15, 1);
       }
       if (!devant) {
-        ia.tx = atk - dir * 55; ia.ty = s.y < rink.cy ? rink.cy - 42 : rink.cy + 42;
+        ia.tx = atk - dir * 55; ia.ty = s.y < cy ? cy - 42 : cy + 42;
       } else {
         ia.tx = atk - dir * 50;
-        ia.ty = rink.cy + (s.y < rink.cy ? -18 : 18);
-        const oDevant = (o.x - s.x) * dir > 0 && Math.hypot(o.x - s.x, o.y - s.y) < 40;
+        ia.ty = cy + (s.y < cy ? -18 : 18);
+        const oDevant = o && (o.x - s.x) * dir > 0 && Math.hypot(o.x - s.x, o.y - s.y) < 40;
         if (oDevant) {
           ia.ty = clamp(s.y + (s.y > o.y ? 38 : -38), rink.y + 16, rink.y + rink.h - 16);
           ia.tx = s.x + dir * 40;
-          if (s.elanCd <= 0 && Math.random() < 0.35) { s.ex = dir; s.ey = (s.y > o.y ? 0.6 : -0.6); elan(s, s.ex, s.ey); }
+          if (s.elanCd <= 0 && Math.random() < 0.3) { s.ex = dir; s.ey = (s.y > o.y ? 0.6 : -0.6); elan(s, s.ex, s.ey); }
         }
       }
+    } else if (p.passe && p.passe.vers === s) {
+      // aller au-devant de la passe
+      const v2 = p.vx * p.vx + p.vy * p.vy || 1;
+      const t = clamp(((s.x - p.x) * p.vx + (s.y - p.y) * p.vy) / v2, 0, 0.8);
+      ia.tx = p.x + p.vx * t; ia.ty = p.y + p.vy * t;
+      ia.t = Math.min(ia.t, 0.08);
     } else if (p.porteur && p.porteur.eq !== s.eq) {
       if (p.porteur.face === undefined) {
-        ia.tx = def + dir * rink.w * 0.3; ia.ty = rink.cy;
+        ia.tx = def + dir * rink.w * 0.3; ia.ty = cy + [0, -35, 35][s.rang];
       } else {
         const c = p.porteur;
-        const dDef = Math.abs(c.x - def);
-        if (dDef < rink.w * 0.62 || Math.random() < 0.4) {
-          ia.tx = c.x + c.vx * 0.22 + Math.cos(c.face) * 6; ia.ty = c.y + c.vy * 0.22 + Math.sin(c.face) * 6;
+        const actifs = nous.filter((m) => m.sonne <= 0);
+        const presseur = plusProche(actifs.length ? actifs : nous, c.x, c.y);
+        if (s === presseur) {
+          const dDef = Math.abs(c.x - def);
+          if (dDef < rink.w * 0.62 || Math.random() < 0.4) {
+            ia.tx = c.x + c.vx * 0.22 + Math.cos(c.face) * 6; ia.ty = c.y + c.vy * 0.22 + Math.sin(c.face) * 6;
+          } else {
+            ia.tx = c.x + (def - c.x) * 0.3; ia.ty = c.y + (cy - c.y) * 0.3;
+          }
+          const dc = Math.hypot(c.x - s.x, c.y - s.y);
+          if (dc < 26 && s.elanCd <= 0 && Math.random() < niv.check * niv.reac * 1.2) {
+            elan(s, c.x + c.vx * 0.1 - s.x, c.y + c.vy * 0.1 - s.y);
+          }
         } else {
-          ia.tx = c.x + (def - c.x) * 0.3; ia.ty = c.y + (rink.cy - c.y) * 0.3;
-        }
-        const dc = Math.hypot(c.x - s.x, c.y - s.y);
-        if (dc < 26 && s.elanCd <= 0 && Math.random() < niv.check * niv.reac * 1.2) {
-          elan(s, c.x + c.vx * 0.1 - s.x, c.y + c.vy * 0.1 - s.y);
+          // marquage individuel : chacun prend l'adversaire libre le plus proche, côté but
+          let libres = eux.filter((e) => e !== c);
+          let cible = null;
+          for (const m of nous.filter((m) => m !== presseur).sort((a, b) => a.rang - b.rang)) {
+            const e = plusProche(libres, m.x, m.y);
+            if (!e) break;
+            libres = libres.filter((x) => x !== e);
+            if (m === s) { cible = e; break; }
+          }
+          if (cible) {
+            ia.tx = cible.x + (def - cible.x) * 0.2; ia.ty = cible.y + (cy - cible.y) * 0.2;
+          } else {
+            ia.tx = def + (c.x - def) * 0.35; ia.ty = cy + (c.y - cy) * 0.35;
+          }
         }
       }
     } else if (p.porteur && p.porteur.eq === s.eq) {
-      ia.tx = def + dir * rink.w * 0.32; ia.ty = rink.cy + (s.y < rink.cy ? -30 : 30);
+      const c = p.porteur;
+      if (c.face === undefined) {
+        ia.tx = def + dir * rink.w * [0.3, 0.42, 0.42][s.rang]; ia.ty = cy + [0, -40, 40][s.rang];
+      } else {
+        // soutien : un joueur dans l'enclave, l'autre en retrait pour la remise
+        const soutiens = nous.filter((m) => m !== c).sort((a, b) => Math.abs(a.x - atk) - Math.abs(b.x - atk));
+        const haut = c.y < cy ? 1 : -1;
+        if (soutiens[0] === s) { ia.tx = atk - dir * 52; ia.ty = cy + haut * 22; }
+        else { ia.tx = c.x - dir * 45; ia.ty = cy + haut * 34; }
+        ia.tx += alea(-6, 6); ia.ty += alea(-6, 6);
+      }
     } else {
-      const d = Math.hypot(p.x - s.x, p.y - s.y);
-      const t = Math.min(0.6, d / 160);
-      ia.tx = p.x + p.vx * t; ia.ty = p.y + p.vy * t;
-      // on vise derrière le palet pour l'attaquer du bon côté
-      ia.tx -= dir * 4;
+      // palet libre : le plus proche fonce, les autres se placent
+      const parDist = [...nous].sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
+      const k = parDist.indexOf(s);
+      if (k === 0) {
+        const d = Math.hypot(p.x - s.x, p.y - s.y);
+        const t = Math.min(0.6, d / 160);
+        ia.tx = p.x + p.vx * t - dir * 4; ia.ty = p.y + p.vy * t;
+      } else if (k === 1) {
+        ia.tx = p.x + (atk - p.x) * 0.3; ia.ty = cy + (p.y < cy ? 26 : -26);
+      } else {
+        ia.tx = def + (p.x - def) * 0.4; ia.ty = cy + (p.y - cy) * 0.4;
+      }
     }
     ia.tx = clamp(ia.tx, rink.x + 8, rink.x + rink.w - 8);
     ia.ty = clamp(ia.ty, rink.y + 8, rink.y + rink.h - 8);
@@ -1066,12 +1226,12 @@
   function pilotageIA(s, dt) {
     const ia = s.ia;
     ia.t -= dt;
-    if (ia.t <= 0) { ia.t = jeu.niv.reac * alea(0.7, 1.3); planIA(s); }
+    if (ia.t <= 0) { ia.t = jeu.nivEq[s.eq].reac * alea(0.7, 1.3); planIA(s); }
     // si on perd le palet en armant, on oublie le tir
     if (s.arme && !s.tient) { s.arme = false; s.charge = 0; }
     if (s.arme) {
       s.charge = Math.min(1, s.charge + dt / 0.85);
-      if (s.charge >= ia.but) tir(s, angleCoin(s, jeu.niv.err), s.charge);
+      if (s.charge >= ia.but) tir(s, angleCoin(s, jeu.nivEq[s.eq].err), s.charge);
     }
     // pilotage : vitesse désirée moins vitesse actuelle
     const dx = ia.tx - s.x, dy = ia.ty - s.y, d = Math.hypot(dx, dy);
@@ -1094,8 +1254,9 @@
   const touches = new Set();
   const cmd = {
     joy: null,           // { id, bx, by, x, y }
-    tirId: null, elanId: null,
-    tirAppui: false, tirRelache: false, elanAppui: false, tirTenu: false,
+    tir: null,           // { id, x0, y0, x, y } : le glissé depuis l'appui donne la direction du tir
+    elanId: null, passeId: null,
+    tirAppui: false, tirRelache: false, elanAppui: false, passeAppui: false, tirTenu: false,
   };
   let tactile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   let boutons = [];      // zones cliquables de l'interface, reconstruites à chaque image
@@ -1103,8 +1264,10 @@
   let enPause = false;
 
   const RAYON_JOY = 22;
+  const GLISSE_MIN = 6;  // en pixels logiques : en dessous, pas de visée manuelle
   const zoneTir = () => ({ x: W - 34, y: H - 32, r: 20 });
-  const zoneElan = () => ({ x: W - 78, y: H - 22, r: 14 });
+  const zonePasse = () => ({ x: W - 80, y: H - 20, r: 14 });
+  const zoneElan = () => ({ x: W - 30, y: H - 78, r: 13 });
   const zonePause = () => ({ x: W - 22, y: 4, w: 16, h: 14 });
 
   function versLogique(e) {
@@ -1125,9 +1288,10 @@
         const bx = clamp(p.x, RAYON_JOY + 4, W * 0.45), by = clamp(p.y, RAYON_JOY + 30, H - RAYON_JOY - 4);
         cmd.joy = { id: e.pointerId, bx, by, x: p.x, y: p.y };
       } else {
-        const ze = zoneElan();
-        if (Math.hypot(p.x - ze.x, p.y - ze.y) < ze.r + 7) { cmd.elanId = e.pointerId; cmd.elanAppui = true; }
-        else { cmd.tirId = e.pointerId; cmd.tirAppui = true; cmd.tirTenu = true; }
+        const zpa = zonePasse(), ze = zoneElan();
+        if (Math.hypot(p.x - zpa.x, p.y - zpa.y) < zpa.r + 6) { cmd.passeId = e.pointerId; cmd.passeAppui = true; }
+        else if (Math.hypot(p.x - ze.x, p.y - ze.y) < ze.r + 6) { cmd.elanId = e.pointerId; cmd.elanAppui = true; }
+        else { cmd.tir = { id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y }; cmd.tirAppui = true; cmd.tirTenu = true; }
       }
       try { ecran.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       return;
@@ -1145,24 +1309,32 @@
       const dx = p.x - cmd.joy.bx, dy = p.y - cmd.joy.by, d = Math.hypot(dx, dy);
       if (d > RAYON_JOY * 1.6) { cmd.joy.bx = p.x - dx / d * RAYON_JOY * 1.6; cmd.joy.by = p.y - dy / d * RAYON_JOY * 1.6; }
     }
+    if (cmd.tir && e.pointerId === cmd.tir.id) {
+      const p = versLogique(e);
+      cmd.tir.x = p.x; cmd.tir.y = p.y;
+    }
   });
 
   const relache = (e) => {
     if (cmd.joy && e.pointerId === cmd.joy.id) cmd.joy = null;
-    if (e.pointerId === cmd.tirId) { cmd.tirId = null; cmd.tirRelache = true; cmd.tirTenu = false; }
+    if (cmd.tir && e.pointerId === cmd.tir.id) { cmd.tirRelache = true; cmd.tirTenu = false; }
     if (e.pointerId === cmd.elanId) cmd.elanId = null;
+    if (e.pointerId === cmd.passeId) cmd.passeId = null;
   };
   ecran.addEventListener('pointerup', relache);
   ecran.addEventListener('pointercancel', relache);
   ecran.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  const TIR_TOUCHES = ['Space', 'KeyJ', 'KeyX'], ELAN_TOUCHES = ['ShiftLeft', 'ShiftRight', 'KeyK', 'KeyC'];
+  const TIR_TOUCHES = ['Space', 'KeyJ', 'KeyX'];
+  const ELAN_TOUCHES = ['ShiftLeft', 'ShiftRight', 'KeyK', 'KeyC'];
+  const PASSE_TOUCHES = ['KeyL', 'KeyV'];
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     Son.init();
     touches.add(e.code);
     if (TIR_TOUCHES.includes(e.code)) { cmd.tirAppui = true; cmd.tirTenu = true; e.preventDefault(); }
     if (ELAN_TOUCHES.includes(e.code)) cmd.elanAppui = true;
+    if (PASSE_TOUCHES.includes(e.code)) cmd.passeAppui = true;
     if (e.code === 'Escape' || e.code === 'KeyP') {
       if (ecranUI === 'jeu') pause(!enPause);
     }
@@ -1177,6 +1349,32 @@
     touches.delete(e.code);
     if (TIR_TOUCHES.includes(e.code) && !TIR_TOUCHES.some((k) => touches.has(k))) { cmd.tirRelache = true; cmd.tirTenu = false; }
   });
+
+  // direction de tir choisie par le glissé sur le bouton (null si pas de glissé)
+  function viseeGlisse() {
+    if (!cmd.tir) return null;
+    const dx = cmd.tir.x - cmd.tir.x0, dy = cmd.tir.y - cmd.tir.y0;
+    return Math.hypot(dx, dy) > GLISSE_MIN ? Math.atan2(dy, dx) : null;
+  }
+
+  // l'angle réellement utilisé au tir ; « exact » coupe l'imprécision pour l'affichage
+  function angleTirJoueur(s, ix, iy, exact) {
+    const g_ = viseeGlisse();
+    if (g_ !== null) {
+      // visée manuelle : on respecte le geste, avec juste un léger aimant vers le coin tout proche
+      const gx = butAttaque(s.eq);
+      let best = null, e = 0.18;
+      for (const sy of [-1, 1]) {
+        const a = Math.atan2(rink.cy + sy * (BUT_DEMI - 3.5) - s.y, gx - s.x);
+        const d = Math.abs(angDiff(g_, a));
+        if (d < e) { e = d; best = a; }
+      }
+      return best === null ? g_ : g_ + angDiff(g_, best) * 0.5;
+    }
+    const m = Math.hypot(ix, iy);
+    const a = m > 0.35 ? Math.atan2(iy, ix) : s.face;
+    return assistance(s, a, m > 0.35, exact);
+  }
 
   function lireJoueur(s, dt) {
     let ix = 0, iy = 0;
@@ -1202,27 +1400,31 @@
       if (!s.tient) { s.arme = false; s.charge = 0; }
       else s.charge = Math.min(1, s.charge + dt / 0.85);
     }
+    s.vise = s.arme ? angleTirJoueur(s, ix, iy, true) : null;
     if (cmd.tirRelache) {
       cmd.tirRelache = false;
-      if (s.arme && s.tient && actif) {
-        const m = Math.hypot(ix, iy);
-        let a = m > 0.35 ? Math.atan2(iy, ix) : s.face;
-        a = assistance(s, a, m > 0.35);
-        tir(s, a, s.charge);
+      if (s.arme && s.tient && actif) tir(s, angleTirJoueur(s, ix, iy, false), s.charge);
+      s.arme = false; s.vise = null;
+      cmd.tir = null;
+    }
+    if (cmd.passeAppui) {
+      cmd.passeAppui = false;
+      if (actif) {
+        if (s.tient) passeJoueur(s, ix, iy);
+        else changeJoueur();
       }
-      s.arme = false;
     }
     if (cmd.elanAppui) { cmd.elanAppui = false; if (actif) elan(s, ix, iy); }
   }
 
   // Aide à la visée : un tir à peu près vers la cage part vers un coin.
-  function assistance(s, a, oriente) {
+  function assistance(s, a, oriente, exact) {
     const gx = butAttaque(s.eq);
     const aCentre = Math.atan2(rink.cy - s.y, gx - s.x);
     const dA = angDiff(aCentre, a);
     if (Math.abs(dA) > 0.75) return a;
     let aCoin;
-    if (!oriente || Math.abs(dA) < 0.06) aCoin = angleCoin(s, 0.04);
+    if (!oriente || Math.abs(dA) < 0.06) aCoin = angleCoin(s, exact ? 0 : 0.04);
     else {
       const sy = dA > 0 === (Math.cos(aCentre) > 0) ? 1 : -1;
       aCoin = Math.atan2(rink.cy + sy * (BUT_DEMI - 3.5) - s.y, gx - s.x);
@@ -1243,7 +1445,7 @@
     if (jeu.phase === 'but') {
       for (const s of jeu.patineurs) {
         if (s.humain) continue;
-        if (s.eq === jeu.marqueur) { const a = jeu.temps * 2.2; s.ex = Math.cos(a); s.ey = Math.sin(a); }
+        if (s === jeu.buteur && s.eq === jeu.marqueur) { const a = jeu.temps * 2.2; s.ex = Math.cos(a); s.ey = Math.sin(a); }
         else { s.ex = s.ey = 0; }
       }
     }
@@ -1287,7 +1489,7 @@
   function finMatch() {
     jeu.phase = 'fin';
     ecranUI = 'fin';
-    cmd.joy = null; cmd.tirTenu = false;
+    cmd.joy = null; cmd.tirTenu = false; cmd.tir = null;
     const gagne = jeu.score[0] > jeu.score[1];
     pref.matchs[pref.niveau] = (pref.matchs[pref.niveau] || 0) + 1;
     if (gagne) pref.victoires[pref.niveau] = (pref.victoires[pref.niveau] || 0) + 1;
@@ -1314,7 +1516,7 @@
     if (ecranUI !== 'jeu' && ecranUI !== 'pause') return;
     enPause = oui;
     ecranUI = oui ? 'pause' : 'jeu';
-    cmd.joy = null; cmd.tirTenu = false; cmd.tirId = null; cmd.elanId = null;
+    cmd.joy = null; cmd.tirTenu = false; cmd.tir = null; cmd.elanId = null; cmd.passeId = null;
     touches.clear();
   }
 
@@ -1415,6 +1617,18 @@
       g.fillStyle = EQUIPES[0].clair;
       g.fillRect(Math.round(s.x) - 2, fy, 5, 1); g.fillRect(Math.round(s.x) - 1, fy + 1, 3, 1); g.fillRect(Math.round(s.x), fy + 2, 1, 1);
     }
+    if (s.humain && s.arme && s.vise !== null) {
+      // flèche de visée pointillée, qui s'allonge avec la puissance
+      const sp = pointCrosse(s);
+      const L = 12 + 26 * s.charge;
+      const c = s.charge > 0.85 ? '#ff5a4e' : C.or;
+      for (let k = 4; k < L; k += 4) {
+        const x = sp.x + Math.cos(s.vise) * k, y = sp.y + Math.sin(s.vise) * k;
+        px(x - 1, y - 1, 3, 3, C.contour); px(x, y, 1, 1, c);
+      }
+      const bx_ = sp.x + Math.cos(s.vise) * L, by_ = sp.y + Math.sin(s.vise) * L;
+      px(bx_ - 2, by_ - 2, 5, 5, C.contour); px(bx_ - 1, by_ - 1, 3, 3, c);
+    }
     if (s.arme) {
       const w = 13, x = Math.round(s.x) - 6, y = by - (s.humain ? 11 : 5);
       px(x - 1, y - 1, w + 2, 4, C.contour);
@@ -1498,6 +1712,28 @@
 
     // ombres puis entités triées par profondeur
     for (const s of jeu.patineurs) ellipseOmbre(s.x, s.y + 3, 5, 1, 0.28);
+    // en match, on repère ses coéquipiers et le receveur que viserait une passe
+    if (jeu.mode === 'match' && ecranUI === 'jeu') {
+      const c = jeu.controle;
+      let rec = null;
+      if (c && c.tient && jeu.phase === 'jeu') {
+        const m = Math.hypot(c.ex, c.ey);
+        const r = meilleurReceveur(c, 0, c.x, c.y, m > 0.3 ? Math.atan2(c.ey, c.ex) : null) || meilleurReceveur(c, 0, c.x, c.y, null);
+        rec = r && r.m;
+      }
+      for (const s of equipe(0)) {
+        if (s === c) continue;
+        if (s === rec) {
+          const cl = Math.floor(jeu.temps * 6) & 1 ? C.or : C.blanc;
+          for (let k = 0; k < 16; k++) {
+            const a = k / 16 * Math.PI * 2 + jeu.temps * 3;
+            if (k % 2 === 0) px(s.x + Math.cos(a) * 8, s.y + 3 + Math.sin(a) * 3, 1, 1, cl);
+          }
+        } else {
+          px(s.x - 1, s.y + 5, 3, 1, EQUIPES[0].maillot);
+        }
+      }
+    }
     for (const gk of jeu.gardiens) ellipseOmbre(gk.x, gk.y + 3, 6, 1, 0.28);
     const liste = [
       ...jeu.patineurs.map((s) => ({ y: s.y, f: () => dessinePatineur(s) })),
@@ -1552,7 +1788,8 @@
 
   function dessineCommandes() {
     if (!tactile) return;
-    const s = jeu.patineurs[0];
+    const s = jeu.controle;
+    if (!s) return;
     // joystick flottant
     if (cmd.joy) {
       g.globalAlpha = 0.5;
@@ -1572,9 +1809,9 @@
       g.globalAlpha = 1;
       texte('GLISSEZ', 40, H - 13, C.blanc, 1, 'c');
     }
-    // bouton tir
-    const zt = zoneTir(), ze = zoneElan();
-    const tAppui = cmd.tirId !== null;
+    // bouton tir (on glisse depuis l'appui pour viser)
+    const zt = zoneTir(), zpa = zonePasse(), ze = zoneElan();
+    const tAppui = cmd.tir !== null;
     g.globalAlpha = tAppui ? 0.9 : 0.6;
     disque(zt.x, zt.y, zt.r, C.contour);
     disque(zt.x, zt.y + (tAppui ? 1 : 0), zt.r - 1, s.tient ? '#ff5470' : '#6b7295');
@@ -1582,6 +1819,26 @@
     if (s.arme) anneau(zt.x, zt.y, zt.r + 2, C.or, s.charge, 2);
     g.globalAlpha = 1;
     texte(s.tient ? 'TIR' : 'CROSSE', zt.x, zt.y - 3 + (tAppui ? 1 : 0), C.blanc, 1, 'c');
+    if (cmd.tir && s.arme) {
+      // le fil du glissé, depuis le point d'appui
+      const dx = cmd.tir.x - cmd.tir.x0, dy = cmd.tir.y - cmd.tir.y0;
+      if (Math.hypot(dx, dy) > GLISSE_MIN) {
+        g.globalAlpha = 0.8;
+        ligne(cmd.tir.x0, cmd.tir.y0, cmd.tir.x, cmd.tir.y, C.or);
+        disque(cmd.tir.x, cmd.tir.y, 3, C.or);
+        g.globalAlpha = 1;
+      } else if (s.tient) {
+        texte('GLISSEZ', zt.x, zt.y - zt.r - 12, C.or, 1, 'c');
+        texte('POUR VISER', zt.x - 8, zt.y - zt.r - 3, C.or, 1, 'c');
+      }
+    }
+    // bouton passe / changer de joueur
+    const pAppui = cmd.passeId !== null;
+    g.globalAlpha = pAppui ? 0.9 : 0.6;
+    disque(zpa.x, zpa.y, zpa.r, C.contour);
+    disque(zpa.x, zpa.y + (pAppui ? 1 : 0), zpa.r - 1, s.tient ? '#35c47a' : '#4f6a8c');
+    g.globalAlpha = 1;
+    texte(s.tient ? 'PASSE' : 'CHANGE', zpa.x, zpa.y - 3, C.blanc, 1, 'c');
     // bouton élan / mise en échec
     const eAppui = cmd.elanId !== null;
     const pret = s.elanCd <= 0;
@@ -1620,7 +1877,7 @@
     const e = W > 300 ? 4 : 3;
     const lw = largeurTexte(titre, e);
     let ox = cx - lw / 2;
-    const ty = Math.max(8, Math.round(H * 0.08));
+    const ty = Math.max(6, Math.round(H * 0.05));
     for (let i = 0; i < titre.length; i++) {
       const dy = Math.round(Math.sin(t * 3 + i * 0.6) * 1.5);
       const col = i < 4 ? EQUIPES[0].maillot : i === 4 ? C.blanc : EQUIPES[1].maillot;
@@ -1628,27 +1885,28 @@
     }
     texte('HOCKEY ARCADE', cx, ty + 7 * e + 5, C.or, 1, 'c');
 
-    const pw = 176, ph = 92;
+    const pw = 186, ph = 106;
     const py = ty + 7 * e + 16;
     panneau(cx - pw / 2, py, pw, ph);
     const lignes = [
       ['NIVEAU', NIVEAUX[pref.niveau].nom, () => { pref.niveau = (pref.niveau + 1) % NIVEAUX.length; sauve(); }],
       ['DUREE', (DUREES[pref.duree] / 60) + ' MIN', () => { pref.duree = (pref.duree + 1) % DUREES.length; sauve(); }],
+      ['EQUIPES', EFFECTIFS[pref.effectif] + ' CONTRE ' + EFFECTIFS[pref.effectif], () => { pref.effectif = (pref.effectif + 1) % EFFECTIFS.length; sauve(); }],
       ['SON', pref.son ? 'OUI' : 'NON', () => { pref.son = !pref.son; Son.muet(!pref.son); sauve(); }],
     ];
     lignes.forEach(([k, v, act], i) => {
-      const y = py + 6 + i * 16;
+      const y = py + 5 + i * 15;
       texte(k, cx - pw / 2 + 10, y + 4, C.gris, 1, 'g');
-      bouton('< ' + v + ' >', cx - 4, y, 82, 13, act, { couleur: '#232a58' });
+      bouton('< ' + v + ' >', cx - 14, y, 98, 13, act, { couleur: '#232a58' });
     });
-    const jy = py + ph - 32;
+    const jy = py + ph - 29;
     const pulse = Math.sin(t * 5) > 0;
     bouton('JOUER', cx - 50, jy, 100, 24, lanceMatch, { e: 2, couleur: pulse ? '#e63a58' : '#d12f4c', clair: '#ff7a90', fonce: '#8c1b3a' });
     const v = pref.victoires[pref.niveau] || 0, mt = pref.matchs[pref.niveau] || 0;
     const bas_ = py + ph + 6;
     if (bas_ + 8 < H) texte(mt ? `VICTOIRES ${v} / ${mt}` : 'PREMIER MATCH ?', cx, bas_, C.gris, 1, 'c');
     if (bas_ + 20 < H) {
-      texte(tactile ? 'GAUCHE : PATINER   DROITE : TIRER / CHECK' : 'FLECHES : PATINER  ESPACE : TIRER  MAJ : CHECK', cx, bas_ + 11, '#6f7aa6', 1, 'c');
+      texte(tactile ? 'GAUCHE : PATINER   DROITE : TIR / PASSE / CHECK' : 'FLECHES  ESPACE : TIR  L : PASSE  MAJ : CHECK', cx, bas_ + 11, '#6f7aa6', 1, 'c');
     }
   }
 
@@ -1785,6 +2043,7 @@
       nouvellePartie('demo');
       return r;
     },
+    donnePalet() { if (jeu.controle) prendPalet(jeu.controle); },
   };
 })();
 </script>

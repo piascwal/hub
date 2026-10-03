@@ -1,0 +1,1826 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Bandeja — Padel arcade</title>
+<meta name="description" content="Padel arcade en pixel art, en double contre l'ordinateur, vu de côté, avec vitres et grillages.">
+<meta name="theme-color" content="#070914">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #070914;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: block;
+    touch-action: none;
+    image-rendering: pixelated;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="ecran"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  /* ================================================================
+     Même technique que Face-Off : tout est dessiné dans un petit canvas
+     basse résolution (~200 px de haut), agrandi d'un facteur entier sans
+     lissage. La piste est vue de côté, en légère perspective : le filet
+     au milieu, la vitre du fond en haut, celle de devant par-dessus les
+     joueurs, en transparence.
+
+     La simulation travaille en mètres : x le long de la piste (0 → 20,
+     filet à 10), y en profondeur (0 au fond de l'écran → 10 devant),
+     z en hauteur.
+     ================================================================ */
+
+  const ecran = document.getElementById('ecran');
+  const ctx = ecran.getContext('2d');
+  const bas = document.createElement('canvas');
+  const g = bas.getContext('2d');
+
+  let W = 400, H = 200, ECHELLE = 1;
+  let portrait = false;
+
+  const PAS = 1 / 120;
+  const VITESSE = 0.8;     // le jeu tourne un peu au ralenti : plus lisible sur téléphone
+  const G = 9.8;
+  const LONG = 20, LARG = 10, MIL = 10;
+  const SERV = 6.95;       // ligne de service, distance au filet
+  const VMAX = 4.8;        // vitesse de course (m/s)
+  const PORTEE = 1.15;     // portée de la raquette (m)
+  const HAUT_MAX = 3.0;    // plus haut, même en sautant, on ne touche pas
+  const HAUT_SMASH = 1.9;  // au-dessus : coups d'en haut (smash, víbora, bandeja)
+
+  /* ---------------------------------------------------- réglages ---- */
+
+  const NIVEAUX = [
+    { nom: 'FACILE', vit: 0.8, reac: 0.34, err: 0.9, agress: 0.25, serv: 0.13 },
+    { nom: 'NORMAL', vit: 0.92, reac: 0.2, err: 0.6, agress: 0.5, serv: 0.08 },
+    { nom: 'PRO',    vit: 1.02, reac: 0.1, err: 0.4, agress: 0.8, serv: 0.05 },
+  ];
+  const JEUX = [2, 3, 4, 6];
+  const POSTES = ['DRIVE', 'REVERS'];
+
+  const CLE = 'padel-arcade-v1';
+  const pref = { niveau: 1, jeux: 1, poste: 0, son: true, victoires: [0, 0, 0], matchs: [0, 0, 0] };
+  try { Object.assign(pref, JSON.parse(localStorage.getItem(CLE) || '{}')); } catch (e) { /* stockage indisponible */ }
+  const sauve = () => { try { localStorage.setItem(CLE, JSON.stringify(pref)); } catch (e) { /* tant pis */ } };
+
+  /* ---------------------------------------------------- palette ---- */
+
+  const EQUIPES = [
+    { nom: 'VOUS', maillot: '#2ec8f5', fonce: '#155f9e', clair: '#b6f0ff' },
+    { nom: 'CPU',  maillot: '#f5415e', fonce: '#8c1b3a', clair: '#ffc2cc' },
+  ];
+  const C = {
+    nuit: '#070914', contour: '#0b0e1d', blanc: '#ffffff', or: '#ffd35c', gris: '#8a93b0',
+    balle: '#e4ff3a', balleF: '#9fbf10', rouge: '#ff5a4e', vert: '#35c47a',
+  };
+
+  /* ================================================= police pixel ==== */
+
+  const GLYPHES = {
+    A: '01110 10001 10001 11111 10001 10001 10001', B: '11110 10001 10001 11110 10001 10001 11110',
+    C: '01110 10001 10000 10000 10000 10001 01110', D: '11110 10001 10001 10001 10001 10001 11110',
+    E: '11111 10000 10000 11110 10000 10000 11111', F: '11111 10000 10000 11110 10000 10000 10000',
+    G: '01110 10001 10000 10111 10001 10001 01111', H: '10001 10001 10001 11111 10001 10001 10001',
+    I: '01110 00100 00100 00100 00100 00100 01110', J: '00111 00010 00010 00010 00010 10010 01100',
+    K: '10001 10010 10100 11000 10100 10010 10001', L: '10000 10000 10000 10000 10000 10000 11111',
+    M: '10001 11011 10101 10101 10001 10001 10001', N: '10001 10001 11001 10101 10011 10001 10001',
+    O: '01110 10001 10001 10001 10001 10001 01110', P: '11110 10001 10001 11110 10000 10000 10000',
+    Q: '01110 10001 10001 10001 10101 10010 01101', R: '11110 10001 10001 11110 10100 10010 10001',
+    S: '01111 10000 10000 01110 00001 00001 11110', T: '11111 00100 00100 00100 00100 00100 00100',
+    U: '10001 10001 10001 10001 10001 10001 01110', V: '10001 10001 10001 10001 10001 01010 00100',
+    W: '10001 10001 10001 10101 10101 10101 01010', X: '10001 10001 01010 00100 01010 10001 10001',
+    Y: '10001 10001 01010 00100 00100 00100 00100', Z: '11111 00001 00010 00100 01000 10000 11111',
+    'É': '00010 00100 11111 10000 11110 10000 11111', 'È': '01000 00100 11111 10000 11110 10000 11111',
+    0: '01110 10001 10011 10101 11001 10001 01110', 1: '00100 01100 00100 00100 00100 00100 01110',
+    2: '01110 10001 00001 00010 00100 01000 11111', 3: '11111 00010 00100 00010 00001 10001 01110',
+    4: '00010 00110 01010 10010 11111 00010 00010', 5: '11111 10000 11110 00001 00001 10001 01110',
+    6: '00110 01000 10000 11110 10001 10001 01110', 7: '11111 00001 00010 00100 01000 01000 01000',
+    8: '01110 10001 10001 01110 10001 10001 01110', 9: '01110 10001 10001 01111 00001 00010 01100',
+    ':': '00000 01100 01100 00000 01100 01100 00000', '!': '00100 00100 00100 00100 00100 00000 00100',
+    '?': '01110 10001 00001 00010 00100 00000 00100', '.': '00000 00000 00000 00000 00000 01100 01100',
+    '-': '00000 00000 00000 11111 00000 00000 00000', '+': '00000 00100 00100 11111 00100 00100 00000',
+    '/': '00000 00001 00010 00100 01000 10000 00000', "'": '00100 00100 01000 00000 00000 00000 00000',
+    '<': '00010 00100 01000 10000 01000 00100 00010', '>': '01000 00100 00010 00001 00010 00100 01000',
+    '|': '00000 11011 11011 11011 11011 11011 00000',
+  };
+  for (const k in GLYPHES) GLYPHES[k] = GLYPHES[k].split(' ');
+
+  const cacheTexte = new Map();
+  const largeurTexte = (s, e = 1) => (s.length ? s.length * 6 - 1 : 0) * e;
+
+  // Rend un texte (avec contour sombre d'un pixel) dans un petit canvas mis en cache.
+  function texteCanvas(s, couleur, e, contour) {
+    const cle = s + '|' + couleur + '|' + e + '|' + contour;
+    let c = cacheTexte.get(cle);
+    if (c) return c;
+    if (cacheTexte.size > 400) cacheTexte.clear();
+    const lw = largeurTexte(s, e), lh = 7 * e;
+    c = document.createElement('canvas');
+    c.width = lw + 2 * e + 2; c.height = lh + 2 * e + 3;
+    const x = c.getContext('2d');
+    const trace = (ox, oy, col) => {
+      x.fillStyle = col;
+      for (let i = 0; i < s.length; i++) {
+        const gl = GLYPHES[s[i]];
+        if (!gl) continue;
+        for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) {
+          if (gl[r][q] === '1') x.fillRect(ox + (i * 6 + q) * e, oy + r * e, e, e);
+        }
+      }
+    };
+    if (contour) {
+      const o = Math.max(1, e >> 1);
+      trace(e + 1, e + 1 + o + 1, contour);  // ombre portée
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [1, -1], [-1, 1]]) {
+        trace(e + 1 + dx * o, e + 1 + dy * o, contour);
+      }
+    }
+    trace(e + 1, e + 1, couleur);
+    cacheTexte.set(cle, c);
+    return c;
+  }
+
+  function texte(s, x, y, couleur = C.blanc, e = 1, align = 'c', contour = C.contour) {
+    s = String(s).toUpperCase();
+    const c = texteCanvas(s, couleur, e, contour);
+    const lw = largeurTexte(s, e);
+    let ox = x;
+    if (align === 'c') ox = x - lw / 2;
+    else if (align === 'd') ox = x - lw;
+    g.drawImage(c, Math.round(ox - e - 1), Math.round(y - e - 1));
+  }
+
+  /* ============================================== primitives pixel == */
+
+  function px(x, y, w, h, col) { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), w, h); }
+
+  function ligne(x0, y0, x1, y1, col) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    g.fillStyle = col;
+    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    for (let n = 0; n < 200; n++) {
+      g.fillRect(x0, y0, 1, 1);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+
+  function disque(cx, cy, r, col) {
+    g.fillStyle = col;
+    cx = Math.round(cx); cy = Math.round(cy);
+    for (let dy = -r; dy <= r; dy++) {
+      const w = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8));
+      g.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    }
+  }
+
+  function anneau(cx, cy, r, col, part = 1, epais = 1) {
+    g.fillStyle = col;
+    cx = Math.round(cx); cy = Math.round(cy);
+    const n = Math.ceil(r * 8);
+    for (let i = 0; i < n * part; i++) {
+      const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+      for (let k = 0; k < epais; k++) {
+        g.fillRect(Math.round(cx + Math.cos(a) * (r - k)), Math.round(cy + Math.sin(a) * (r - k)), 1, 1);
+      }
+    }
+  }
+
+  function ellipseOmbre(cx, cy, rx, ry, alpha) {
+    g.fillStyle = `rgba(20,40,80,${alpha})`;
+    cx = Math.round(cx); cy = Math.round(cy);
+    for (let dy = -ry; dy <= ry; dy++) {
+      const w = Math.round(rx * Math.sqrt(1 - (dy * dy) / ((ry + 0.5) * (ry + 0.5))));
+      g.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    }
+  }
+
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const alea = (a, b) => a + Math.random() * (b - a);
+  const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 0.75;
+  const dir = (eq) => (eq === 0 ? 1 : -1);          // sens de l'attaque, vers le filet
+  const fond = (eq) => (eq === 0 ? 0 : LONG);       // x de la vitre du fond de l'équipe
+  const xProf = (eq, m) => (eq === 0 ? m : LONG - m); // à m mètres de la vitre du fond de eq
+  const filetH = (y) => 0.88 + 0.04 * Math.abs(y - 5) / 5;
+
+  /* ================================================== sprites ======= */
+
+  // Joueur tourné vers la droite ; contour sombre ajouté automatiquement,
+  // puis retourné pour la gauche. H cheveux, B bandeau, S peau, Y œil,
+  // J maillot, L liseré, P short, W chaussettes, K chaussures.
+  const JOUEUR = [
+    [
+      '...HHH...', '..HHHHH..', '..BBBBB..', '..HSSYS..', '...SSS...', '..JJJJ...', '.JJJJJJ..',
+      '.JJLLJJ..', '.SJJJJS..', '..JJJJ...', '..PPPP...', '..PP.PP..', '..SS..S..', '..WW..W..',
+      '.KKK.KKK.',
+    ],
+    [
+      '...HHH...', '..HHHHH..', '..BBBBB..', '..HSSYS..', '...SSS...', '..JJJJ...', '.JJJJJJ..',
+      '.JJLLJJ..', '.SJJJJS..', '..JJJJ...', '..PPPP...', '.PP..PP..', '.SS...SS.', '.WW...WW.',
+      'KKK...KKK',
+    ],
+    [
+      '...HHH...', '..HHHHH..', '..BBBBB..', '..HSSYS..', '...SSS...', '..JJJJ...', '.JJJJJJ..',
+      '.JJLLJJ..', '.SJJJJS..', '..JJJJ...', '..PPPP...', '..PPP....', '..SSS....', '..WWW....',
+      '.KKKKK...',
+    ],
+  ];
+  const CHEVEUX = ['#3a2618', '#e0b050', '#151515', '#8a4a20'];
+  const PEAUX = ['#f1c7a0', '#d9a07a', '#a86b4a', '#f6d7bd'];
+
+  function fabriqueSprite(motif, pal) {
+    const h = motif.length, w = motif[0].length;
+    const c = document.createElement('canvas');
+    c.width = w + 2; c.height = h + 2;
+    const x = c.getContext('2d');
+    const plein = (i, j) => j >= 0 && j < h && i >= 0 && i < w && motif[j][i] !== '.';
+    x.fillStyle = C.contour;
+    for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) {
+      if (!plein(i, j) && (plein(i - 1, j) || plein(i + 1, j) || plein(i, j - 1) || plein(i, j + 1))) {
+        x.fillRect(i + 1, j + 1, 1, 1);
+      }
+    }
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const k = motif[j][i];
+      if (k === '.') continue;
+      x.fillStyle = pal[k];
+      x.fillRect(i + 1, j + 1, 1, 1);
+    }
+    x.fillStyle = 'rgba(255,255,255,0.45)';
+    for (let i = 0; i < w; i++) { if (motif[0][i] === 'H') { x.fillRect(i + 1, 1, 1, 1); break; } }
+    const r = document.createElement('canvas');
+    r.width = c.width; r.height = c.height;
+    const rx = r.getContext('2d');
+    rx.translate(r.width, 0); rx.scale(-1, 1); rx.drawImage(c, 0, 0);
+    return [c, r];
+  }
+
+  function spritesJoueur(eq, n) {
+    const e = EQUIPES[eq];
+    const pal = {
+      H: CHEVEUX[n % 4], B: n % 2 ? e.clair : C.blanc, S: PEAUX[(n * 3 + eq) % 4], Y: '#1a1a2a',
+      J: e.maillot, L: C.blanc, P: e.fonce, W: '#eef2f8', K: '#2a2f45',
+    };
+    return JOUEUR.map((m) => fabriqueSprite(m, pal));
+  }
+
+  /* ================================================== audio ========= */
+
+  const Son = {
+    ac: null, sortie: null, foule: null, bruit: null,
+    init() {
+      if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ac = this.ac = new AC();
+      const comp = ac.createDynamicsCompressor();
+      this.sortie = ac.createGain();
+      this.sortie.gain.value = pref.son ? 0.7 : 0;
+      this.sortie.connect(comp); comp.connect(ac.destination);
+      const n = ac.sampleRate * 1.5;
+      this.bruit = ac.createBuffer(1, n, ac.sampleRate);
+      const d = this.bruit.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource();
+      src.buffer = this.bruit; src.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.5;
+      this.foule = ac.createGain(); this.foule.gain.value = 0.025;
+      src.connect(bp); bp.connect(this.foule); this.foule.connect(this.sortie);
+      src.start();
+    },
+    actif() { return this.ac && pref.son; },
+    muet(m) { if (this.sortie) this.sortie.gain.value = m ? 0 : 0.7; },
+    souffle(dur, type, freq, q, vol, delai = 0) {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime + delai;
+      const s = ac.createBufferSource(); s.buffer = this.bruit;
+      const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      s.connect(f); f.connect(gn); gn.connect(this.sortie);
+      s.start(t, Math.random()); s.stop(t + dur + 0.02);
+    },
+    ton(freq, dur, type, vol, vers, delai = 0) {
+      if (!this.actif()) return;
+      const ac = this.ac, t = ac.currentTime + delai;
+      const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (vers) o.frequency.exponentialRampToValueAtTime(vers, t + dur);
+      const gn = ac.createGain();
+      gn.gain.setValueAtTime(0.0001, t);
+      gn.gain.exponentialRampToValueAtTime(vol, t + 0.005);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(gn); gn.connect(this.sortie);
+      o.start(t); o.stop(t + dur + 0.02);
+    },
+    // le « pop » creux de la pala
+    frappe(p) { this.souffle(0.05, 'bandpass', 1500 + p * 1500, 1.4, 0.3 + 0.5 * p); this.ton(330 + 120 * p, 0.06, 'triangle', 0.28); },
+    smash() { this.frappe(1); this.souffle(0.2, 'lowpass', 300, 0.7, 0.8); this.ton(90, 0.18, 'sine', 0.45, 45); },
+    sol() { this.ton(190, 0.05, 'sine', 0.22); this.souffle(0.04, 'lowpass', 900, 1, 0.12); },
+    vitre(p) { this.ton(620, 0.09, 'square', 0.06 + 0.06 * p); this.souffle(0.12, 'bandpass', 2400, 2, 0.25 + 0.3 * p); this.ton(140, 0.12, 'sine', 0.25 * p + 0.1); },
+    grille() { for (let i = 0; i < 4; i++) this.souffle(0.05, 'bandpass', 3800, 3, 0.22, i * 0.035); this.ton(260, 0.18, 'sawtooth', 0.04); },
+    filet() { this.souffle(0.16, 'lowpass', 420, 0.8, 0.5); },
+    clic() { this.ton(700, 0.04, 'square', 0.06); },
+    point(bon) {
+      if (bon) { this.ton(880, 0.12, 'square', 0.07); this.ton(1320, 0.2, 'square', 0.07, null, 0.1); }
+      else { this.ton(330, 0.16, 'square', 0.06); this.ton(220, 0.24, 'square', 0.06, null, 0.12); }
+    },
+    ovation(niveau) {
+      if (!this.actif() || !this.foule) return;
+      const gn = this.foule.gain, t = this.ac.currentTime;
+      gn.cancelScheduledValues(t);
+      gn.setValueAtTime(gn.value, t);
+      gn.linearRampToValueAtTime(0.025 + 0.28 * niveau, t + 0.25);
+      gn.linearRampToValueAtTime(0.025, t + 3);
+    },
+  };
+
+  const vibre = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* non supporté */ } };
+
+  /* ============================================ géométrie de la piste */
+
+  // K : projection du court. kF / kN = pixels par mètre au fond / devant,
+  // kz = pixels par mètre de hauteur (devant), yF / yN = lignes de fond.
+  const K = { cx: 200, yF: 80, yN: 170, kF: 14, kN: 18, kz: 11 };
+  const kA = (y) => K.kF + (K.kN - K.kF) * y / LARG;
+  function proj(x, y, z = 0) {
+    const t = y / LARG, k = K.kF + (K.kN - K.kF) * t;
+    return [K.cx + (x - MIL) * k, K.yF + t * (K.yN - K.yF) - z * K.kz * k / K.kN];
+  }
+
+  function dispose() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const dw = Math.round(window.innerWidth * dpr), dh = Math.round(window.innerHeight * dpr);
+    ecran.width = dw; ecran.height = dh;
+    portrait = window.innerHeight > window.innerWidth * 1.05;
+    ECHELLE = Math.max(1, Math.floor(portrait ? Math.min(dh / 360, dw / 180) : Math.min(dh / 196, dw / 360)));
+    W = Math.ceil(dw / ECHELLE); H = Math.ceil(dh / ECHELLE);
+    bas.width = W; bas.height = H;
+    g.imageSmoothingEnabled = false;
+    if (!portrait) placeCourt();
+  }
+
+  function placeCourt() {
+    const haut = 24;
+    const kN = Math.max(12, Math.min((W - 16) / 20, (H - haut - 6) / 6.5));
+    K.kN = kN; K.kF = kN * 0.8; K.kz = kN * 0.62;
+    const prof = Math.round(kN * 4.4);
+    const hauteur = prof + 4 * K.kz * 0.8;
+    const libre = Math.max(0, H - haut - 6 - hauteur);
+    K.yN = Math.round(H - 6 - libre * 0.6);
+    K.yF = K.yN - prof;
+    K.cx = Math.round(W / 2);
+    construitDecor();
+  }
+
+  /* ================================================== décor ========= */
+
+  let foule = [null, null], terrain = null, murs = null, devant = null;
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const GAZON = ['#163f86', '#1d4f9c', '#2459ad', '#2a63bd', '#3170c9'].map(hex);
+  const SOLEXT = ['#151a2b', '#1b2134', '#21283d'].map(hex);
+
+  // Pour chaque pixel de l'écran, on retrouve le point de la piste (ou du mur)
+  // qu'il montre : le décor est calculé une fois, net au pixel près.
+  function construitDecor() {
+    // la foule des gradins : deux images alternées quand elle saute
+    const couleurs = [EQUIPES[0].maillot, EQUIPES[0].fonce, EQUIPES[1].maillot, EQUIPES[1].fonce, '#e8e8f0', '#f2c14e', '#5b6b8c', '#3b3f5c'];
+    const gens = [];
+    for (let y = 1; y < K.yF + 4; y += 5) {
+      for (let x = 1 + ((y / 5) & 1) * 2; x < W; x += 4) {
+        if (Math.random() < 0.14) continue;
+        gens.push({ x: x + ((Math.random() * 2) | 0) - 1, y, c: couleurs[(Math.random() * couleurs.length) | 0], p: PEAUX[(Math.random() * 4) | 0], s: Math.random() });
+      }
+    }
+    for (let f = 0; f < 2; f++) {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const x = c.getContext('2d');
+      x.fillStyle = '#0d1126'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#141a36';
+      for (let y = 0; y < H; y += 5) x.fillRect(0, y + 4, W, 1);
+      for (const p of gens) {
+        const saute = f === 1 && p.s > 0.35 ? -1 : 0;
+        x.fillStyle = p.c; x.fillRect(p.x, p.y + 2 + saute, 3, 3);
+        x.fillStyle = p.p; x.fillRect(p.x + 1, p.y + saute, 2, 2);
+        if (f === 1 && p.s > 0.8) { x.fillRect(p.x - 1, p.y - 1 + saute, 1, 2); x.fillRect(p.x + 3, p.y - 1 + saute, 1, 2); }
+      }
+      x.fillStyle = 'rgba(6,8,22,0.45)'; x.fillRect(0, 0, W, H);
+      // projecteurs
+      for (const lx of [0.12, 0.38, 0.62, 0.88]) {
+        x.fillStyle = '#3a4160'; x.fillRect(Math.round(W * lx) - 4, 3, 9, 3);
+        x.fillStyle = '#fff6d0'; x.fillRect(Math.round(W * lx) - 3, 4, 7, 1);
+      }
+      foule[f] = c;
+    }
+
+    // le sol : gazon bleu, lignes blanches, et le sol de la salle autour
+    terrain = document.createElement('canvas');
+    terrain.width = W; terrain.height = H;
+    const tc = terrain.getContext('2d');
+    const img = tc.createImageData(W, H);
+    const d = img.data;
+    const pose = (dd, i, c, a = 255) => { dd[i] = c[0]; dd[i + 1] = c[1]; dd[i + 2] = c[2]; dd[i + 3] = a; };
+    const LIGNE = hex('#eef3ff');
+    const pyM = (K.yN - K.yF) / LARG; // pixels par mètre en profondeur
+    for (let sy = 0; sy < H; sy++) {
+      const t = (sy + 0.5 - K.yF) / (K.yN - K.yF);
+      if (t < 0) continue;
+      const k = K.kF + (K.kN - K.kF) * t;
+      for (let sx = 0; sx < W; sx++) {
+        const i = (sy * W + sx) * 4;
+        const x = MIL + (sx + 0.5 - K.cx) / k, y = LARG * t;
+        const bay = (BAYER[(sy & 3) * 4 + (sx & 3)] + 0.5) / 16;
+        if (t > 1 || x < 0 || x > LONG) {
+          const v = 0.9 + 0.12 * Math.sin(sx * 0.31 + sy * 0.7);
+          pose(d, i, SOLEXT[Math.min(2, Math.floor(v + bay))]);
+          continue;
+        }
+        const ligne = (Math.abs(x - (MIL - SERV)) < 0.5 / k || Math.abs(x - (MIL + SERV)) < 0.5 / k)
+          || (Math.abs(y - 5) < 0.55 / pyM && x > MIL - SERV - 0.2 && x < MIL + SERV + 0.2);
+        if (ligne) { pose(d, i, LIGNE); continue; }
+        // éclairage des projecteurs, ombre au pied des murs
+        let l = 0.55 + 0.25 * Math.exp(-((x - 5) ** 2 + (y - 4) ** 2) / 30) + 0.25 * Math.exp(-((x - 15) ** 2 + (y - 4) ** 2) / 30);
+        l -= 0.3 * Math.max(0, 1 - Math.min(x, LONG - x, y) / 0.7);
+        const hsh = Math.sin(sx * 12.9898 + sy * 78.233) * 43758.5453;
+        l += ((hsh - Math.floor(hsh)) - 0.5) * 0.14;
+        const v = clamp(l, 0, 0.999) * (GAZON.length - 1);
+        const kk = Math.floor(v);
+        pose(d, i, GAZON[Math.min(GAZON.length - 1, (v - kk) > bay ? kk + 1 : kk)]);
+      }
+    }
+    tc.putImageData(img, 0, 0);
+
+    // les murs du fond et des bouts : vitres, grillages, poteaux, filet
+    murs = document.createElement('canvas');
+    murs.width = W; murs.height = H;
+    const mc = murs.getContext('2d');
+    const im = mc.createImageData(W, H);
+    const md = im.data;
+    const POTEAU = hex('#2a3346'), RAIL = hex('#4a5672'), VITRE = hex('#bfe6ff'), REFLET = hex('#ffffff'), MAILLE = hex('#3e4a60');
+    const peintMur = (dd, i, sx, sy, u, z, haut, vitre, alpha) => {
+      // u : abscisse le long du mur, en mètres
+      if (Math.abs(z - haut) < 0.09 || (vitre && Math.abs(z - 3) < 0.09 && haut > 3)) { pose(dd, i, RAIL, 255 * alpha); return; }
+      if (Math.abs(u - Math.round(u / 2) * 2) < 0.06) { pose(dd, i, POTEAU, 235 * alpha); return; }
+      if (vitre && z <= 3) {
+        if (((sx + 2 * sy) % 31) < 2 || ((sx + 2 * sy) % 31) === 5) pose(dd, i, REFLET, 90 * alpha);
+        else pose(dd, i, VITRE, 40 * alpha);
+      } else if (((sx + sy) & 3) === 0 || ((sx - sy) & 3) === 0) pose(dd, i, MAILLE, 230 * alpha);
+    };
+    for (let sy = 0; sy < H; sy++) for (let sx = 0; sx < W; sx++) {
+      const i = (sy * W + sx) * 4, fx = sx + 0.5, fy = sy + 0.5;
+      // mur latéral du fond (y = 0)
+      {
+        const x = MIL + (fx - K.cx) / K.kF, z = (K.yF - fy) / (K.kz * K.kF / K.kN);
+        if (x >= 0 && x <= LONG && z >= 0 && z <= 3) peintMur(md, i, sx, sy, x, z, 3, x < 4 || x > LONG - 4, 1);
+      }
+      // vitres des deux bouts (x = 0 et x = 20), grillage au-dessus jusqu'à 4 m
+      for (const bout of [0, 1]) {
+        const k = bout ? (fx - K.cx) / MIL : (K.cx - fx) / MIL;
+        const t = (k - K.kF) / (K.kN - K.kF);
+        if (t < 0 || t > 1) continue;
+        const z = (K.yF + t * (K.yN - K.yF) - fy) / (K.kz * k / K.kN);
+        if (z >= 0 && z <= 4) peintMur(md, i, sx, sy, t * LARG, z, 4, true, 1);
+      }
+    }
+    mc.putImageData(im, 0, 0);
+    // le filet : vu de profil, une bande au centre entre ses deux poteaux
+    const [, hF] = proj(MIL, 0, filetH(0)), [, hN] = proj(MIL, LARG, filetH(LARG));
+    const [, bF] = proj(MIL, 0, 0);
+    mc.fillStyle = 'rgba(20,24,36,0.85)';
+    for (let sy = Math.round(hF); sy < K.yN; sy++) {
+      const t = clamp((sy - bF) / (K.yN - bF), 0, 1);
+      const top = hF + (hN - hF) * t;
+      if (sy < top) continue;
+      mc.fillStyle = (sy & 1) ? 'rgba(20,24,36,0.9)' : 'rgba(200,210,230,0.55)';
+      mc.fillRect(K.cx - 1, sy, 3, 1);
+    }
+    mc.fillStyle = '#f3f5fb';
+    mc.fillRect(K.cx - 1, Math.round(hF), 3, 1);
+    for (const [y, h] of [[0, hF], [LARG, hN]]) {
+      const [px_, py_] = proj(MIL, y, 0);
+      mc.fillStyle = C.contour; mc.fillRect(Math.round(px_) - 2, Math.round(h) - 1, 5, Math.round(py_ - h) + 2);
+      mc.fillStyle = '#c9cfe0'; mc.fillRect(Math.round(px_) - 1, Math.round(h), 3, Math.round(py_ - h));
+    }
+
+    // la vitre et le grillage de devant (y = 10), dessinés par-dessus les joueurs
+    devant = document.createElement('canvas');
+    devant.width = W; devant.height = H;
+    const dc = devant.getContext('2d');
+    const id = dc.createImageData(W, H);
+    for (let sy = 0; sy < H; sy++) for (let sx = 0; sx < W; sx++) {
+      const x = MIL + (sx + 0.5 - K.cx) / K.kN, z = (K.yN - sy - 0.5) / K.kz;
+      if (x < 0 || x > LONG || z < 0 || z > 3) continue;
+      const i = (sy * W + sx) * 4;
+      const vitre = x < 4 || x > LONG - 4;
+      if (vitre) peintMur(id.data, i, sx, sy, x, z, 3, true, 0.45);
+      else if (Math.abs(z - 3) < 0.09 || Math.abs(x - Math.round(x / 2) * 2) < 0.05) pose(id.data, i, POTEAU, 120);
+      else if ((((sx + sy) & 3) === 0 || ((sx - sy) & 3) === 0) && (sx & 1) === 0) pose(id.data, i, MAILLE, 75);
+    }
+    dc.putImageData(id, 0, 0);
+  }
+
+  /* ================================================== entités ======= */
+
+  let jeu = null;
+
+  function nouveauJoueur(eq, poste, n, humain, niv) {
+    // le drive joue à droite : devant (y > 5) pour l'équipe de gauche, au fond pour l'autre
+    const cote = (eq === 0) === (poste === 0) ? 7.5 : 2.5;
+    return {
+      eq, poste, cote, home: cote, humain, niv, n,
+      err: humain ? 0.4 : niv.err,
+      x: xProf(eq, 3), y: cote, vx: 0, vy: 0, ex: 0, ey: 0,
+      cible: { x: xProf(eq, 3), y: cote }, posServ: null,
+      swing: 0, haut: false, intent: null, charge: 0, cd: 0, pas: 0, face: dir(eq),
+      spr: spritesJoueur(eq, n),
+    };
+  }
+
+  const equipe = (eq) => jeu.joueurs.filter((s) => s.eq === eq);
+  const partenaire = (s) => jeu.joueurs.find((o) => o.eq === s.eq && o !== s);
+
+  function nouvelleBalle() {
+    return {
+      x: 3, y: 5, z: 1, vx: 0, vy: 0, vz: 0, spin: 'plat', spinDir: 0, roule: false, dehors: false, portres: false,
+      eqF: 0, camp: 1, sol: 0, service: false, filet: false, trace: [],
+    };
+  }
+
+  function nouvellePartie(mode) {
+    const niv = mode === 'demo' ? NIVEAUX[1] : NIVEAUX[pref.niveau];
+    // votre partenaire joue au moins au niveau normal ; le niveau choisi règle les adversaires
+    const nivP = mode === 'demo' ? niv : NIVEAUX[Math.max(1, pref.niveau)];
+    jeu = {
+      mode, niv, joueurs: [], balle: nouvelleBalle(),
+      jeux: [0, 0], pts: [0, 0], nJeu: 0, ordre: [], faute: 0, rejoue: false,
+      phase: 'service', tPhase: 0, temps: 0, tFrappe: 0, gagnant: -1,
+      serveur: null, receveur: null, pret: false, jauge: null, cpuServ: null,
+      posture: ['fond', 'fond'], plan: [null, null], pred: null, tPred: 0,
+      stats: { gagnants: [0, 0], portres: [0, 0], fautes: [0, 0], vitres: 0 },
+      excite: 0,
+    };
+    const posteH = mode === 'match' ? pref.poste : 0;
+    const a = nouveauJoueur(0, posteH, 0, mode === 'match', nivP);
+    const b = nouveauJoueur(0, 1 - posteH, 1, false, nivP);
+    const c = nouveauJoueur(1, 0, 2, false, niv);
+    const d = nouveauJoueur(1, 1, 3, false, niv);
+    jeu.joueurs = [a, b, c, d];
+    jeu.humain = mode === 'match' ? a : null;
+    jeu.ordre = Math.random() < 0.5 ? [a, c, b, d] : [c, a, d, b];
+    for (const s of jeu.joueurs) { s.x = xProf(s.eq, 2); s.y = s.cote; }
+    placeService();
+  }
+
+  /* ============================================== effets visuels ==== */
+
+  let particules = [], bulles = [], secousse = 0, flash = 0, banniere = null;
+
+  function etincelles(x, y, n, c = '#ffe07a', v0 = 90) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = alea(v0 * 0.3, v0);
+      particules.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vie: alea(0.15, 0.4), c });
+    }
+  }
+  function poussiere(x, y, n, c = '#9fb8e8') {
+    for (let i = 0; i < n; i++) particules.push({ x, y, vx: alea(-30, 30), vy: alea(-25, -5), vie: alea(0.15, 0.35), c });
+  }
+  function confettis(x, y, eq) {
+    const cs = [EQUIPES[eq].maillot, EQUIPES[eq].clair, C.or, C.blanc];
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2, v = alea(30, 190);
+      particules.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, vie: alea(0.8, 2.0), c: cs[i % cs.length], frot: 2.2 });
+    }
+  }
+  function bulle(txt, x, y, c) { bulles.push({ txt, x, y, c, vie: 1.1 }); }
+  function annonce(txt, sous, c, duree = 1.6) { banniere = { txt, sous, c, vie: duree, max: duree }; }
+
+  function majEffets(dt) {
+    for (const p of particules) {
+      p.vie -= dt;
+      const f = Math.exp(-(p.frot || 4) * dt);
+      p.vx *= f; p.vy *= f;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+    }
+    particules = particules.filter((p) => p.vie > 0);
+    if (particules.length > 500) particules.splice(0, particules.length - 500);
+    for (const b of bulles) { b.vie -= dt; b.y -= 14 * dt; }
+    bulles = bulles.filter((b) => b.vie > 0);
+    secousse = Math.max(0, secousse - dt * 14);
+    flash = Math.max(0, flash - dt * 2.5);
+    if (banniere) { banniere.vie -= dt; if (banniere.vie <= 0) banniere = null; }
+    if (jeu) jeu.excite = Math.max(0, jeu.excite - dt / 3);
+  }
+
+  /* ============================================== physique balle ===== */
+
+  // [rebond vertical, frein horizontal] au sol selon l'effet
+  const RESTIT = { plat: [0.7, 0.84], lobe: [0.56, 0.8], lift: [0.84, 0.9], smash: [0.82, 0.92], coupe: [0.48, 0.76], vibora: [0.52, 0.8] };
+  const gravite = (b) => (b.spin === 'lift' || b.spin === 'smash' ? G * 1.18 : G);
+  // un peu de hasard reproductible : la prévision de l'IA et le vrai rebond tombent pareil
+  const bruit = (b) => { const h = Math.sin(b.x * 12.9898 + b.y * 78.233 + b.z * 37.719) * 43758.5453; return (h - Math.floor(h)) * 2 - 1; };
+
+  function rebondVitre(b, axe) {
+    const e = b.spin === 'coupe' || b.spin === 'vibora' ? 0.62 : 0.8;
+    if (axe === 'x') b.vx = -b.vx * e; else b.vy = -b.vy * e;
+    // le coupé et la víbora « meurent » contre la vitre : la balle redescend aussitôt
+    if (b.spin === 'coupe') b.vz = Math.min(b.vz, 0) * 0.6 - 0.8;
+    else if (b.spin === 'vibora') { b.vz = Math.min(b.vz, 0) * 0.5 - 1.1; if (axe === 'x') b.vy += (b.spinDir || 0) * 1.2; }
+    else b.vz *= 0.85;
+  }
+
+  // Avance la balle de dt. ev(type, côté) signale filet, sol, vitre, grille, sortie.
+  function physique(b, dt, ev) {
+    const x0 = b.x, y0 = b.y, z0 = b.z;
+    if (b.roule) { const f = Math.max(0, 1 - 1.4 * dt); b.vx *= f; b.vy *= f; b.vz = 0; b.z = 0; }
+    else b.vz -= gravite(b) * dt;
+    b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
+
+    if (!b.dehors && (x0 < MIL) !== (b.x < MIL)) {
+      const f = (MIL - x0) / (b.x - x0);
+      const zc = z0 + (b.z - z0) * f, yc = y0 + (b.y - y0) * f;
+      if (yc >= 0 && yc <= LARG && zc < filetH(yc)) {
+        b.x = x0 < MIL ? MIL - 0.04 : MIL + 0.04;
+        b.vx = -b.vx * 0.12; b.vy *= 0.35; b.vz = Math.min(b.vz, 0) * 0.3;
+        if (ev) ev('filet', x0 < MIL ? 0 : 1);
+      }
+    }
+
+    if (b.z < 0 && !b.roule) {
+      b.z = 0;
+      if (b.vz < 0) {
+        const R = RESTIT[b.spin] || RESTIT.plat;
+        b.vz = -b.vz * R[0]; b.vx *= R[1]; b.vy *= R[1];
+        if (b.spin === 'vibora') b.vy += (b.spinDir || 0) * 1.6;
+        if (b.portres) {
+          // le smash « por tres » : rebond énorme, la balle s'envole hors de la piste
+          b.portres = false; b.vz = 12.5; b.vx *= 0.42; b.vy = (b.y < 5 ? -1 : 1) * 2.8;
+        }
+        const side = b.x < MIL ? 0 : 1;
+        if (ev) ev('sol', side, -b.vz);
+        if (b.vz < 0.7) { b.vz = 0; b.roule = true; if (ev) ev('sol', side, 0); }
+      }
+    }
+    if (b.dehors) return;
+
+    if (b.x < 0 || b.x > LONG) {
+      const side = b.x < 0 ? 0 : 1;
+      if (b.z > 4) { b.dehors = true; if (ev) ev('sortie', side); return; }
+      b.x = side ? 2 * LONG - b.x : -b.x;
+      const v = Math.abs(b.vx);
+      if (b.z <= 3) { rebondVitre(b, 'x'); if (ev) ev('vitre', side, v); }
+      else { b.vx = -b.vx * 0.25; b.vz *= 0.4; b.vy += bruit(b) * 1.2; if (ev) ev('grille', side, v); }
+    }
+    if (b.y < 0 || b.y > LARG) {
+      const side = b.x < MIL ? 0 : 1;
+      if (b.z > 3) { b.dehors = true; if (ev) ev('sortie', side); return; }
+      b.y = b.y < 0 ? -b.y : 2 * LARG - b.y;
+      const v = Math.abs(b.vy);
+      if (b.x < 4 || b.x > LONG - 4) { rebondVitre(b, 'y'); if (ev) ev('vitre', side, v); }
+      else { b.vy = -b.vy * 0.25; b.vz *= 0.4; b.vx += bruit(b) * 1.2; if (ev) ev('grille', side, v); }
+    }
+  }
+
+  // Lance la balle vers (tx, ty) à la vitesse v, en passant le filet avec la marge demandée.
+  function lance(b, tx, ty, v, spin, marge) {
+    b.spin = spin; b.roule = false; b.dehors = false;
+    const gg = gravite(b);
+    const dist = Math.hypot(tx - b.x, ty - b.y);
+    let T = Math.max(0.12, dist / v);
+    for (let k = 0; k < 80; k++) {
+      const vx = (tx - b.x) / T, vz = (-b.z + 0.5 * gg * T * T) / T;
+      const tn = (MIL - b.x) / vx;
+      if (!(tn > 0 && tn < T)) break;
+      const zn = b.z + vz * tn - 0.5 * gg * tn * tn;
+      if (zn >= filetH(b.y + (ty - b.y) * tn / T) + marge) break;
+      T += 0.03;
+    }
+    b.vx = (tx - b.x) / T; b.vy = (ty - b.y) / T; b.vz = (-b.z + 0.5 * gg * T * T) / T;
+  }
+
+  /* ============================================== règles ============ */
+
+  function regle(type, side, force) {
+    const b = jeu.balle;
+    effetsImpact(type, side, force);
+    if (type === 'vitre' && jeu.phase === 'jeu') { jeu.stats.vitres++; if (side === b.camp) b.mur = true; }
+    if (jeu.phase !== 'jeu') return;
+    if (type === 'filet') { b.filet = true; return; }
+    if (type === 'sol') {
+      if (side !== b.camp) {
+        // rebond du côté de celui qui a frappé : dans le filet... ou revenue après rebond
+        if (b.sol >= 1) gagne(b.eqF, 'ELLE REVIENT !');
+        else if (b.service) fauteService('FILET');
+        else gagne(b.camp, 'FILET');
+        return;
+      }
+      b.sol++;
+      if (b.service && b.sol === 1) {
+        if (!dansCarre(b)) { fauteService('FAUTE'); return; }
+        if (b.filet) { let_(); return; }
+      }
+      if (b.sol >= 2) gagne(b.eqF, b.roule ? 'POINT' : 'POINT');
+      return;
+    }
+    if (type === 'vitre' || type === 'grille') {
+      if (side === b.camp) {
+        if (b.sol === 0) {
+          if (b.service) fauteService(type === 'grille' ? 'GRILLE' : 'VITRE');
+          else gagne(b.camp, type === 'grille' ? 'GRILLE !' : 'VITRE DIRECTE');
+          return;
+        }
+        if (b.service && type === 'grille') { fauteService('GRILLE'); return; }
+      }
+      return;
+    }
+    if (type === 'sortie') {
+      if (side === b.camp && b.sol >= 1) {
+        jeu.stats.portres[b.eqF]++;
+        gagne(b.eqF, b.x < 0 || b.x > LONG ? 'POR CUATRO !' : 'POR TRES !');
+      } else if (b.service) fauteService('DEHORS');
+      else gagne(b.camp, 'DEHORS');
+    }
+  }
+
+  function dansCarre(b) {
+    // le carré de service en diagonale du serveur
+    const s = jeu.serveur;
+    const prof = Math.abs(b.x - MIL);
+    if (prof > SERV) return false;
+    return (s.y > 5) ? b.y < 5 : b.y > 5;
+  }
+
+  function effetsImpact(type, side, force = 0) {
+    const b = jeu.balle;
+    const [sx, sy] = proj(b.x, clamp(b.y, 0, LARG), b.z);
+    if (type === 'sol') { if (force > 1) { Son.sol(); poussiere(sx, sy, 3); } }
+    else if (type === 'vitre') {
+      Son.vitre(Math.min(1, force / 18));
+      etincelles(sx, sy, 6, '#dff4ff', 70);
+      if (force > 14) secousse = Math.max(secousse, 1.5);
+    } else if (type === 'grille') { Son.grille(); etincelles(sx, sy, 5, '#8fa0bf', 50); }
+    else if (type === 'filet') { Son.filet(); poussiere(sx, sy, 4, '#c9cfe0'); }
+  }
+
+  function gagne(eq, raison) {
+    if (jeu.phase !== 'jeu') return;
+    jeu.phase = 'point'; jeu.tPhase = 0; jeu.gagnant = eq; jeu.rejoue = false;
+    jeu.faute = 0;
+    if (raison !== 'FILET' && raison !== 'DEHORS' && raison !== 'GRILLE !' && raison !== 'VITRE DIRECTE') jeu.stats.gagnants[eq]++;
+    else jeu.stats.fautes[1 - eq]++;
+    const pourNous = jeu.mode === 'match' ? eq === 0 : true;
+    annonce(raison, jeu.mode === 'match' ? (eq === 0 ? 'POINT POUR VOUS' : 'POINT CPU') : null, eq === 0 ? EQUIPES[0].maillot : EQUIPES[1].maillot, 1.6);
+    Son.point(pourNous);
+    Son.ovation(raison.startsWith('POR') ? 1 : 0.45);
+    jeu.excite = raison.startsWith('POR') ? 1 : 0.5;
+    if (jeu.mode === 'match' && eq === 0) vibre(30);
+  }
+
+  function fauteService(raison) {
+    if (jeu.phase !== 'jeu') return;
+    if (jeu.faute === 0) {
+      jeu.faute = 1;
+      jeu.phase = 'point'; jeu.tPhase = 0.6; jeu.rejoue = true;
+      annonce('FAUTE', raison + ' - 2E BALLE', C.or, 1.2);
+      Son.point(false);
+    } else {
+      jeu.faute = 0;
+      const eq = 1 - jeu.serveur.eq;
+      jeu.phase = 'jeu';
+      gagne(eq, 'DOUBLE FAUTE');
+    }
+  }
+
+  function let_() {
+    jeu.phase = 'point'; jeu.tPhase = 0.6; jeu.rejoue = true;
+    annonce('LET', 'BALLE A REJOUER', C.blanc, 1.2);
+  }
+
+  const LIB_PTS = ['0', '15', '30', '40'];
+
+  function finPoint() {
+    if (jeu.rejoue) { jeu.rejoue = false; placeService(); return; }
+    const e = jeu.gagnant, p = jeu.pts;
+    let jeuFini = false;
+    if (p[0] === 3 && p[1] === 3) jeuFini = true;   // point en or : pas d'avantage
+    else if (p[e] === 3) jeuFini = true;
+    else p[e]++;
+    if (jeuFini) {
+      jeu.jeux[e]++;
+      jeu.pts = [0, 0];
+      jeu.nJeu++;
+      const cible = JEUX[pref.jeux];
+      if (jeu.mode === 'match' && jeu.jeux[e] >= cible) { finMatch(); return; }
+      if (jeu.mode !== 'match' && jeu.jeux[e] >= 4) jeu.jeux = [0, 0];
+      annonce('JEU ' + (jeu.mode === 'match' ? EQUIPES[e].nom : ''), jeu.jeux[0] + ' - ' + jeu.jeux[1], EQUIPES[e].maillot, 1.6);
+    } else if (p[0] === 3 && p[1] === 3) annonce('POINT EN OR', 'QUI LE PREND GAGNE LE JEU', C.or, 1.6);
+    placeService();
+  }
+
+  /* ============================================== service =========== */
+
+  function placeService() {
+    jeu.phase = 'service'; jeu.tPhase = 0; jeu.pret = false; jeu.jauge = null; jeu.cpuServ = null;
+    jeu.plan = [null, null]; jeu.pred = null;
+    const srv = jeu.ordre[jeu.nJeu % 4];
+    jeu.serveur = srv;
+    const eq = srv.eq, d = dir(eq);
+    const n = jeu.pts[0] + jeu.pts[1];
+    // on sert d'abord depuis sa droite, puis on alterne à chaque point
+    const droite = n % 2 === 0;
+    const sg = (eq === 0) === droite ? 1 : -1;   // +1 : moitié y > 5
+    const part = partenaire(srv);
+    srv.home = 5 + sg * 2.5; part.home = 5 - sg * 2.5;
+    srv.posServ = { x: xProf(eq, MIL - SERV - 0.5), y: 5 + sg * 1.8 };
+    part.posServ = { x: MIL - d * 2.8, y: 5 - sg * 2.8 };
+    // le receveur est en diagonale
+    const adv = equipe(1 - eq);
+    const rec = adv.find((p) => (p.cote > 5) === (sg < 0)) || adv[0];
+    const recP = adv.find((p) => p !== rec);
+    rec.home = rec.cote; recP.home = recP.cote;
+    rec.posServ = { x: xProf(1 - eq, 1.2), y: 5 - sg * 2.9 };
+    recP.posServ = { x: xProf(1 - eq, 3.2), y: 5 + sg * 2.6 };
+    jeu.receveur = rec;
+    jeu.posture[eq] = 'filet'; jeu.posture[1 - eq] = 'fond';
+    for (const s of jeu.joueurs) { s.intent = null; s.charge = 0; s.swing = 0; }
+    const b = jeu.balle;
+    Object.assign(b, nouvelleBalle());
+    b.eqF = eq; b.camp = 1 - eq;
+  }
+
+  const jaugeVal = (t) => 1 - Math.abs(((t / 0.65) % 2) - 1);
+  const TYPES_SERV = { plat: 'plat', lobe: 'lift', coupe: 'coupe' };
+  const NOMS_SERV = { plat: 'PLAT', lift: 'LIFTE', coupe: 'COUPE' };
+
+  function majService(dt) {
+    const srv = jeu.serveur, b = jeu.balle, d = dir(srv.eq);
+    if (!jeu.pret) {
+      let ok = true;
+      for (const s of jeu.joueurs) if (Math.hypot(s.x - s.posServ.x, s.y - s.posServ.y) > 0.2) ok = false;
+      if (ok || jeu.tPhase > 2.2) {
+        jeu.pret = true;
+        for (const s of jeu.joueurs) { s.x = s.posServ.x; s.y = s.posServ.y; s.vx = s.vy = 0; }
+      }
+    }
+    if (jeu.jauge) {
+      jeu.jauge.t += dt;
+      // le serveur fait rebondir la balle pendant que la jauge oscille
+      b.x = srv.x + d * 0.35; b.y = srv.y + 0.15;
+      b.z = 0.05 + 0.95 * Math.abs(Math.cos(jeu.jauge.t * Math.PI / 0.65));
+    } else { b.x = srv.x + d * 0.3; b.y = srv.y + 0.15; b.z = 0.95; }
+    b.vx = b.vy = b.vz = 0;
+    if (!jeu.pret || srv.humain) return;
+    // service de l'ordinateur
+    if (!jeu.cpuServ && jeu.tPhase > 0.9) {
+      const niv = srv.niv;
+      const types = ['plat', 'lift', 'coupe'];
+      const cibleJ = clamp(0.72 + gauss() * niv.serv * (jeu.faute ? 0.6 : 1), 0.05, 1);
+      jeu.cpuServ = { t: cibleJ * 0.65 + (Math.random() < 0.5 ? 0 : 1.3), vise: alea(-1, 1) };
+      jeu.jauge = { type: types[(Math.random() * 3) | 0], t: 0 };
+    }
+    if (jeu.cpuServ && jeu.jauge.t >= jeu.cpuServ.t) servir(srv, jeu.jauge.type, jaugeVal(jeu.jauge.t), jeu.cpuServ.vise);
+  }
+
+  function cibleService(s, vise) {
+    const eq = s.eq;
+    const sg = s.y > 5 ? -1 : 1;            // le carré visé, en diagonale
+    const yIn = 5 + sg * 0.7, yOut = 5 + sg * 4.3;
+    const a = clamp(0.5 + 0.5 * vise, 0, 1); // -1 : au centre, +1 : vers la vitre
+    return { x: MIL + dir(eq) * (SERV - 1.4), y: yIn + (yOut - yIn) * a };
+  }
+
+  function servir(s, type, gv, vise) {
+    const b = jeu.balle, eq = s.eq, d = dir(eq);
+    b.x = s.x + d * 0.35; b.y = s.y + 0.15; b.z = 0.75;
+    const c = cibleService(s, vise);
+    let m = SERV - 1.4, err = 0.14;
+    // la jauge : vert = service parfait, trop faible = filet ou court, trop fort = long
+    if (gv < 0.62) { err += (0.62 - gv) * 1.1; m -= (0.62 - gv) * 4; }
+    if (gv > 0.82) { err += (gv - 0.82) * 2.5; m += (gv - 0.82) * 11; }
+    const v = { plat: 13, coupe: 10.5, lift: 9.5 }[type] + 6 * gv;
+    const tx = MIL + d * (m + gauss() * err), ty = c.y + gauss() * err * 0.8;
+    lance(b, tx, ty, v, type, gv < 0.22 ? -0.35 : 0.1);
+    b.eqF = eq; b.camp = 1 - eq; b.sol = 0; b.service = true; b.filet = false;
+    jeu.phase = 'jeu'; jeu.tPhase = 0; jeu.tFrappe = 0; jeu.jauge = null; jeu.tPred = 0;
+    s.swing = 1; s.haut = false;
+    Son.frappe(0.4 + gv * 0.4);
+    const [sx, sy] = proj(s.x, s.y, 1.6);
+    bulle(NOMS_SERV[type], sx, sy - 10, C.blanc);
+    if (s.humain) vibre(15);
+  }
+
+  /* ============================================== coups ============= */
+
+  const HAUTS = { plat: 'smash', lobe: 'vibora', coupe: 'bandeja' };
+  const NOMS = { plat: 'FRAPPE', lobe: 'LOBE', coupe: 'COUPE', smash: 'SMASH', vibora: 'VIBORA', bandeja: 'BANDEJA', vitre: 'CONTRE-VITRE' };
+  // distance visée par rapport à la vitre adverse
+  const PROF = { plat: 2.8, coupe: 3.2, lobe: 2.0, smash: 5.5, bandeja: 2.5, vibora: 2.1 };
+
+  function frappable(s, mul = 1) {
+    const b = jeu.balle;
+    if (jeu.phase !== 'jeu' || b.dehors || b.roule) return false;
+    if (b.camp !== s.eq || b.sol >= 2 || s.cd > 0) return false;
+    if (b.service && b.sol === 0) return false;     // le service doit rebondir
+    if ((b.x < MIL) !== (s.eq === 0)) return false;
+    if (b.z > HAUT_MAX) return false;
+    return Math.hypot(b.x - s.x, b.y - s.y) <= PORTEE * mul;
+  }
+
+  function executeCoup(s, type, p, tx, ty) {
+    const b = jeu.balle, eq = s.eq;
+    const vin = Math.hypot(b.vx, b.vy, b.vz);
+    const haut = b.z > HAUT_SMASH;
+    if (type === 'vitre') {
+      if (!contreVitre(s, ty)) { type = 'lobe'; tx = xProf(1 - eq, PROF.lobe); }
+    }
+    if (type !== 'vitre') {
+      let e = s.err * (0.45 + 0.8 * p + vin / 34 + (b.mur ? 0.3 : 0));
+      if (type === 'bandeja' || type === 'lobe') e *= 0.7;
+      tx += gauss() * e * 1.4; ty += gauss() * e * 1.15;
+      const dist = Math.hypot(tx - b.x, ty - b.y);
+      let v, spin = 'plat', marge = 0.15;
+      if (type === 'plat') { v = 13 + 11 * p; spin = p > 0.75 ? 'lift' : 'plat'; }
+      else if (type === 'coupe') { v = 10.5 + 6 * p; spin = 'coupe'; }
+      else if (type === 'lobe') { v = dist / (1.45 + 0.3 * p + dist / 40); spin = 'lobe'; marge = 0.6; }
+      else if (type === 'smash') { v = 19 + 13 * p; spin = 'smash'; }
+      else if (type === 'bandeja') { v = 12 + 5 * p; spin = 'coupe'; }
+      else { v = 15 + 7 * p; spin = 'vibora'; }
+      // quelques fautes directes dans le filet, surtout en forçant
+      const risque = (type === 'plat' || type === 'smash' ? 0.01 + 0.05 * p * e : 0.006 * e);
+      if (Math.random() < risque) marge = -0.3;
+      lance(b, tx, ty, v, spin, marge);
+      b.spinDir = ty < 5 ? -1 : 1;
+      b.portres = type === 'smash' && p >= 0.8 && b.z > 2.2;
+    }
+    b.eqF = eq; b.camp = 1 - eq; b.sol = 0; b.service = false; b.filet = false; b.mur = false;
+    s.swing = 1; s.haut = haut; s.cd = 0.35; s.intent = null; s.charge = 0;
+    jeu.tFrappe = 0; jeu.plan = [null, null]; jeu.pred = null; jeu.tPred = 0;
+
+    // positionnement de l'équipe après le coup
+    const camp = 1 - eq;
+    if (type === 'lobe' || type === 'vitre') { jeu.posture[eq] = 'filet'; jeu.posture[camp] = 'fond'; }
+    else if (type === 'smash' || type === 'bandeja' || type === 'vibora') { jeu.posture[eq] = 'filet'; if (type === 'smash') jeu.posture[camp] = 'fond'; }
+    else if (Math.abs(s.x - MIL) < 5) jeu.posture[eq] = 'filet';
+    else jeu.posture[eq] = p > 0.7 && Math.random() < 0.5 ? 'filet' : 'fond';
+
+    const [sx, sy] = proj(s.x, s.y, 1.8);
+    if (type === 'smash') {
+      Son.smash(); secousse = 2 + 2 * p; flash = 0.15 * p;
+      etincelles(sx + s.face * 4, sy - 4, 10 + Math.round(10 * p));
+      bulle(b.portres ? 'SMASH !!' : 'SMASH', sx, sy - 10, C.or);
+      if (s.humain) vibre(45);
+    } else {
+      Son.frappe(p);
+      if (type !== 'plat' || p > 0.8) bulle(type === 'plat' ? 'PUISSANCE' : NOMS[type], sx, sy - 10, type === 'vibora' || type === 'bandeja' ? C.or : C.blanc);
+      if (s.humain) vibre(p > 0.8 ? 25 : 12);
+    }
+  }
+
+  // Contre-vitre : on renvoie la balle dans sa propre vitre pour qu'elle reparte
+  // au-dessus du filet. On cherche par simulation un élan qui retombe chez l'adversaire.
+  function contreVitre(s, ty) {
+    const b = jeu.balle, eq = s.eq, d = dir(eq);
+    let best = null;
+    for (let vb = 5; vb <= 15; vb += 1) for (let vz = 2; vz <= 10.5; vz += 0.75) {
+      const c = { x: b.x, y: b.y, z: Math.max(0.3, b.z), vx: -d * vb, vy: (ty - b.y) / 2.2, vz, spin: 'plat', roule: false, dehors: false, portres: false };
+      let res = null, mur = false;
+      const ev = (t, side) => {
+        if (res) return;
+        if (t === 'vitre' && side === eq && !mur) mur = true;
+        else if (t === 'sol') res = { ok: side !== eq && mur, x: c.x, y: c.y };
+        else res = { ok: false };
+      };
+      for (let i = 0; i < 500 && !res; i++) physique(c, 1 / 120, ev);
+      if (res && res.ok && res.y > 0.3 && res.y < LARG - 0.3) {
+        const sc = Math.abs(Math.abs(res.x - MIL) - 6) + Math.abs(res.y - ty) * 0.3;
+        if (!best || sc < best.sc) best = { sc, vb, vz };
+      }
+    }
+    if (!best) return false;
+    b.z = Math.max(0.3, b.z);
+    b.vx = -d * best.vb; b.vy = (ty - b.y) / 2.2; b.vz = best.vz;
+    b.spin = 'plat'; b.roule = false; b.portres = false;
+    return true;
+  }
+
+  /* ============================================== intelligence ====== */
+
+  // Simule la suite de la trajectoire pour savoir où et quand la balle sera jouable.
+  function predit(b0, eq) {
+    const b = { x: b0.x, y: b0.y, z: b0.z, vx: b0.vx, vy: b0.vy, vz: b0.vz, spin: b0.spin, spinDir: b0.spinDir, roule: b0.roule, dehors: b0.dehors, portres: b0.portres };
+    let sol = b0.sol, fin = false, faute = false, rebond = null;
+    const ev = (t, side) => {
+      if (t === 'sol') {
+        if (side === eq) { sol++; if (sol === 1 && !rebond) rebond = { x: b.x, y: b.y }; if (sol >= 2) fin = true; }
+        else { if (sol === 0) faute = true; fin = true; }
+      } else if ((t === 'vitre' || t === 'grille') && side === eq && sol === 0) { faute = true; fin = true; }
+      else if (t === 'sortie') { if (sol === 0) faute = true; fin = true; }
+    };
+    const pts = [];
+    const dt = 1 / 60;
+    for (let i = 1; i <= 220; i++) {
+      physique(b, dt / 2, ev);
+      if (!fin) physique(b, dt / 2, ev);
+      if (fin) break;
+      const cote = eq === 0 ? b.x > 0.15 && b.x < MIL - 0.3 : b.x > MIL + 0.3 && b.x < LONG - 0.15;
+      const ok = cote && b.y > 0.2 && b.y < LARG - 0.2 && b.z >= 0.1 && b.z <= HAUT_MAX && !(b0.service && sol === 0);
+      pts.push({ t: i * dt, x: b.x, y: b.y, z: b.z, sol, ok });
+    }
+    return { pts, faute, rebond, eq };
+  }
+
+  function meilleurPoint(s, P) {
+    const reac = s.humain ? 0.05 : s.niv.reac;
+    const v = VMAX * (s.humain ? 1 : s.niv.vit);
+    const attente = Math.max(0, reac - jeu.tFrappe);
+    let best = null, secours = null;
+    for (const q of P.pts) {
+      if (!q.ok) continue;
+      const dist = Math.max(0, Math.hypot(q.x - s.x, q.y - s.y) - PORTEE * 0.75);
+      const marge = q.t - (dist / v + attente);
+      const loin = Math.abs(q.x - MIL);
+      let sc = q.t * 0.25;
+      if (q.z < 0.3) sc += 0.8;
+      if (q.sol === 0 && loin > 5.5 && q.z < HAUT_SMASH) sc += 0.6;   // au fond, on laisse rebondir
+      if (q.z > HAUT_SMASH && loin > 7) sc += 0.4;
+      if (marge >= 0) { if (!best || sc < best.score) best = { ...q, score: sc }; }
+      else if (!secours || marge > secours.marge) secours = { ...q, score: 5 - marge, marge };
+    }
+    return best || secours;
+  }
+
+  function prevoir() {
+    const b = jeu.balle;
+    const eq = b.camp;
+    const P = predit(b, eq);
+    jeu.pred = P;
+    jeu.plan[1 - eq] = null;
+    if (P.faute) { jeu.plan[eq] = null; return; }   // elle sort ou tape la vitre directement : on la laisse
+    const avant = jeu.plan[eq];
+    let best = null;
+    for (const s of equipe(eq)) {
+      const r = meilleurPoint(s, P);
+      if (!r) continue;
+      let sc = r.score + ((r.y > 5) !== (s.home > 5) ? 0.35 : 0);
+      if (avant && avant.s === s) sc -= 0.2;   // on ne change pas d'avis pour rien
+      if (s.humain) sc -= 0.1;
+      if (!best || sc < best.sc) best = { ...r, s, sc };
+    }
+    jeu.plan[eq] = best;
+  }
+
+  function formation(s) {
+    const eq = s.eq, b = jeu.balle;
+    const prof = jeu.posture[eq] === 'filet' ? 7.1 : 1.9;
+    // si l'adversaire va smasher, on recule
+    return { x: xProf(eq, prof), y: clamp(s.home + (b.y - 5) * 0.3, 0.8, LARG - 0.8) };
+  }
+
+  function choixIA(s) {
+    const b = jeu.balle, eq = s.eq, niv = s.niv;
+    const haut = b.z > HAUT_SMASH;
+    const adv = equipe(1 - eq);
+    const auFilet = adv.filter((o) => Math.abs(o.x - MIL) < 4.5).length;
+    const loin = Math.abs(s.x - MIL);
+    let type, p;
+    if (haut) {
+      if (loin < 5.5 && b.z > 2.3 && Math.random() < 0.3 + niv.agress * 0.5) { type = 'smash'; p = alea(0.5, 0.75) + niv.agress * 0.3 * Math.random(); }
+      else { type = Math.random() < 0.6 ? 'bandeja' : 'vibora'; p = alea(0.3, 0.8); }
+    } else if (Math.abs(s.x - fond(eq)) < 0.9 && b.z < 0.9 && Math.random() < 0.35) { type = 'vitre'; p = 0.5; }
+    else if (auFilet >= 1 && loin > 5 && Math.random() < 0.45) { type = 'lobe'; p = alea(0.2, 0.7); }
+    else if (Math.random() < 0.35) { type = 'coupe'; p = alea(0.2, 0.7); }
+    else { type = 'plat'; p = alea(0.2, 0.6) + niv.agress * 0.35 * Math.random(); }
+    p = clamp(p, 0, 1);
+    // viser le trou : loin du joueur adverse le plus proche
+    let ty = 5, meilleur = -1;
+    for (const c of [0.9, 2.8, 5, 7.2, 9.1]) {
+      const dmin = Math.min(...adv.map((o) => Math.abs(o.y - c)));
+      const sc = dmin + Math.random() * 1.2;
+      if (sc > meilleur) { meilleur = sc; ty = c; }
+    }
+    if (type === 'vibora') ty = ty < 5 ? 1.2 : 8.8;
+    const m = (PROF[type] || 3) + alea(-0.6, 0.6);
+    return { type, p, tx: xProf(1 - eq, m), ty };
+  }
+
+  function pilotageIA(s, dt) {
+    const b = jeu.balle;
+    if (jeu.phase === 'service') { s.cible = s.posServ; return; }
+    if (jeu.phase !== 'jeu') { s.cible = formation(s); return; }
+    const plan = jeu.plan[s.eq];
+    if (b.camp === s.eq && plan && plan.s === s) {
+      if (jeu.tFrappe < s.niv.reac) return;
+      s.cible = { x: plan.x - dir(s.eq) * 0.3, y: plan.y };
+      const urgence = b.sol === 1 && b.z < 0.35 && b.vz < 0;
+      if (frappable(s) && (b.sol >= plan.sol || urgence)) {
+        const c = choixIA(s);
+        executeCoup(s, c.type, c.p, c.tx, c.ty);
+      }
+    } else if (jeu.tFrappe > s.niv.reac * 0.5) s.cible = formation(s);
+  }
+
+  /* ============================================== entrées =========== */
+
+  const touches = new Set();
+  const cmd = { joy: null, ids: {}, appuis: [] };
+  let tactile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  let boutons = [];
+  let ecranUI = 'menu';  // menu | jeu | pause | fin
+  let enPause = false;
+
+  const RAYON_JOY = 22;
+  const zones = () => ({
+    plat: { x: W - 34, y: H - 32, r: 19 },
+    lobe: { x: W - 30, y: H - 80, r: 14 },
+    coupe: { x: W - 80, y: H - 22, r: 14 },
+  });
+  const zonePause = () => ({ x: W - 22, y: 4, w: 16, h: 14 });
+
+  function versLogique(e) {
+    const r = ecran.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * (ecran.width / ECHELLE), y: (e.clientY - r.top) / r.height * (ecran.height / ECHELLE) };
+  }
+
+  ecran.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (e.pointerType === 'touch') tactile = true;
+    Son.init();
+    const p = versLogique(e);
+    if (portrait) return;
+    if (ecranUI === 'jeu' && !enPause) {
+      const zp = zonePause();
+      if (p.x >= zp.x - 4 && p.y <= zp.y + zp.h + 4 && p.y >= 0) { pause(true); return; }
+      if (p.x < W * 0.45) {
+        const bx = clamp(p.x, RAYON_JOY + 4, W * 0.45), by = clamp(p.y, RAYON_JOY + 30, H - RAYON_JOY - 4);
+        cmd.joy = { id: e.pointerId, bx, by, x: p.x, y: p.y };
+      } else {
+        // le bouton le plus proche : pas besoin de viser juste
+        const z = zones();
+        let best = null, dmin = 1e9;
+        for (const k in z) { const d = Math.hypot(p.x - z[k].x, p.y - z[k].y) - z[k].r; if (d < dmin) { dmin = d; best = k; } }
+        if (best && dmin < 30) { cmd.appuis.push(best); cmd.ids[e.pointerId] = best; }
+      }
+      try { ecran.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      return;
+    }
+    for (const b of boutons) {
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { Son.clic(); b.act(); return; }
+    }
+  }, { passive: false });
+
+  ecran.addEventListener('pointermove', (e) => {
+    if (cmd.joy && e.pointerId === cmd.joy.id) {
+      const p = versLogique(e);
+      cmd.joy.x = p.x; cmd.joy.y = p.y;
+      const dx = p.x - cmd.joy.bx, dy = p.y - cmd.joy.by, d = Math.hypot(dx, dy);
+      if (d > RAYON_JOY * 1.6) { cmd.joy.bx = p.x - dx / d * RAYON_JOY * 1.6; cmd.joy.by = p.y - dy / d * RAYON_JOY * 1.6; }
+    }
+  });
+
+  const relache = (e) => {
+    if (cmd.joy && e.pointerId === cmd.joy.id) cmd.joy = null;
+    delete cmd.ids[e.pointerId];
+  };
+  ecran.addEventListener('pointerup', relache);
+  ecran.addEventListener('pointercancel', relache);
+  ecran.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const TOUCHES_COUPS = { Space: 'plat', KeyJ: 'plat', KeyX: 'plat', KeyK: 'lobe', KeyC: 'lobe', KeyL: 'coupe', KeyV: 'coupe' };
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    Son.init();
+    touches.add(e.code);
+    if (TOUCHES_COUPS[e.code]) { if (ecranUI === 'jeu') cmd.appuis.push(TOUCHES_COUPS[e.code]); e.preventDefault(); }
+    if (e.code === 'Escape' || e.code === 'KeyP') { if (ecranUI === 'jeu' || ecranUI === 'pause') pause(!enPause); }
+    if (e.code === 'Enter') {
+      if (ecranUI === 'menu' || ecranUI === 'fin') lanceMatch();
+      else if (enPause) pause(false);
+    }
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => { touches.delete(e.code); });
+
+  function lireJoueur(s, dt) {
+    let ix = 0, iy = 0;
+    if (touches.has('ArrowLeft') || touches.has('KeyA') || touches.has('KeyQ')) ix -= 1;
+    if (touches.has('ArrowRight') || touches.has('KeyD')) ix += 1;
+    if (touches.has('ArrowUp') || touches.has('KeyW') || touches.has('KeyZ')) iy -= 1;
+    if (touches.has('ArrowDown') || touches.has('KeyS')) iy += 1;
+    if (ix || iy) { const m = Math.hypot(ix, iy); ix /= m; iy /= m; }
+    if (cmd.joy) {
+      const dx = (cmd.joy.x - cmd.joy.bx) / RAYON_JOY, dy = (cmd.joy.y - cmd.joy.by) / RAYON_JOY;
+      const m = Math.hypot(dx, dy);
+      if (m > 0.12) { const k = Math.min(1, m) / m; ix = dx * k; iy = dy * k; }
+    }
+    s.ex = ix; s.ey = iy;
+    const appuis = cmd.appuis; cmd.appuis = [];
+
+    if (jeu.phase === 'service') {
+      s.cible = s.posServ;
+      if (s !== jeu.serveur || !jeu.pret) return;
+      for (const a of appuis) {
+        if (!jeu.jauge) { jeu.jauge = { type: TYPES_SERV[a], t: 0 }; Son.clic(); }
+        else if (jeu.jauge.t > 0.12) { servir(s, jeu.jauge.type, jaugeVal(jeu.jauge.t), viseServ(s)); break; }
+      }
+      return;
+    }
+    if (jeu.phase !== 'jeu') { s.intent = null; s.charge = 0; return; }
+    // on peut appuyer en avance : le coup part dès que la balle est à portée,
+    // et plus on a appuyé tôt, plus il est puissant
+    for (const a of appuis) {
+      if (s.intent) s.intent.type = a;
+      else { s.intent = { type: a, t: 0 }; s.charge = 0; }
+    }
+    if (s.intent) {
+      s.intent.t += dt;
+      s.charge = Math.min(1, s.charge + dt / 0.75);
+      if (s.intent.t > 1.6) { s.intent = null; s.charge = 0; }
+    }
+    if (s.intent && frappable(s, 1.15)) coupHumain(s);
+  }
+
+  const viseServ = (s) => clamp(s.ey * (s.y > 5 ? -1 : 1), -1, 1);
+
+  function coupHumain(s) {
+    const b = jeu.balle, eq = s.eq, d = dir(eq);
+    const haut = b.z > HAUT_SMASH;
+    let type = s.intent.type;
+    const av = s.ex * d;   // >0 : vers le filet
+    const p = 0.25 + 0.75 * s.charge;
+    // joystick tiré vers sa propre vitre, près du fond : contre-vitre
+    if (!haut && av < -0.7 && Math.abs(s.x - fond(eq)) < 3.5) {
+      const ty = Math.abs(s.ey) > 0.3 ? 5 + s.ey * 3.8 : clamp(LARG - s.y, 1.5, 8.5);
+      executeCoup(s, 'vitre', p, 0, ty);
+      return;
+    }
+    if (haut) type = HAUTS[type];
+    let m = PROF[type] || 3;
+    if (av > 0.3) m -= av * 1.2; else if (av < -0.3) m += -av * 2.4;
+    let ty;
+    if (Math.abs(s.ey) > 0.3) ty = 5 + s.ey * 3.9;
+    else ty = clamp(LARG - s.y, 1.4, 8.6) + alea(-0.6, 0.6);   // croisé par défaut
+    if (type === 'vibora') ty = s.ey > 0.3 ? 8.9 : s.ey < -0.3 ? 1.1 : (ty < 5 ? 1.1 : 8.9);
+    executeCoup(s, type, p, xProf(1 - eq, m), clamp(ty, 0.3, LARG - 0.3));
+  }
+
+  /* ============================================== déroulé =========== */
+
+  function bouge(s, dt) {
+    let dvx = 0, dvy = 0;
+    const vmax = VMAX * (s.humain ? 1 : s.niv.vit);
+    if (s.humain && jeu.phase !== 'service') {
+      const k = s.intent && s.intent.t > 0.15 ? 0.55 : 1;   // on se plante pour armer
+      dvx = s.ex * vmax * k; dvy = s.ey * vmax * k;
+    } else if (s.cible) {
+      const dx = s.cible.x - s.x, dy = s.cible.y - s.y, d = Math.hypot(dx, dy);
+      const v = Math.min(vmax * (jeu.phase === 'service' ? 1.6 : 1), d * 6);
+      if (d > 0.05) { dvx = dx / d * v; dvy = dy / d * v; }
+    }
+    const f = Math.min(1, dt * 12);
+    s.vx += (dvx - s.vx) * f; s.vy += (dvy - s.vy) * f;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.eq === 0) s.x = clamp(s.x, 0.25, MIL - 0.3); else s.x = clamp(s.x, MIL + 0.3, LONG - 0.25);
+    s.y = clamp(s.y, 0.25, LARG - 0.25);
+    s.pas += Math.hypot(s.vx, s.vy) * dt;
+    s.swing = Math.max(0, s.swing - dt / 0.28);
+    s.cd -= dt;
+  }
+
+  function separe() {
+    for (let i = 0; i < jeu.joueurs.length; i++) for (let j = i + 1; j < jeu.joueurs.length; j++) {
+      const a = jeu.joueurs[i], b = jeu.joueurs[j];
+      if (a.eq !== b.eq) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+      if (d < 0.7 && d > 0.001) { const k = (0.7 - d) / 2 / d; a.x -= dx * k; a.y -= dy * k; b.x += dx * k; b.y += dy * k; }
+    }
+  }
+
+  function pas(dt) {
+    dt *= VITESSE;
+    jeu.temps += dt; jeu.tPhase += dt; jeu.tFrappe += dt;
+    const b = jeu.balle;
+    if (jeu.phase === 'jeu') {
+      jeu.tPred -= dt;
+      if (jeu.tPred <= 0) { prevoir(); jeu.tPred = 0.1; }
+    }
+    for (const s of jeu.joueurs) {
+      if (s.humain) lireJoueur(s, dt); else pilotageIA(s, dt);
+      bouge(s, dt);
+    }
+    separe();
+    if (jeu.phase === 'service') { majService(dt); return; }
+    for (let i = 0; i < 2; i++) physique(b, dt / 2, regle);
+    b.trace.push(proj(b.x, b.y, b.z));
+    if (b.trace.length > 6) b.trace.shift();
+    if (jeu.phase === 'jeu' && jeu.tFrappe > 9) gagne(b.sol >= 1 ? b.eqF : b.camp, 'POINT');
+    if (jeu.phase === 'point' && jeu.tPhase > 1.9) finPoint();
+  }
+
+  function finMatch() {
+    jeu.phase = 'fin';
+    ecranUI = 'fin';
+    cmd.joy = null;
+    const gagneMatch = jeu.jeux[0] > jeu.jeux[1];
+    pref.matchs[pref.niveau] = (pref.matchs[pref.niveau] || 0) + 1;
+    if (gagneMatch) pref.victoires[pref.niveau] = (pref.victoires[pref.niveau] || 0) + 1;
+    sauve();
+    if (gagneMatch) { Son.ovation(1); confettis(K.cx, K.yF, 0); }
+  }
+
+  function lanceMatch() {
+    Son.init();
+    pleinEcran();
+    nouvellePartie('match');
+    particules = []; bulles = [];
+    ecranUI = 'jeu'; enPause = false;
+    annonce('PRETS ?', NIVEAUX[pref.niveau].nom + ' - ' + POSTES[pref.poste], C.blanc, 1.5);
+  }
+
+  function retourMenu() {
+    nouvellePartie('demo');
+    ecranUI = 'menu'; enPause = false;
+    banniere = null;
+  }
+
+  function pause(oui) {
+    if (ecranUI !== 'jeu' && ecranUI !== 'pause') return;
+    enPause = oui;
+    ecranUI = oui ? 'pause' : 'jeu';
+    cmd.joy = null; cmd.ids = {}; cmd.appuis = [];
+    touches.clear();
+  }
+
+  function pleinEcran() {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req || document.fullscreenElement || document.webkitFullscreenElement) return;
+    try {
+      const r = req.call(el, { navigationUI: 'hide' });
+      const verrou = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* ignore */ } };
+      if (r && r.then) r.then(verrou).catch(() => {}); else verrou();
+    } catch (e) { /* pas de plein écran (iPhone) : tant pis */ }
+  }
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden && ecranUI === 'jeu') pause(true); });
+
+  /* ============================================== rendu ============= */
+
+  function dessineJoueur(s) {
+    const [sx, sy] = proj(s.x, s.y, 0);
+    const v = Math.hypot(s.vx, s.vy);
+    const frame = v > 0.6 ? 1 + (Math.floor(s.pas * 2.2) & 1) : 0;
+    const f = s.face;
+    const spr = s.spr[frame][f > 0 ? 0 : 1];
+    const bx = Math.round(sx) - 5, by = Math.round(sy) - 16;
+    g.drawImage(spr, bx, by);
+    // la pala : manche + tamis, animée pendant la frappe
+    const hx = Math.round(sx) + f * 2, hy = Math.round(sy) - 8;
+    let a;
+    if (s.swing > 0) {
+      const t = 1 - s.swing;
+      const e = t * t * (3 - 2 * t);
+      a = s.haut ? -2.4 + (0.9 + 2.4) * e : 2.5 + (-0.9 - 2.5) * e;
+    } else if (s.intent) a = (s.intent.t > 0.15 ? 2.4 : 1.6) + Math.sin(jeu.temps * 30) * 0.05 * s.charge;
+    else a = -1.15;
+    const ca = Math.cos(a) * f, sa = Math.sin(a);
+    ligne(hx, hy, hx + ca * 3, hy + sa * 3, '#2a2f45');
+    disque(hx + ca * 5, hy + sa * 5, 2, C.contour);
+    disque(hx + ca * 5, hy + sa * 5, 1, s.eq === 0 ? '#e6f7ff' : '#ffe6ea');
+    px(hx + ca * 5, hy + sa * 5, 1, 1, EQUIPES[s.eq].fonce);
+  }
+
+  function dessineBalle() {
+    const b = jeu.balle;
+    const [sx, sy] = proj(b.x, b.y, b.z);
+    const vit = Math.hypot(b.vx, b.vy, b.vz);
+    if (vit > 13 && jeu.phase !== 'service') {
+      b.trace.forEach(([tx, ty], i) => {
+        g.globalAlpha = (i + 1) / b.trace.length * 0.45;
+        px(tx - 1, ty - 1, 2, 2, b.spin === 'smash' ? C.or : C.balle);
+      });
+      g.globalAlpha = 1;
+    }
+    const x = Math.round(sx), y = Math.round(sy);
+    px(x - 2, y - 1, 4, 2, C.contour); px(x - 1, y - 2, 2, 4, C.contour);
+    px(x - 1, y - 1, 2, 2, C.balle);
+    px(x - 1, y - 1, 1, 1, '#f8ffc0');
+  }
+
+  function ombre(x, y, rx, a) {
+    const [sx, sy] = proj(x, clamp(y, 0, LARG), 0);
+    g.fillStyle = `rgba(4,10,40,${a})`;
+    g.fillRect(Math.round(sx - rx), Math.round(sy), rx * 2 + 1, 1);
+    g.fillRect(Math.round(sx - rx + 1), Math.round(sy) - 1, rx * 2 - 1, 3);
+  }
+
+  function dessineScene() {
+    const bond = jeu.excite > 0.05 ? (Math.floor(jeu.temps * 9) & 1) : (Math.floor(jeu.temps * 0.7) % 5 === 0 ? 1 : 0);
+    g.drawImage(foule[bond], 0, 0);
+    g.drawImage(terrain, 0, 0);
+    g.drawImage(murs, 0, 0);
+    const b = jeu.balle;
+    const hum = jeu.humain;
+
+    // repère du rebond, pour aller chercher la balle
+    if (hum && jeu.phase === 'jeu' && b.camp === hum.eq && jeu.pred && jeu.pred.rebond && b.sol === 0) {
+      const r = jeu.pred.rebond;
+      const plan = jeu.plan[hum.eq];
+      const c = plan && plan.s === hum ? ((Math.floor(jeu.temps * 8) & 1) ? C.or : C.blanc) : 'rgba(255,255,255,0.45)';
+      const [sx, sy] = proj(r.x, r.y, 0);
+      for (let k = -2; k <= 2; k++) { px(sx + k, sy + k * 0.5, 1, 1, c); px(sx + k, sy - k * 0.5, 1, 1, c); }
+    }
+    // service humain : la cible dans le carré
+    if (hum && jeu.phase === 'service' && jeu.serveur === hum && jeu.pret) {
+      const c = cibleService(hum, viseServ(hum));
+      const [sx, sy] = proj(c.x, c.y, 0);
+      const col = (Math.floor(jeu.temps * 6) & 1) ? C.or : C.blanc;
+      for (let k = -2; k <= 2; k++) { px(sx + k, sy + k * 0.5, 1, 1, col); px(sx + k, sy - k * 0.5, 1, 1, col); }
+    }
+
+    for (const s of jeu.joueurs) ombre(s.x, s.y, 4, 0.35);
+    if (!b.dehors || b.z < 6) ombre(b.x, b.y, 1, clamp(0.45 - b.z * 0.05, 0.12, 0.45));
+
+    // anneau sous le joueur humain : doré quand la balle est à portée
+    if (hum && ecranUI === 'jeu') {
+      const [sx, sy] = proj(hum.x, hum.y, 0);
+      const ok = frappable(hum, 1.15);
+      const c = ok ? C.or : 'rgba(255,255,255,0.4)';
+      for (let k = 0; k < 18; k++) {
+        const a = k / 18 * Math.PI * 2 + jeu.temps * 2;
+        if (k % 2 === 0 || ok) px(sx + Math.cos(a) * 7, sy + Math.sin(a) * 2.5, 1, 1, c);
+      }
+    }
+
+    const liste = jeu.joueurs.map((s) => ({ y: s.y, f: () => dessineJoueur(s) }));
+    liste.push({ y: clamp(b.y, 0, LARG) + 0.01, f: dessineBalle });
+    liste.sort((a, c) => a.y - c.y);
+    for (const e of liste) e.f();
+
+    for (const p of particules) {
+      g.globalAlpha = Math.min(1, p.vie * 4);
+      px(p.x, p.y, 1, 1, p.c);
+    }
+    g.globalAlpha = 1;
+
+    g.drawImage(devant, 0, 0);
+
+    // le joueur : une flèche au-dessus de la tête, la jauge de puissance
+    if (hum && ecranUI !== 'menu') {
+      const [sx, sy] = proj(hum.x, hum.y, 0);
+      const yy = Math.round(sy) - 22 + (Math.floor(jeu.temps * 3) & 1);
+      px(sx - 2, yy, 5, 1, C.contour); px(sx - 2, yy - 1, 5, 1, C.contour);
+      px(sx - 1, yy, 3, 1, C.or); px(sx, yy + 1, 1, 1, C.or); px(sx - 1, yy + 1, 3, 1, C.contour); px(sx, yy + 1, 1, 1, C.or);
+      if (hum.intent) {
+        const w = 12, x0 = Math.round(sx - w / 2), y0 = yy - 5;
+        px(x0 - 1, y0 - 1, w + 2, 4, C.contour);
+        px(x0, y0, Math.round(w * hum.charge), 2, hum.charge > 0.8 ? '#ff7a3c' : C.or);
+      }
+    }
+    for (const bb of bulles) {
+      g.globalAlpha = Math.min(1, bb.vie * 3);
+      texte(bb.txt, bb.x, bb.y, bb.c);
+      g.globalAlpha = 1;
+    }
+  }
+
+  function dessineTableau() {
+    const cx = Math.round(W / 2);
+    const lw = 168;
+    const x = cx - lw / 2, y = 2;
+    px(x - 1, y - 1, lw + 2, 21, C.contour);
+    px(x, y, lw, 19, '#161b36');
+    px(x, y, lw, 1, '#2a3160');
+    px(x, y + 18, lw, 1, '#0f1328');
+    const m = jeu.mode === 'match';
+    px(x + 3, y + 3, 3, 13, EQUIPES[0].maillot);
+    px(x + lw - 6, y + 3, 3, 13, EQUIPES[1].maillot);
+    texte(m ? 'VOUS' : 'BLEUS', x + 9, y + 6, EQUIPES[0].clair, 1, 'g');
+    texte(m ? 'CPU' : 'ROUGES', x + lw - 9, y + 6, EQUIPES[1].clair, 1, 'd');
+    // jeux
+    texte(jeu.jeux[0], cx - 38, y + 3, C.blanc, 2, 'c');
+    texte(jeu.jeux[1], cx + 38, y + 3, C.blanc, 2, 'c');
+    // points
+    const or = jeu.pts[0] === 3 && jeu.pts[1] === 3;
+    px(cx - 25, y + 4, 50, 11, '#05060f');
+    const p0 = or ? 'OR' : LIB_PTS[jeu.pts[0]], p1 = or ? 'OR' : LIB_PTS[jeu.pts[1]];
+    texte(p0, cx - 12, y + 6, C.or, 1, 'c', null);
+    texte('-', cx, y + 6, C.gris, 1, 'c', null);
+    texte(p1, cx + 12, y + 6, C.or, 1, 'c', null);
+    // qui sert
+    if (jeu.serveur) {
+      const sxv = jeu.serveur.eq === 0 ? x + 3 + 4 + largeurTexte(m ? 'VOUS' : 'BLEUS') + 5 : x + lw - 9 - largeurTexte(m ? 'CPU' : 'ROUGES') - 6;
+      px(sxv, y + 7, 3, 3, C.balle); px(sxv - 1, y + 8, 5, 1, C.balle); px(sxv + 1, y + 6, 1, 5, C.balle);
+    }
+    if (ecranUI === 'jeu') {
+      const zp = zonePause();
+      px(zp.x - 1, zp.y - 1, zp.w + 2, zp.h + 2, C.contour);
+      px(zp.x, zp.y, zp.w, zp.h, '#161b36');
+      px(zp.x + 5, zp.y + 3, 2, 8, C.blanc);
+      px(zp.x + 9, zp.y + 3, 2, 8, C.blanc);
+    }
+  }
+
+  function dessineJauge() {
+    const hum = jeu.humain;
+    if (!hum || jeu.phase !== 'service' || jeu.serveur !== hum || !jeu.pret) return;
+    const cx = Math.round(W / 2), y = H - 30;
+    const w = 110;
+    panneau(cx - w / 2 - 6, y - 12, w + 12, 30);
+    if (!jeu.jauge) {
+      texte('SERVICE : CHOISISSEZ', cx, y - 8, C.blanc, 1, 'c');
+      texte(tactile ? 'PLAT  LIFTE  COUPE' : 'J PLAT  K LIFTE  L COUPE', cx, y + 4, C.or, 1, 'c');
+      return;
+    }
+    texte('SERVICE ' + NOMS_SERV[jeu.jauge.type], cx, y - 8, C.blanc, 1, 'c');
+    const x0 = cx - w / 2, y0 = y + 3;
+    const seg = [[0, 0.25, '#c8344a'], [0.25, 0.62, '#d9a52b'], [0.62, 0.82, '#35c47a'], [0.82, 0.93, '#d9a52b'], [0.93, 1, '#c8344a']];
+    px(x0 - 1, y0 - 1, w + 2, 8, C.contour);
+    for (const [a, b, c] of seg) px(x0 + Math.round(a * w), y0, Math.round((b - a) * w), 6, c);
+    const v = jaugeVal(jeu.jauge.t);
+    const cxv = x0 + Math.round(v * w);
+    px(cxv - 1, y0 - 3, 3, 12, C.contour);
+    px(cxv, y0 - 2, 1, 10, C.blanc);
+  }
+
+  function libelles() {
+    const hum = jeu.humain, b = jeu.balle;
+    if (jeu.phase === 'service' && jeu.serveur === hum) return { plat: 'PLAT', lobe: 'LIFTE', coupe: 'COUPE' };
+    const haut = b.camp === hum.eq && b.z > HAUT_SMASH && Math.hypot(b.x - hum.x, b.y - hum.y) < 3.5 && jeu.phase === 'jeu';
+    return haut ? { plat: 'SMASH', lobe: 'VIBORA', coupe: 'BANDEJA', haut } : { plat: 'FRAPPE', lobe: 'LOBE', coupe: 'COUPE' };
+  }
+
+  function dessineCommandes() {
+    const s = jeu.humain;
+    if (!s) return;
+    const lib = libelles();
+    if (!tactile) {
+      if (lib.haut) texte('J SMASH  K VIBORA  L BANDEJA', W / 2, H - 10, C.or, 1, 'c');
+      return;
+    }
+    if (cmd.joy) {
+      g.globalAlpha = 0.5;
+      anneau(cmd.joy.bx, cmd.joy.by, RAYON_JOY, C.blanc, 1, 2);
+      g.globalAlpha = 0.85;
+      let dx = cmd.joy.x - cmd.joy.bx, dy = cmd.joy.y - cmd.joy.by;
+      const d = Math.hypot(dx, dy);
+      if (d > RAYON_JOY) { dx *= RAYON_JOY / d; dy *= RAYON_JOY / d; }
+      disque(cmd.joy.bx + dx, cmd.joy.by + dy, 9, C.contour);
+      disque(cmd.joy.bx + dx, cmd.joy.by + dy, 8, '#dfe8ff');
+      disque(cmd.joy.bx + dx - 2, cmd.joy.by + dy - 2, 3, '#ffffff');
+      g.globalAlpha = 1;
+    } else if (jeu.temps < 20) {
+      g.globalAlpha = 0.28 + 0.12 * Math.sin(jeu.temps * 3);
+      anneau(40, H - 40, RAYON_JOY, C.blanc, 1, 2);
+      disque(40, H - 40, 8, C.blanc);
+      g.globalAlpha = 1;
+      texte('COURIR', 40, H - 13, C.blanc, 1, 'c');
+    }
+    const z = zones();
+    const couleurs = lib.haut
+      ? { plat: ['#ffb02e', '#d98a10'], lobe: ['#b46cff', '#8a46d6'], coupe: ['#ffd35c', '#d9a52b'] }
+      : { plat: ['#ff5470', '#e03a58'], lobe: ['#3fb4e8', '#2a8fc4'], coupe: ['#35c47a', '#24995c'] };
+    const actifs = new Set(Object.values(cmd.ids));
+    for (const k of ['plat', 'lobe', 'coupe']) {
+      const zz = z[k];
+      const app = actifs.has(k);
+      const choisi = (s.intent && s.intent.type === k) || (jeu.jauge && jeu.serveur === s && TYPES_SERV[k] === jeu.jauge.type);
+      g.globalAlpha = app || choisi ? 0.92 : 0.6;
+      disque(zz.x, zz.y, zz.r, C.contour);
+      disque(zz.x, zz.y + (app ? 1 : 0), zz.r - 1, couleurs[k][0]);
+      if (!app) disque(zz.x, zz.y + 1, zz.r - 3, couleurs[k][1]);
+      if (choisi && s.intent) anneau(zz.x, zz.y, zz.r + 2, C.or, s.charge, 2);
+      else if (choisi) anneau(zz.x, zz.y, zz.r + 2, C.blanc, 1, 1);
+      g.globalAlpha = 1;
+      texte(lib[k], zz.x, zz.y - 3 + (app ? 1 : 0), C.blanc, 1, 'c');
+    }
+  }
+
+  function bouton(label, x, y, w, h, act, opts = {}) {
+    const base = opts.couleur || '#1f2650';
+    px(x - 1, y - 1, w + 2, h + 2, C.contour);
+    px(x, y, w, h, base);
+    px(x, y, w, 1, opts.clair || '#3a4590');
+    px(x, y + h - 2, w, 2, opts.fonce || '#141939');
+    texte(label, x + w / 2, y + Math.round((h - 7 * (opts.e || 1)) / 2) - 1, opts.texte || C.blanc, opts.e || 1, 'c');
+    boutons.push({ x, y, w, h, act });
+  }
+
+  function panneau(x, y, w, h) {
+    g.fillStyle = 'rgba(7,9,20,0.78)';
+    g.fillRect(x, y, w, h);
+    px(x, y, w, 1, '#2a3160'); px(x, y + h - 1, w, 1, '#2a3160');
+    px(x, y, 1, h, '#2a3160'); px(x + w - 1, y, 1, h, '#2a3160');
+  }
+
+  function dessineMenu() {
+    g.fillStyle = 'rgba(7,9,20,0.45)';
+    g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2);
+    const t = performance.now() / 1000;
+    const titre = 'BANDEJA!';
+    const e = W > 300 ? 4 : 3;
+    const lw = largeurTexte(titre, e);
+    const ox = cx - lw / 2;
+    const ty = Math.max(6, Math.round(H * 0.04));
+    for (let i = 0; i < titre.length; i++) {
+      const dy = Math.round(Math.sin(t * 3 + i * 0.6) * 1.5);
+      const col = i < 3 ? EQUIPES[0].maillot : i < 7 ? C.balle : EQUIPES[1].maillot;
+      texte(titre[i], ox + i * 6 * e + 2.5 * e, ty + dy, col, e, 'c');
+    }
+    texte('PADEL ARCADE', cx, ty + 7 * e + 5, C.or, 1, 'c');
+
+    const pw = 196, ph = 106;
+    const py = ty + 7 * e + 16;
+    panneau(cx - pw / 2, py, pw, ph);
+    const lignes = [
+      ['NIVEAU', NIVEAUX[pref.niveau].nom, () => { pref.niveau = (pref.niveau + 1) % NIVEAUX.length; sauve(); }],
+      ['MATCH', JEUX[pref.jeux] + ' JEUX', () => { pref.jeux = (pref.jeux + 1) % JEUX.length; sauve(); }],
+      ['POSTE', POSTES[pref.poste], () => { pref.poste = (pref.poste + 1) % 2; sauve(); }],
+      ['SON', pref.son ? 'OUI' : 'NON', () => { pref.son = !pref.son; Son.muet(!pref.son); sauve(); }],
+    ];
+    lignes.forEach(([k, v, act], i) => {
+      const y = py + 5 + i * 15;
+      texte(k, cx - pw / 2 + 10, y + 4, C.gris, 1, 'g');
+      bouton('< ' + v + ' >', cx - 14, y, 104, 13, act, { couleur: '#232a58' });
+    });
+    const jy = py + ph - 29;
+    const pulse = Math.sin(t * 5) > 0;
+    bouton('JOUER', cx - 50, jy, 100, 24, lanceMatch, { e: 2, couleur: pulse ? '#e63a58' : '#d12f4c', clair: '#ff7a90', fonce: '#8c1b3a' });
+    const v = pref.victoires[pref.niveau] || 0, mt = pref.matchs[pref.niveau] || 0;
+    const bas_ = py + ph + 5;
+    if (bas_ + 8 < H) texte(mt ? `VICTOIRES ${v} / ${mt}` : 'EN DOUBLE : VOUS ET UN CPU CONTRE DEUX CPU', cx, bas_, C.gris, 1, 'c');
+    if (bas_ + 19 < H) texte(tactile ? 'GAUCHE : COURIR   DROITE : FRAPPE / LOBE / COUPE' : 'FLECHES  J : FRAPPE  K : LOBE  L : COUPE', cx, bas_ + 10, '#6f7aa6', 1, 'c');
+    if (bas_ + 29 < H) texte('BALLE HAUTE : SMASH / VIBORA / BANDEJA', cx, bas_ + 20, '#6f7aa6', 1, 'c');
+    if (bas_ + 39 < H) texte('RECULER EN FRAPPANT : CONTRE-VITRE', cx, bas_ + 30, '#6f7aa6', 1, 'c');
+  }
+
+  function dessinePause() {
+    g.fillStyle = 'rgba(7,9,20,0.6)'; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    texte('PAUSE', cx, cy - 40, C.blanc, 3, 'c');
+    bouton('REPRENDRE', cx - 55, cy - 6, 110, 18, () => pause(false), { couleur: '#1f7fb3', clair: '#6fd0ff', fonce: '#0f4d73' });
+    bouton('ABANDONNER', cx - 55, cy + 18, 110, 18, retourMenu);
+  }
+
+  function dessineFin() {
+    g.fillStyle = 'rgba(7,9,20,0.62)'; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    const gagneM = jeu.jeux[0] > jeu.jeux[1];
+    const t = performance.now() / 1000;
+    texte(gagneM ? 'VICTOIRE !' : 'DEFAITE', cx, cy - 60 + Math.round(Math.sin(t * 4) * 1.5), gagneM ? C.or : EQUIPES[1].maillot, 3, 'c');
+    texte(jeu.jeux[0] + ' - ' + jeu.jeux[1], cx, cy - 32, C.blanc, 2, 'c');
+    const st = jeu.stats;
+    texte(`COUPS GAGNANTS  ${st.gagnants[0]} - ${st.gagnants[1]}`, cx, cy - 12, C.gris, 1, 'c');
+    texte(`POR TRES  ${st.portres[0]} - ${st.portres[1]}`, cx, cy - 2, C.gris, 1, 'c');
+    bouton('REJOUER', cx - 108, cy + 12, 100, 20, lanceMatch, { couleur: '#d12f4c', clair: '#ff7a90', fonce: '#8c1b3a' });
+    bouton('MENU', cx + 8, cy + 12, 100, 20, retourMenu);
+    texte('NIVEAU ' + NIVEAUX[pref.niveau].nom + '   VICTOIRES ' + (pref.victoires[pref.niveau] || 0) + ' / ' + (pref.matchs[pref.niveau] || 0), cx, cy + 42, '#6f7aa6', 1, 'c');
+  }
+
+  function dessineBanniere() {
+    if (!banniere || ecranUI === 'menu') return;
+    const b = banniere;
+    const age = b.max - b.vie;
+    const e = b.txt.length > 9 ? 2 : 3;
+    const entree = Math.min(1, age * 6);
+    const cx = Math.round(W / 2), cy = Math.round(K.yF - 10);
+    const bandeH = 7 * e + (b.sous ? 18 : 10);
+    g.globalAlpha = Math.min(1, b.vie * 3) * 0.75;
+    g.fillStyle = '#070914';
+    const bw = Math.round(W * entree);
+    g.fillRect(cx - bw / 2, cy - 6, bw, bandeH);
+    g.fillStyle = b.c;
+    g.fillRect(cx - bw / 2, cy - 6, bw, 1);
+    g.fillRect(cx - bw / 2, cy - 7 + bandeH, bw, 1);
+    g.globalAlpha = Math.min(1, b.vie * 3);
+    const dx = Math.round((1 - entree) * 60);
+    texte(b.txt, cx - dx, cy, b.c, e, 'c');
+    if (b.sous) texte(b.sous, cx + dx, cy + 7 * e + 4, C.blanc, 1, 'c');
+    g.globalAlpha = 1;
+  }
+
+  function dessinePortrait() {
+    g.fillStyle = C.nuit; g.fillRect(0, 0, W, H);
+    const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    const t = performance.now() / 1000;
+    const a = (Math.sin(t * 2) * 0.5 + 0.5) * Math.PI / 2;
+    g.save();
+    g.translate(cx, cy - 30);
+    g.rotate(-a);
+    g.fillStyle = C.contour; g.fillRect(-15, -26, 30, 52);
+    g.fillStyle = '#b6c2e0'; g.fillRect(-14, -25, 28, 50);
+    g.fillStyle = '#2459ad'; g.fillRect(-12, -21, 24, 40);
+    g.fillStyle = '#eef3ff'; g.fillRect(-12, -1, 24, 1);
+    g.fillStyle = '#c9cfe0'; g.fillRect(-1, -21, 2, 40);
+    g.restore();
+    texte('TOURNEZ', cx, cy + 20, C.blanc, 2, 'c');
+    texte('VOTRE TELEPHONE', cx, cy + 40, C.or, 1, 'c');
+    texte('LE MATCH SE JOUE', cx, cy + 58, C.gris, 1, 'c');
+    texte('EN PAYSAGE', cx, cy + 68, C.gris, 1, 'c');
+  }
+
+  function rendu() {
+    boutons = [];
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    if (portrait) {
+      dessinePortrait();
+    } else {
+      g.fillStyle = C.nuit; g.fillRect(0, 0, W, H);
+      const sx = secousse > 0.2 ? Math.round(alea(-secousse, secousse)) : 0;
+      const sy = secousse > 0.2 ? Math.round(alea(-secousse, secousse)) : 0;
+      g.setTransform(1, 0, 0, 1, sx, sy);
+      dessineScene();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      if (ecranUI !== 'menu') dessineTableau();
+      dessineBanniere();
+      if (ecranUI === 'jeu') { dessineJauge(); dessineCommandes(); }
+      else if (ecranUI === 'menu') dessineMenu();
+      else if (ecranUI === 'pause') dessinePause();
+      else if (ecranUI === 'fin') dessineFin();
+      if (flash > 0) {
+        g.fillStyle = `rgba(255,255,255,${flash * 0.5})`;
+        g.fillRect(0, 0, W, H);
+      }
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bas, 0, 0, W * ECHELLE, H * ECHELLE);
+  }
+
+  /* ============================================== boucle ============ */
+
+  let dernier = performance.now(), cumul = 0;
+  function boucle(t) {
+    const dt = Math.min(0.05, (t - dernier) / 1000);
+    dernier = t;
+    if (!portrait && !enPause && ecranUI !== 'fin') {
+      cumul += dt;
+      while (cumul >= PAS) { pas(PAS); cumul -= PAS; }
+    }
+    if (!portrait && !enPause) majEffets(dt);
+    rendu();
+    requestAnimationFrame(boucle);
+  }
+
+  window.addEventListener('resize', dispose);
+  window.addEventListener('orientationchange', () => setTimeout(dispose, 120));
+
+  dispose();
+  if (portrait) {
+    const w = W, h = H;
+    W = Math.max(w, h); H = Math.min(w, h);
+    placeCourt();
+    W = w; H = h;
+  }
+  nouvellePartie('demo');
+  requestAnimationFrame(boucle);
+
+  // petit crochet de test : simule une démo accélérée, sans rendu
+  window.__padel = {
+    simule(secondes) {
+      nouvellePartie('demo');
+      const compte = { points: 0, coups: 0, raisons: {}, vitres: 0, fautesServ: 0 };
+      let n = 0;
+      for (let i = 0; i < secondes / PAS; i++) {
+        const ph = jeu.phase, fr = jeu.tFrappe;
+        pas(PAS);
+        if (ph === 'jeu' && jeu.phase === 'point' && banniere) { compte.points++; compte.raisons[banniere.txt] = (compte.raisons[banniere.txt] || 0) + 1; }
+        if (jeu.tFrappe < fr) n++;
+      }
+      compte.coups = n; compte.jeux = [...jeu.jeux]; compte.vitres = jeu.stats.vitres;
+      particules = []; bulles = []; banniere = null;
+      nouvellePartie('demo');
+      return compte;
+    },
+    etat() { return jeu; },
+    interne: { lance, physique, nouvelleBalle, executeCoup, placeService },
+  };
+})();
+</script>
+</body>
+</html>

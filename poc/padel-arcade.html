@@ -296,6 +296,10 @@
   };
   // le smash sauté décolle : son point d'appui est sous ses pieds, comme le smash armé
   POSES.smash2.pied = { x: POSES.smash1.pied.x, y: POSES.smash2.h - 1 + 10 };
+  // Abscisse du visage dans chaque dessin (tourné à droite) : toutes les poses
+  // sont calées sur la tête, qui ne saute pas quand on change de pose, même vers
+  // la course, bien plus large que les autres.
+  const TETE = { attente: 32, course: 68, droit: 86, revers: 42.5, smash1: 45, smash2: 46.7 };
   const HAUT_JOUEUR = 36;                        // hauteur à l'écran (pixels du décor) de la pose d'attente
   const ECH_SPR = HAUT_JOUEUR / POSES.attente.h; // taille d'un pixel du dessin
   const TEINTES_EQ = [195, null];                // maillot : bleu pour vous, rouge d'origine pour le CPU
@@ -938,8 +942,9 @@
   }
 
   const jaugeVal = (t) => 1 - Math.abs(((t / 0.65) % 2) - 1);
-  const TYPES_SERV = { plat: 'plat', lobe: 'lift', coupe: 'coupe' };
-  const NOMS_SERV = { plat: 'PLAT', lift: 'LIFTE', coupe: 'COUPE' };
+  // Au padel on sert surtout coupé, parfois à plat : deux services, sur ✕ et □.
+  const TYPES_SERV = { plat: 'plat', coupe: 'coupe' };
+  const NOMS_SERV = { plat: 'PLAT', coupe: 'COUPE' };
 
   function majService(dt) {
     const srv = jeu.serveur, b = jeu.balle, d = dir(srv.eq);
@@ -962,10 +967,10 @@
     // service de l'ordinateur
     if (!jeu.cpuServ && jeu.tPhase > 0.9) {
       const niv = srv.niv;
-      const types = ['plat', 'lift', 'coupe'];
+      const types = ['coupe', 'coupe', 'plat'];
       const cibleJ = clamp(0.72 + gauss() * niv.serv * (jeu.faute ? 0.6 : 1), 0.05, 1);
       jeu.cpuServ = { t: cibleJ * 0.65 + (Math.random() < 0.5 ? 0 : 1.3), vise: alea(-1, 1) };
-      jeu.jauge = { type: types[(Math.random() * 3) | 0], t: 0 };
+      jeu.jauge = { type: types[(Math.random() * types.length) | 0], t: 0 };
     }
     if (jeu.cpuServ && jeu.jauge.t >= jeu.cpuServ.t) servir(srv, jeu.jauge.type, jaugeVal(jeu.jauge.t), jeu.cpuServ.vise);
   }
@@ -991,7 +996,7 @@
     lance(b, tx, ty, v, type, gv < 0.22 ? -0.35 : 0.1);
     b.eqF = eq; b.camp = 1 - eq; b.sol = 0; b.service = true; b.filet = false;
     jeu.phase = 'jeu'; jeu.tPhase = 0; jeu.tFrappe = 0; jeu.jauge = null; jeu.tPred = 0;
-    s.swing = 1; s.haut = false; s.poseCoup = 'course';
+    s.swing = 1; s.haut = false; s.poseCoup = 'attente';
     Son.frappe(0.4 + gv * 0.4);
     const [sx, sy] = proj(s.x, s.y, 2.6);
     bulle(NOMS_SERV[type], sx, sy - 10, C.blanc);
@@ -1000,10 +1005,9 @@
 
   /* ============================================== coups ============= */
 
-  const HAUTS = { plat: 'smash', lobe: 'vibora', coupe: 'bandeja' };
-  const NOMS = { plat: 'FRAPPE', lobe: 'LOBE', coupe: 'COUPE', smash: 'SMASH', vibora: 'VIBORA', bandeja: 'BANDEJA', vitre: 'VITRE DU FOND', cote: 'VITRE DE COTE' };
+  const NOMS = { plat: 'FRAPPE', lobe: 'LOBE', coupe: 'COUPE', amorti: 'AMORTI', smash: 'SMASH', vibora: 'VIBORA', bandeja: 'BANDEJA', vitre: 'VITRE DU FOND', cote: 'VITRE DE COTE' };
   // distance visée par rapport à la vitre adverse
-  const PROF = { plat: 2.8, coupe: 3.2, lobe: 2.0, smash: 5.5, bandeja: 2.5, vibora: 2.1 };
+  const PROF = { plat: 2.8, coupe: 3.2, lobe: 2.0, smash: 5.5, bandeja: 2.5, vibora: 2.1, amorti: 8.4 };
 
   function frappable(s, mul = 1) {
     const b = jeu.balle;
@@ -1027,12 +1031,14 @@
     if (type !== 'vitre' && type !== 'cote') {
       let e = s.err * (0.45 + 0.8 * p + vin / 34 + (b.mur ? 0.3 : 0));
       if (type === 'bandeja' || type === 'lobe') e *= 0.7;
+      if (type === 'amorti') e *= 0.45;   // court et lent : l'erreur se joue sur le filet
       tx += gauss() * e * 1.4; ty += gauss() * e * 1.15;
       const dist = Math.hypot(tx - b.x, ty - b.y);
       let v, spin = 'plat', marge = 0.15;
       if (type === 'plat') { v = 13 + 11 * p; spin = p > 0.75 ? 'lift' : 'plat'; }
       else if (type === 'coupe') { v = 10.5 + 6 * p; spin = 'coupe'; }
       else if (type === 'lobe') { v = dist / (1.45 + 0.3 * p + dist / 40); spin = 'lobe'; marge = 0.6; }
+      else if (type === 'amorti') { v = 6.5 + 3 * p; spin = 'coupe'; marge = 0.1; }
       else if (type === 'smash') { v = 19 + 13 * p; spin = 'smash'; }
       else if (type === 'bandeja') { v = 12 + 5 * p; spin = 'coupe'; }
       else { v = 15 + 7 * p; spin = 'vibora'; }
@@ -1045,7 +1051,7 @@
     }
     b.eqF = eq; b.camp = 1 - eq; b.sol = 0; b.service = false; b.filet = false; b.mur = false;
     b.coup = type; b.trace.length = 0;
-    s.poseCoup = haut ? 'smash2' : 'course';
+    s.poseCoup = haut ? 'smash2' : 'attente';
     // le joueur se tourne vers là où part la balle (y compris vers sa vitre)
     if (type === 'vitre' || type === 'cote') { s.faceCoup = b.vx >= 0 ? 1 : -1; s.tourne = 0.45; }
     s.swing = 1; s.haut = haut; s.cd = 0.35; s.intent = null; s.charge = 0;
@@ -1193,6 +1199,7 @@
     } else if (Math.abs(s.x - fond(eq)) < 0.9 && b.z < 0.9 && Math.random() < 0.35) { type = 'vitre'; p = 0.5; }
     else if (Math.abs(s.x - fond(eq)) < 2.5 && Math.min(s.y, LARG - s.y) < 1.2 && b.z < 1.2 && Math.random() < 0.3) { type = 'cote'; p = 0.5; }
     else if (auFilet >= 1 && loin > 5 && Math.random() < 0.45) { type = 'lobe'; p = alea(0.2, 0.7); }
+    else if (auFilet === 0 && loin < 4.5 && b.z > 0.5 && Math.random() < 0.25) { type = 'amorti'; p = alea(0.1, 0.4); }
     else if (Math.random() < 0.35) { type = 'coupe'; p = alea(0.2, 0.7); }
     else { type = 'plat'; p = alea(0.2, 0.6) + niv.agress * 0.35 * Math.random(); }
     p = clamp(p, 0, 1);
@@ -1236,12 +1243,21 @@
   let enPause = false;
 
   const RAYON_JOY = 22;
-  const zones = () => ({
-    plat: { x: W - 34, y: H - 32, r: 19 },
-    lobe: { x: W - 30, y: H - 80, r: 14 },
-    coupe: { x: W - 80, y: H - 22, r: 14 },
-    sprint: { x: W - 80, y: H - 66, r: 13 },
-  });
+  // Les coups en losange, comme une manette PlayStation : ✕ en bas = frappe,
+  // □ à gauche = coupé, ○ à droite = lobe, △ en haut = amorti. Au centre, le
+  // bouton aérien (bandeja / víbora), allumé quand la balle est haute.
+  const LOSANGE = { d: 28, r: 13 };
+  const zones = () => {
+    const cx = W - 56, cy = H - 54, d = LOSANGE.d, r = LOSANGE.r;
+    return {
+      plat: { x: cx, y: cy + d, r },
+      coupe: { x: cx - d, y: cy, r },
+      lobe: { x: cx + d, y: cy, r },
+      amorti: { x: cx, y: cy - d, r },
+      aerien: { x: cx, y: cy, r: 10 },
+      sprint: { x: cx - d - 34, y: H - 20, r: 13 },
+    };
+  };
   const sprintActif = () => touches.has('ShiftLeft') || touches.has('ShiftRight') || Object.values(cmd.ids).includes('sprint');
   const zonePause = () => ({ x: W - 22, y: 4, w: 16, h: 14 });
 
@@ -1266,7 +1282,11 @@
         // le bouton le plus proche : pas besoin de viser juste
         const z = zones();
         let best = null, dmin = 1e9;
-        for (const k in z) { const d = Math.hypot(p.x - z[k].x, p.y - z[k].y) - z[k].r; if (d < dmin) { dmin = d; best = k; } }
+        for (const k in z) {
+          if (k === 'aerien' && !libelles().haut) continue;   // le centre ne sert qu'aux balles hautes
+          const d = Math.hypot(p.x - z[k].x, p.y - z[k].y) - z[k].r;
+          if (d < dmin) { dmin = d; best = k; }
+        }
         if (best && dmin < 30) { if (best !== 'sprint') cmd.appuis.push(best); cmd.ids[e.pointerId] = best; }
       }
       try { ecran.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
@@ -1294,7 +1314,8 @@
   ecran.addEventListener('pointercancel', relache);
   ecran.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  const TOUCHES_COUPS = { Space: 'plat', KeyJ: 'plat', KeyX: 'plat', KeyK: 'lobe', KeyC: 'lobe', KeyL: 'coupe', KeyV: 'coupe' };
+  // au clavier, le même losange : I △, J □, L ○, K ✕ ; Espace pour le coup aérien
+  const TOUCHES_COUPS = { KeyK: 'plat', KeyJ: 'coupe', KeyL: 'lobe', KeyI: 'amorti', Space: 'aerien' };
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     Son.init();
@@ -1328,7 +1349,7 @@
       s.cible = s.posServ;
       if (s !== jeu.serveur || !jeu.pret) return;
       for (const a of appuis) {
-        if (!jeu.jauge) { jeu.jauge = { type: TYPES_SERV[a], t: 0 }; Son.clic(); }
+        if (!jeu.jauge) { if (!TYPES_SERV[a]) continue; jeu.jauge = { type: TYPES_SERV[a], t: 0 }; Son.clic(); }
         else if (jeu.jauge.t > 0.12) { servir(s, jeu.jauge.type, jaugeVal(jeu.jauge.t), viseServ(s)); break; }
       }
       return;
@@ -1375,9 +1396,12 @@
       executeCoup(s, mur === 'fond' ? 'vitre' : type, p, xProf(1 - eq, PROF[type] || 3), ty, mur);
       return;
     }
-    if (haut) type = HAUTS[type];
+    // balle haute : ✕ devient le smash, le bouton du centre la bandeja ou, joystick
+    // vers le haut ou le bas (vers une vitre de côté), la víbora
+    if (type === 'aerien') type = haut ? (Math.abs(s.ey) > 0.4 ? 'vibora' : 'bandeja') : 'coupe';
+    else if (haut && type === 'plat') type = 'smash';
     let m = PROF[type] || 3;
-    if (av > 0.3) m -= av * 1.2;
+    if (av > 0.3) m -= type === 'amorti' ? -av * 0.6 : av * 1.2;
     let ty;
     if (Math.abs(s.ey) > 0.3) ty = 5 + s.ey * 3.9;
     else ty = clamp(LARG - s.y, 1.4, 8.6) + alea(-0.6, 0.6);   // croisé par défaut
@@ -1516,14 +1540,17 @@
 
   function poseJoueur(s) {
     const b = jeu.balle;
-    if (s.swing > 0) return s.poseCoup || 'course';
+    if (s.swing > 0) return s.poseCoup || 'attente';
     if (jeu.phase === 'service' && jeu.serveur === s && jeu.jauge) return 'droit';
     const dist = Math.hypot(b.x - s.x, b.y - s.y);
     const plan = jeu.plan[s.eq];
     const prepare = jeu.phase === 'jeu' && b.camp === s.eq && (s.intent || (plan && plan.s === s && dist < 2.6));
     if (prepare) return b.z > HAUT_SMASH && dist < 3 ? 'smash1' : coteCoup(s);
-    if (Math.hypot(s.vx, s.vy) > 0.6) return 'course';
-    return 'attente';
+    // la course n'apparaît que pour un vrai déplacement rapide (avec hystérésis,
+    // pour ne pas clignoter) ; les petits pas restent en attente
+    const v = Math.hypot(s.vx, s.vy);
+    if (s.court ? v < 1.8 : v > 2.8) s.court = !s.court;
+    return s.court ? 'course' : 'attente';
   }
 
   function dessineJoueur(s) {
@@ -1534,8 +1561,9 @@
     const se = spritesEquipe[s.eq][nom];
     if (se) {
       const P = POSES[nom];
-      const ancre = f > 0 ? P.pied.x : P.w - P.pied.x;
-      const bob = nom === 'course' && v > 0.6 && s.swing <= 0 ? (Math.floor(s.pas * 2.6) & 1) * 0.7 : 0;
+      const ancre = f > 0 ? TETE[nom] : P.w - TETE[nom];
+      // petits pas : un léger rebond, même dans la pose d'attente
+      const bob = v > 0.6 && s.swing <= 0 ? (Math.floor(s.pas * 2.6) & 1) * 0.7 : 0;
       g.drawImage(se[f > 0 ? 0 : 1], sx - ancre * ECH_SPR, sy - (P.pied.y + 1) * ECH_SPR - bob, P.w * ECH_SPR, P.h * ECH_SPR);
     } else {
       // le temps que les dessins se chargent
@@ -1698,7 +1726,7 @@
     panneau(cx - w / 2 - 6, y - 12, w + 12, 30);
     if (!jeu.jauge) {
       texte('SERVICE : CHOISISSEZ', cx, y - 8, C.blanc, 1, 'c');
-      texte(tactile ? 'PLAT  LIFTE  COUPE' : 'J PLAT  K LIFTE  L COUPE', cx, y + 4, C.or, 1, 'c');
+      texte(tactile ? 'X : PLAT    CARRE : COUPE' : 'K : PLAT    J : COUPE', cx, y + 4, C.or, 1, 'c');
       return;
     }
     texte('SERVICE ' + NOMS_SERV[jeu.jauge.type], cx, y - 8, C.blanc, 1, 'c');
@@ -1714,9 +1742,21 @@
 
   function libelles() {
     const hum = jeu.humain, b = jeu.balle;
-    if (jeu.phase === 'service' && jeu.serveur === hum) return { plat: 'PLAT', lobe: 'LIFTE', coupe: 'COUPE' };
+    if (jeu.phase === 'service' && jeu.serveur === hum) return { plat: 'PLAT', coupe: 'COUPE', lobe: '', amorti: '', service: true };
     const haut = b.camp === hum.eq && b.z > HAUT_SMASH && Math.hypot(b.x - hum.x, b.y - hum.y) < 3.5 && jeu.phase === 'jeu';
-    return haut ? { plat: 'SMASH', lobe: 'VIBORA', coupe: 'BANDEJA', haut } : { plat: 'FRAPPE', lobe: 'LOBE', coupe: 'COUPE' };
+    return {
+      plat: haut ? 'SMASH' : 'FRAPPE', coupe: 'COUPE', lobe: 'LOBE', amorti: 'AMORTI',
+      aerien: Math.abs(hum.ey) > 0.4 ? 'VIBORA' : 'BANDEJA', haut,
+    };
+  }
+
+  // les symboles de la manette, dessinés en pixels
+  function symbole(k, x, y, c) {
+    x = Math.round(x); y = Math.round(y);
+    if (k === 'plat') { for (let i = -3; i <= 3; i++) { px(x + i, y + i, 2, 1, c); px(x + i, y - i, 2, 1, c); } }
+    else if (k === 'coupe') { px(x - 3, y - 3, 7, 1, c); px(x - 3, y + 3, 7, 1, c); px(x - 3, y - 3, 1, 7, c); px(x + 3, y - 3, 1, 7, c); }
+    else if (k === 'lobe') anneau(x, y, 3.5, c, 1, 1);
+    else if (k === 'amorti') { for (let i = 0; i <= 5; i++) { px(x - i / 2 - 0.5, y - 3 + i, 1, 1, c); px(x + i / 2, y - 3 + i, 1, 1, c); } px(x - 3, y + 2, 7, 1, c); }
   }
 
   function dessineCommandes() {
@@ -1724,7 +1764,7 @@
     if (!s) return;
     const lib = libelles();
     if (!tactile) {
-      if (lib.haut) texte('J SMASH  K VIBORA  L BANDEJA', W / 2, H - 10, C.or, 1, 'c');
+      if (lib.haut) texte('K SMASH   ESPACE ' + lib.aerien + ' (HAUT/BAS : VIBORA)', W / 2, H - 10, C.or, 1, 'c');
       return;
     }
     if (cmd.joy) {
@@ -1746,26 +1786,51 @@
       texte('BOUGER', 40, H - 13, C.blanc, 1, 'c');
     }
     const z = zones();
-    const couleurs = lib.haut
-      ? { plat: ['#ffb02e', '#d98a10'], lobe: ['#b46cff', '#8a46d6'], coupe: ['#ffd35c', '#d9a52b'] }
-      : { plat: ['#ff5470', '#e03a58'], lobe: ['#3fb4e8', '#2a8fc4'], coupe: ['#35c47a', '#24995c'] };
+    // couleurs des symboles PlayStation
+    const SYM = { plat: '#8fb8ff', coupe: '#ff8fd2', lobe: '#ff6b6b', amorti: '#5fe0a8' };
     const actifs = new Set(Object.values(cmd.ids));
-    for (const k of ['plat', 'lobe', 'coupe']) {
+    for (const k of ['plat', 'coupe', 'lobe', 'amorti']) {
       const zz = z[k];
       const app = actifs.has(k);
+      const inutile = lib.service && !lib[k];
       const choisi = (s.intent && s.intent.type === k) || (jeu.jauge && jeu.serveur === s && TYPES_SERV[k] === jeu.jauge.type);
-      g.globalAlpha = app || choisi ? 0.92 : 0.6;
+      const smash = k === 'plat' && lib.haut;
+      g.globalAlpha = inutile ? 0.25 : app || choisi ? 0.95 : 0.7;
       disque(zz.x, zz.y, zz.r, C.contour);
-      disque(zz.x, zz.y + (app ? 1 : 0), zz.r - 1, couleurs[k][0]);
-      if (!app) disque(zz.x, zz.y + 1, zz.r - 3, couleurs[k][1]);
+      disque(zz.x, zz.y + (app ? 1 : 0), zz.r - 1, smash ? '#d98a10' : '#2a3050');
+      if (!app) disque(zz.x, zz.y + 1, zz.r - 3, smash ? '#ffb02e' : '#3a4166');
       if (choisi && s.intent) anneau(zz.x, zz.y, zz.r + 2, C.or, s.charge, 2);
       else if (choisi) anneau(zz.x, zz.y, zz.r + 2, C.blanc, 1, 1);
+      symbole(k, zz.x, zz.y + (app ? 1 : 0), smash ? C.blanc : SYM[k]);
       g.globalAlpha = 1;
-      if (lib.haut) effetBouton(k, zz);
-      texte(lib[k], zz.x, zz.y - 3 + (app ? 1 : 0), C.blanc, 1, 'c');
+      if (smash) effetBouton('smash', zz);
+      // le nom du coup à côté du bouton
+      if (!inutile) {
+        const t = lib[k];
+        if (k === 'plat') texte(t, zz.x, zz.y + zz.r + 2, smash ? C.or : C.blanc, 1, 'c');
+        else if (k === 'coupe') texte(t, zz.x - zz.r - 2, zz.y - 3, C.blanc, 1, 'd');
+        else if (k === 'lobe') texte(t, zz.x, zz.y - zz.r - 9, C.blanc, 1, 'c');
+        else texte(t, zz.x - zz.r - 2, zz.y - 3, C.blanc, 1, 'd');
+      }
+    }
+    // le bouton aérien, au centre : n'apparaît qu'avec une balle haute
+    if (lib.haut) {
+      const zz = z.aerien, app = actifs.has('aerien');
+      const vib = lib.aerien === 'VIBORA';
+      disque(zz.x, zz.y, zz.r, C.contour);
+      disque(zz.x, zz.y + (app ? 1 : 0), zz.r - 1, vib ? '#8a46d6' : '#d9a52b');
+      if (!app) disque(zz.x, zz.y + 1, zz.r - 3, vib ? '#b46cff' : '#ffd35c');
+      effetBouton(vib ? 'vibora' : 'bandeja', zz);
+      // une étoile au centre, le nom du coup au-dessus du losange
+      const ce = vib ? '#f0d8ff' : '#fff2b0';
+      px(zz.x - 3, zz.y, 7, 1, ce); px(zz.x, zz.y - 3, 1, 7, ce); px(zz.x - 1, zz.y - 1, 3, 3, ce);
+      const ty = z.amorti.y - z.amorti.r - 12, lw = largeurTexte(lib.aerien) + 6;
+      g.fillStyle = vib ? 'rgba(90,30,140,0.85)' : 'rgba(140,100,10,0.85)';
+      g.fillRect(zz.x - lw / 2, ty - 2, lw, 11);
+      texte(lib.aerien, zz.x, ty, ce, 1, 'c');
     }
     const zs = z.sprint, on = sprintActif();
-    g.globalAlpha = on ? 0.92 : 0.55;
+    g.globalAlpha = on ? 0.92 : 0.6;
     disque(zs.x, zs.y, zs.r, C.contour);
     disque(zs.x, zs.y + (on ? 1 : 0), zs.r - 1, on ? '#ffb02e' : '#6b7295');
     if (!on) disque(zs.x, zs.y + 1, zs.r - 3, '#5a6082');
@@ -1780,15 +1845,15 @@
     const t = jeu.temps;
     const pulse = 0.5 + 0.5 * Math.sin(t * 10);
     g.globalAlpha = 0.35 + 0.4 * pulse;
-    anneau(zz.x, zz.y, zz.r + 1, k === 'lobe' ? TRAINEES.vibora : k === 'coupe' ? TRAINEES.bandeja : TRAINEES.smash, 1, 1);
-    if (k === 'lobe') {
+    anneau(zz.x, zz.y, zz.r + 1, TRAINEES[k], 1, 1);
+    if (k === 'vibora') {
       for (let i = 0; i < 14; i++) {
         const a = t * 5 - i * 0.16;
         const r = zz.r + 4 + Math.sin(i * 0.9 + t * 14) * 2;
         g.globalAlpha = (1 - i / 14) * 0.95;
         px(zz.x + Math.cos(a) * r, zz.y + Math.sin(a) * r, 2, 2, i < 2 ? '#f0d8ff' : TRAINEES.vibora);
       }
-    } else if (k === 'coupe') {
+    } else if (k === 'bandeja') {
       for (const dep of [0, Math.PI]) {
         for (let i = 0; i < 10; i++) {
           const a = t * 3.2 + dep - i * 0.13;
@@ -1860,8 +1925,8 @@
     const v = pref.victoires[pref.niveau] || 0, mt = pref.matchs[pref.niveau] || 0;
     const bas_ = py + ph + 5;
     if (bas_ + 8 < H) texte(mt ? `VICTOIRES ${v} / ${mt}` : 'EN DOUBLE : VOUS EN HAUT A DROITE, AVEC UN CPU', cx, bas_, C.gris, 1, 'c');
-    if (bas_ + 19 < H) texte(tactile ? 'GAUCHE : SE DEPLACER   DROITE : COUPS ET COURIR' : 'FLECHES  J FRAPPE  K LOBE  L COUPE  MAJ COURIR', cx, bas_ + 10, '#6f7aa6', 1, 'c');
-    if (bas_ + 29 < H) texte('BALLE HAUTE : SMASH / VIBORA / BANDEJA', cx, bas_ + 20, '#6f7aa6', 1, 'c');
+    if (bas_ + 19 < H) texte(tactile ? 'X FRAPPE  CARRE COUPE  ROND LOBE  TRIANGLE AMORTI' : 'K FRAPPE  J COUPE  L LOBE  I AMORTI  MAJ COURIR', cx, bas_ + 10, '#6f7aa6', 1, 'c');
+    if (bas_ + 29 < H) texte('BALLE HAUTE : X SMASH, CENTRE BANDEJA (HAUT/BAS : VIBORA)', cx, bas_ + 20, '#6f7aa6', 1, 'c');
     if (bas_ + 39 < H) texte('JOYSTICK VERS UNE VITRE A L IMPACT : REBOND CONTRE LA VITRE', cx, bas_ + 30, '#6f7aa6', 1, 'c');
   }
 
